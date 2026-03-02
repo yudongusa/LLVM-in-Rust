@@ -1,2 +1,2 @@
 # LLVM-in-Rust
-Rust support of LLVM
+The purpose of this project is to provide LLVM support in Rust.
