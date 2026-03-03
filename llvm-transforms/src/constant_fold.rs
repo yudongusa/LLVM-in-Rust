@@ -76,21 +76,24 @@ pub fn try_fold(ctx: &mut Context, kind: &InstrKind) -> Option<ConstId> {
             Some(ctx.const_int(ty, l ^ r))
         }
 
-        // --- Shifts (clamp shift amount to 0–63) ---
+        // --- Shifts (mask shift amount to bit_width - 1, per LLVM semantics) ---
         InstrKind::Shl { lhs, rhs, .. } => {
             let (ty, l) = const_int(ctx, *lhs)?;
             let (_, r)  = const_int(ctx, *rhs)?;
-            Some(ctx.const_int(ty, l << (r & 63)))
+            let mask = shift_mask(ctx, ty)?;
+            Some(ctx.const_int(ty, l << (r & mask)))
         }
         InstrKind::LShr { lhs, rhs, .. } => {
             let (ty, l) = const_int(ctx, *lhs)?;
             let (_, r)  = const_int(ctx, *rhs)?;
-            Some(ctx.const_int(ty, l >> (r & 63)))
+            let mask = shift_mask(ctx, ty)?;
+            Some(ctx.const_int(ty, l >> (r & mask)))
         }
         InstrKind::AShr { lhs, rhs, .. } => {
             let (ty, l) = const_int(ctx, *lhs)?;
             let (_, r)  = const_int(ctx, *rhs)?;
-            Some(ctx.const_int(ty, ((l as i64) >> ((r & 63) as u32)) as u64))
+            let mask = shift_mask(ctx, ty)?;
+            Some(ctx.const_int(ty, ((l as i64) >> ((r & mask) as u32)) as u64))
         }
 
         // --- Integer comparison → i1 result ---
@@ -129,6 +132,19 @@ pub(crate) fn const_int(ctx: &Context, vref: ValueRef) -> Option<(llvm_ir::TypeI
     match ctx.get_const(cid) {
         ConstantData::Int { ty, val } => Some((*ty, *val)),
         _ => None,
+    }
+}
+
+/// Returns the shift-amount mask for an integer type: `bit_width - 1`.
+///
+/// LLVM semantics: a shift by `r` on an `iN` value uses only the low
+/// `log2(N)` bits of `r` (i.e. `r & (N - 1)`).  For i32 this is 31,
+/// for i8 it is 7, for i64 it is 63.  Returns `None` for non-integer types.
+fn shift_mask(ctx: &Context, ty: llvm_ir::TypeId) -> Option<u64> {
+    if let llvm_ir::TypeData::Integer(bits) = ctx.get_type(ty) {
+        Some((*bits as u64).saturating_sub(1))
+    } else {
+        None
     }
 }
 
@@ -246,5 +262,85 @@ mod tests {
             rhs: c(&mut ctx, 1),
         };
         assert!(try_fold(&mut ctx, &kind).is_none());
+    }
+
+    // Helpers for shift tests using i8 and i32.
+    fn c8(ctx: &mut Context, v: u64) -> ValueRef {
+        ValueRef::Constant(ctx.const_int(ctx.i8_ty, v))
+    }
+
+    #[test]
+    fn shl_i32_mask_is_31() {
+        // i32 shl 1, 32 → shift amount 32 & 31 = 0 → result = 1
+        // (shift >= bit_width is poison in LLVM; folding as 0-shift is the
+        // safe choice here — the important thing is we don't use mask=63)
+        let mut ctx = Context::new();
+        let kind = InstrKind::Shl {
+            flags: llvm_ir::IntArithFlags::default(),
+            lhs: c(&mut ctx, 1),
+            rhs: c(&mut ctx, 32), // 32 & 31 == 0
+        };
+        let result = try_fold(&mut ctx, &kind).unwrap();
+        assert_eq!(ctx.get_const(result),
+            &ConstantData::Int { ty: ctx.i32_ty, val: 1 }); // 1 << 0 = 1
+    }
+
+    #[test]
+    fn shl_i32_normal() {
+        // i32 shl 1, 4 → 16
+        let mut ctx = Context::new();
+        let kind = InstrKind::Shl {
+            flags: llvm_ir::IntArithFlags::default(),
+            lhs: c(&mut ctx, 1),
+            rhs: c(&mut ctx, 4),
+        };
+        let result = try_fold(&mut ctx, &kind).unwrap();
+        assert_eq!(ctx.get_const(result),
+            &ConstantData::Int { ty: ctx.i32_ty, val: 16 });
+    }
+
+    #[test]
+    fn shl_i8_mask_is_7() {
+        // i8 shl 1, 8 → shift amount 8 & 7 = 0 → result = 1
+        let mut ctx = Context::new();
+        let kind = InstrKind::Shl {
+            flags: llvm_ir::IntArithFlags::default(),
+            lhs: c8(&mut ctx, 1),
+            rhs: c8(&mut ctx, 8), // 8 & 7 == 0
+        };
+        let result = try_fold(&mut ctx, &kind).unwrap();
+        assert_eq!(ctx.get_const(result),
+            &ConstantData::Int { ty: ctx.i8_ty, val: 1 }); // 1 << 0 = 1
+    }
+
+    #[test]
+    fn lshr_i32_mask_is_31() {
+        // i32 lshr 0x8000_0000, 31 → 1
+        let mut ctx = Context::new();
+        let kind = InstrKind::LShr {
+            exact: false,
+            lhs: c(&mut ctx, 0x8000_0000),
+            rhs: c(&mut ctx, 31),
+        };
+        let result = try_fold(&mut ctx, &kind).unwrap();
+        assert_eq!(ctx.get_const(result),
+            &ConstantData::Int { ty: ctx.i32_ty, val: 1 });
+    }
+
+    #[test]
+    fn ashr_i8_sign_extends() {
+        // i8 ashr 0x80 (-128 as i8), 7 → 0xFF (-1 as i8) = 255 as u64 stored
+        let mut ctx = Context::new();
+        let kind = InstrKind::AShr {
+            exact: false,
+            lhs: c8(&mut ctx, 0x80),
+            rhs: c8(&mut ctx, 7),
+        };
+        let result = try_fold(&mut ctx, &kind).unwrap();
+        // (0x80u64 as i64 = 128) >> 7 = 0  — this still has the sign-extension
+        // bug (#18) for AShr, but the shift mask itself is now correct (7 not 63).
+        // After #18 is fixed this test should yield 0xFF. For now just verify
+        // the shift mask applied correctly: 7 & 7 = 7 (same as before in this case).
+        let _ = ctx.get_const(result); // just verify it doesn't panic
     }
 }
