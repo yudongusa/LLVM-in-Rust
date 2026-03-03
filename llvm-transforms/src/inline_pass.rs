@@ -12,8 +12,8 @@
 //!    (instructions after the call, plus the original terminator).
 //! 2. **Clone** the callee's blocks into the caller, mapping:
 //!    - Callee `Argument(ArgId(i))` → the i-th call argument.
-//!    - Callee `InstrId` → a fresh `InstrId` in the caller.
-//!    - Callee `BlockId` → a fresh `BlockId` in the caller.
+//!    - Callee `InstrId(j)` → `InstrId(caller_instr_count + j)`.
+//!    - Callee `BlockId(k)` → `BlockId(caller_block_count + k)`.
 //! 3. **Wire** the pre-block to the cloned callee entry with an unconditional
 //!    branch.
 //! 4. **Replace** each `ret %v` in the clone with `br post-block`, and
@@ -86,11 +86,14 @@ fn find_inline_site(ctx: &Context, module: &Module, size_limit: usize) -> Option
         for (bi, bb) in caller.blocks.iter().enumerate() {
             for (pos, &iid) in bb.body.iter().enumerate() {
                 if let InstrKind::Call { callee, callee_ty, .. } = &caller.instr(iid).kind {
-                    // Callee must be a direct call to a known function (via global ref).
+                    // Callee must be a direct call via GlobalId.  In this IR,
+                    // direct function calls use ValueRef::Global(GlobalId(i))
+                    // where i is the function's index in module.functions.
                     let callee_fid = match callee {
                         ValueRef::Global(gid) => {
-                            let gname = &module.global(*gid).name;
-                            module.get_function_id(gname)?
+                            let fid = FunctionId(gid.0);
+                            if fid.0 as usize >= module.functions.len() { continue; }
+                            fid
                         }
                         _ => continue,
                     };
@@ -140,9 +143,17 @@ fn do_inline(ctx: &mut Context, module: &mut Module, site: CallSite) {
         (args, ty, iid)
     };
 
-    // Clone callee blocks/instructions into the caller.
-    // We need to read callee and write caller separately — clone callee data first.
-    let callee_clone = clone_callee(ctx, module, callee_id, &call_args);
+    // Compute offsets *before* mutably borrowing the caller.
+    // All cloned InstrIds will be in [instr_offset, instr_offset + clone_size).
+    // All cloned BlockIds will be in [block_offset, block_offset + callee_blocks).
+    let (instr_offset, block_offset) = {
+        let caller = &module.functions[caller_id.0 as usize];
+        (caller.instructions.len() as u32, caller.blocks.len() as u32)
+    };
+
+    // Clone callee blocks/instructions into the caller using correct offsets.
+    let callee_clone = clone_callee(ctx, module, callee_id, &call_args,
+                                    instr_offset, block_offset);
 
     let caller = &mut module.functions[caller_id.0 as usize];
 
@@ -156,11 +167,10 @@ fn do_inline(ctx: &mut Context, module: &mut Module, site: CallSite) {
     // Truncate original block to pre-call body; remove terminator.
     caller.blocks[block_idx].body.truncate(instr_pos);
     caller.blocks[block_idx].terminator = None;
-    // Remove the call instruction from the body (it was at instr_pos; now truncated away).
 
     // Step 2: append cloned blocks into caller.
-    // post_block will be added after, so compute its future BlockId now.
-    let callee_entry_bid = BlockId(caller.blocks.len() as u32);
+    // callee_entry_bid = block_offset (the first cloned block).
+    let callee_entry_bid = BlockId(block_offset);
     let callee_ret_sites = callee_clone.return_sites.clone();
 
     for bb in callee_clone.blocks {
@@ -170,7 +180,7 @@ fn do_inline(ctx: &mut Context, module: &mut Module, site: CallSite) {
         caller.instructions.push(instr);
     }
 
-    // Actual post_bid now that we know callee block count.
+    // post_bid is the block added after all cloned callee blocks.
     let post_bid_actual = BlockId(caller.blocks.len() as u32);
 
     // Step 3: add post-block.
@@ -190,8 +200,7 @@ fn do_inline(ctx: &mut Context, module: &mut Module, site: CallSite) {
     // Step 5: replace each callee `ret` with `br post_block`.
     // Also collect return values for phi insertion.
     let mut return_values: Vec<(BlockId, ValueRef)> = Vec::new();
-    for (block_offset, ret_val) in &callee_ret_sites {
-        let callee_blk_id = BlockId(callee_entry_bid.0 + *block_offset as u32);
+    for (callee_blk_id, ret_val) in &callee_ret_sites {
         // Replace the terminator with br post_bid_actual.
         let br_iid = caller.alloc_instr(Instruction {
             name: None,
@@ -200,7 +209,7 @@ fn do_inline(ctx: &mut Context, module: &mut Module, site: CallSite) {
         });
         caller.blocks[callee_blk_id.0 as usize].terminator = Some(br_iid);
         if let Some(rv) = ret_val {
-            return_values.push((callee_blk_id, *rv));
+            return_values.push((*callee_blk_id, *rv));
         }
     }
 
@@ -224,21 +233,19 @@ fn do_inline(ctx: &mut Context, module: &mut Module, site: CallSite) {
             ValueRef::Instruction(phi_iid)
         };
 
-        // Replace all uses of the call result in the post-block (and beyond)
-        // with result_val.  We do a simple substitution on the post-block body
-        // and terminator.  (Uses in other blocks would require a full use-def
-        // rewrite; for correct inline we rely on the post-block containing all
-        // downstream uses.)
-        let post_idx = post_bid_actual.0 as usize;
+        // Replace all uses of the call result with result_val across ALL blocks.
         let subst: HashMap<InstrId, ValueRef> = [(call_iid, result_val)].into();
-        let post_body_iids: Vec<InstrId> = caller.blocks[post_idx].body.clone();
-        for iid in post_body_iids {
-            let new_kind = subst_kind(caller.instr(iid).kind.clone(), &subst);
-            caller.instr_mut(iid).kind = new_kind;
-        }
-        if let Some(tid) = caller.blocks[post_idx].terminator {
-            let new_kind = subst_kind(caller.instr(tid).kind.clone(), &subst);
-            caller.instr_mut(tid).kind = new_kind;
+        let num_blocks = caller.blocks.len();
+        for bi in 0..num_blocks {
+            let body_iids: Vec<InstrId> = caller.blocks[bi].body.clone();
+            for iid in body_iids {
+                let new_kind = subst_kind(caller.instr(iid).kind.clone(), &subst);
+                caller.instr_mut(iid).kind = new_kind;
+            }
+            if let Some(tid) = caller.blocks[bi].terminator {
+                let new_kind = subst_kind(caller.instr(tid).kind.clone(), &subst);
+                caller.instr_mut(tid).kind = new_kind;
+            }
         }
     }
 }
@@ -248,12 +255,13 @@ fn do_inline(ctx: &mut Context, module: &mut Module, site: CallSite) {
 // ---------------------------------------------------------------------------
 
 struct ClonedCallee {
-    /// Cloned BasicBlocks (in callee order). BlockId offset = entry BlockId in caller.
+    /// Cloned BasicBlocks (in callee order).
+    /// Block at index i gets caller BlockId `block_offset + i`.
     blocks: Vec<BasicBlock>,
     /// Cloned Instructions to append to caller.instructions.
     instrs: Vec<Instruction>,
-    /// (block_offset_in_clone, Option<return_value_in_caller>)
-    return_sites: Vec<(usize, Option<ValueRef>)>,
+    /// (actual caller BlockId, Option<return_value_in_caller>)
+    return_sites: Vec<(BlockId, Option<ValueRef>)>,
 }
 
 fn clone_callee(
@@ -261,43 +269,43 @@ fn clone_callee(
     module: &Module,
     callee_id: FunctionId,
     call_args: &[ValueRef],
+    instr_offset: u32,
+    block_offset: u32,
 ) -> ClonedCallee {
     let callee = &module.functions[callee_id.0 as usize];
 
-    // Map callee InstrId → local index in new_instrs (0-based).
-    // The caller will append new_instrs to its pool; BlockIds use the caller's
-    // block count as an offset (applied when do_inline wires the blocks).
+    // instr_map: callee InstrId → actual caller InstrId (= instr_offset + local_idx)
+    // block_map: callee BlockId → actual caller BlockId (= block_offset + bi)
     let mut instr_map: HashMap<InstrId, InstrId> = HashMap::new();
-    let mut block_map: HashMap<BlockId, usize> = HashMap::new();
+    let mut block_map: HashMap<BlockId, BlockId> = HashMap::new();
 
     let mut new_instrs: Vec<Instruction> = Vec::new();
     let mut new_blocks: Vec<BasicBlock> = Vec::new();
-    let mut return_sites: Vec<(usize, Option<ValueRef>)> = Vec::new();
+    let mut return_sites: Vec<(BlockId, Option<ValueRef>)> = Vec::new();
 
     // Pass 1: allocate new blocks and record block mapping.
     for (bi, bb) in callee.blocks.iter().enumerate() {
-        block_map.insert(BlockId(bi as u32), new_blocks.len());
+        let caller_bid = BlockId(block_offset + bi as u32);
+        block_map.insert(BlockId(bi as u32), caller_bid);
         new_blocks.push(BasicBlock::new(bb.name.clone()));
     }
 
-    // Pass 2: assign local InstrIds.
+    // Pass 2: assign caller InstrIds (instr_offset + sequential index).
     let mut local_idx: u32 = 0;
     for bb in &callee.blocks {
         for &iid in &bb.body {
-            instr_map.insert(iid, InstrId(local_idx));
+            instr_map.insert(iid, InstrId(instr_offset + local_idx));
             local_idx += 1;
         }
         if let Some(tid) = bb.terminator {
-            instr_map.insert(tid, InstrId(local_idx));
+            instr_map.insert(tid, InstrId(instr_offset + local_idx));
             local_idx += 1;
         }
     }
 
-    // Pass 3: build cloned instructions with substituted operands.
+    // Pass 3: build cloned instructions with remapped operands and block refs.
     local_idx = 0;
     for (bi, bb) in callee.blocks.iter().enumerate() {
-        let clone_bi = block_map[&BlockId(bi as u32)];
-
         for &iid in &bb.body {
             let orig = callee.instr(iid);
             let new_kind = remap_kind(orig.kind.clone(), &instr_map, call_args, &block_map);
@@ -306,7 +314,7 @@ fn clone_callee(
                 ty: orig.ty,
                 kind: new_kind,
             });
-            new_blocks[clone_bi].body.push(InstrId(local_idx));
+            new_blocks[bi].body.push(InstrId(instr_offset + local_idx));
             local_idx += 1;
         }
 
@@ -316,10 +324,10 @@ fn clone_callee(
                 InstrKind::Ret { val } => {
                     // Don't clone the ret; record it as a return site.
                     let mapped_val = val.map(|v| remap_val(v, &instr_map, call_args));
-                    return_sites.push((clone_bi, mapped_val));
-                    // Leave new_blocks[clone_bi].terminator = None for now;
-                    // the caller will fill it with br post_block.
-                    // Still need to advance local_idx for the ret slot.
+                    let caller_bid = block_map[&BlockId(bi as u32)];
+                    return_sites.push((caller_bid, mapped_val));
+                    // Leave new_blocks[bi].terminator = None;
+                    // do_inline will replace it with br post_block.
                     local_idx += 1;
                 }
                 _ => {
@@ -329,7 +337,7 @@ fn clone_callee(
                         ty: orig.ty,
                         kind: new_kind,
                     });
-                    new_blocks[clone_bi].terminator = Some(InstrId(local_idx));
+                    new_blocks[bi].terminator = Some(InstrId(instr_offset + local_idx));
                     local_idx += 1;
                 }
             }
@@ -351,10 +359,10 @@ fn remap_kind(
     kind: InstrKind,
     instr_map: &HashMap<InstrId, InstrId>,
     call_args: &[ValueRef],
-    block_map: &HashMap<BlockId, usize>,
+    block_map: &HashMap<BlockId, BlockId>,
 ) -> InstrKind {
     let s = |v: ValueRef| remap_val(v, instr_map, call_args);
-    let b = |bid: BlockId| BlockId(*block_map.get(&bid).unwrap_or(&(bid.0 as usize)) as u32);
+    let b = |bid: BlockId| *block_map.get(&bid).unwrap_or(&bid);
 
     match kind {
         InstrKind::Add  { flags, lhs, rhs } => InstrKind::Add  { flags, lhs: s(lhs), rhs: s(rhs) },
@@ -425,13 +433,14 @@ fn remap_kind(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use llvm_ir::{Builder, Context, Function, GlobalId, Linkage, Module, ValueRef};
+    use llvm_ir::{Builder, Context, Function, GlobalId, InstrKind, Linkage, Module, ValueRef};
     use crate::pass::ModulePass;
 
     // Build:
     //   define i32 @add(i32 %a, i32 %b) { ret (a + b) }
     //   define i32 @caller(i32 %x, i32 %y) { %r = call @add(%x, %y); ret %r }
-    #[allow(dead_code)]
+    //
+    // @add is FunctionId(0) / GlobalId(0); caller uses ValueRef::Global(GlobalId(0)).
     fn make_add_module() -> (Context, Module) {
         let mut ctx = Context::new();
         let mut module = Module::new("test");
@@ -463,6 +472,7 @@ mod tests {
             b.position_at_end(entry);
             let x = b.get_arg(0);
             let y = b.get_arg(1);
+            // @add is at index 0 → ValueRef::Global(GlobalId(0)) references FunctionId(0).
             let r = b.build_call("r", i32_ty, add_callee_ty, ValueRef::Global(GlobalId(0)), vec![x, y]);
             b.build_ret(r);
         }
@@ -483,10 +493,9 @@ mod tests {
 
     #[test]
     fn inliner_no_eligible_call() {
-        // A single self-recursive function — inliner must not inline it.
+        // A single function with no call instructions — inliner must not inline anything.
         let mut ctx = Context::new();
         let mut module = Module::new("test");
-        // Build @f first, then look up its type before re-borrowing module.
         {
             let mut b = Builder::new(&mut ctx, &mut module);
             let i32_ty = b.ctx.i32_ty;
@@ -496,10 +505,48 @@ mod tests {
             let c0 = b.const_int(i32_ty, 0);
             b.build_ret(c0);
         }
-        // For this test: just verify the inliner doesn't find any eligible site.
-        // The function body has no call instructions, so no inlining occurs.
         let mut pass = Inliner::default();
-        // Must not panic or infinite-loop; returns false (no eligible sites).
-        let _changed = pass.run_on_module(&mut ctx, &mut module);
+        assert!(!pass.run_on_module(&mut ctx, &mut module));
+    }
+
+    #[test]
+    fn inliner_inlines_simple_call() {
+        // After inlining @add into @caller:
+        // - @caller should have more blocks than before (entry + cloned callee blocks + post).
+        // - The call instruction should be gone from @caller.
+        let (mut ctx, mut module) = make_add_module();
+
+        // Before: @caller has 1 block, 2 instrs in body (call + nothing; ret is terminator).
+        let caller_before_blocks = module.functions[1].blocks.len();
+        assert_eq!(caller_before_blocks, 1);
+
+        let mut pass = Inliner::default();
+        let changed = pass.run_on_module(&mut ctx, &mut module);
+        assert!(changed, "inliner should have inlined @add");
+
+        let caller = &module.functions[1];
+        // After inlining a 1-block callee, @caller has: pre-block + 1 callee block + post-block = 3.
+        assert_eq!(caller.blocks.len(), 3,
+            "expected pre + callee_entry + post = 3 blocks after inlining");
+
+        // The pre-block (block 0) should end with a Br to the callee entry.
+        let pre_term = caller.blocks[0].terminator.unwrap();
+        assert!(matches!(caller.instr(pre_term).kind, InstrKind::Br { .. }),
+            "pre-block should end with unconditional Br");
+
+        // No Call instructions should remain in the caller body.
+        let has_call = caller.blocks.iter().any(|bb| {
+            bb.body.iter().any(|&iid| matches!(caller.instr(iid).kind, InstrKind::Call { .. }))
+        });
+        assert!(!has_call, "call instruction should have been removed after inlining");
+    }
+
+    #[test]
+    fn inliner_respects_size_limit() {
+        // Inliner with size_limit=0 should not inline @add (which has 1 body instruction).
+        let (mut ctx, mut module) = make_add_module();
+        let mut pass = Inliner { size_limit: 0 };
+        let changed = pass.run_on_module(&mut ctx, &mut module);
+        assert!(!changed, "should not inline when callee exceeds size limit");
     }
 }
