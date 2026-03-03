@@ -275,16 +275,23 @@ fn encode_instr(instr: &MInstr, ctx: &mut EncodeCtx) {
             }
         }
 
-        // ── SETcc dst (0x0F 0x9x /0) ─────────────────────────────────────
+        // ── SETcc dst (REX? 0x0F 0x9x /0) ────────────────────────────────
         SETCC => {
             if let (Some(dst), Some(cc)) = (instr.dst, instr.operands.first().and_then(imm)) {
                 let r = PReg(dst.0 as u8);
-                // REX needed only for spl/bpl/sil/dil (r4-r7 in 8-bit) or R8-R15.
-                if is_extended(r) { ctx.emit(0x41); }
+                // Without a REX prefix, 8-bit encodings 4-7 alias the high bytes
+                // AH/CH/DH/BH rather than SPL/BPL/SIL/DIL.  A bare REX (0x40)
+                // selects the low-byte form even when no register field extension
+                // is needed; REX.B (0x41) selects R8-R15.
+                if is_extended(r) {
+                    ctx.emit(0x41); // REX.B for R8–R15
+                } else if r.0 >= 4 {
+                    ctx.emit(0x40); // bare REX for SIL/DIL (enc 6/7) and SPL/BPL (enc 4/5)
+                }
                 ctx.emit(0x0F);
                 ctx.emit(setcc_opcode(cc));
                 ctx.emit(0xC0 | reg_enc(r));
-                // Zero-extend to 64 bits via movzx.
+                // Zero-extend the 8-bit result to 64 bits via MOVZX r64, r8.
                 maybe_rex(ctx, true, r, r);
                 ctx.emit(0x0F); ctx.emit(0xB6);
                 ctx.emit(modrm_rr(r, r));
@@ -532,6 +539,48 @@ mod tests {
         // REX.W=0x48, MOV r/m64,r64=0x89, ModRM(11 110 000)=0xF0
         assert_eq!(&sec.data[0..3], &[0x48, 0x89, 0xF0]);
         let _ = mi;
+    }
+
+    #[test]
+    fn setcc_rsi_emits_bare_rex() {
+        // Issue #35: SETCC into RSI (encoding 6) must emit a bare REX (0x40) before
+        // the 0x0F opcode so that encoding 6 selects SIL (not DH which lacks REX).
+        // Instruction: SETCC with dst=RSI, condition=CC_EQ (0x94).
+        // Expected prefix: 0x40 (bare REX), then 0x0F 0x94 0xC6 (SETE sil).
+        use crate::regs::RSI;
+        let mi = MInstr {
+            opcode: SETCC,
+            dst: Some(VReg(RSI.0 as u32)),
+            operands: vec![MOperand::Imm(CC_EQ)],
+            phys_uses: vec![],
+            clobbers: vec![],
+        };
+        let mf = single_block_mf("setcc_fn", vec![mi]);
+        let mut e = X86Emitter::new(ObjectFormat::Elf);
+        let sec = e.emit_function(&mf);
+        // First 4 bytes: bare REX(0x40), 0x0F, SETE(0x94), ModRM(0xC6 = 11_000_110 for RSI)
+        assert_eq!(sec.data[0], 0x40, "bare REX must be emitted for SETCC into RSI");
+        assert_eq!(sec.data[1], 0x0F, "escape prefix");
+        assert_eq!(sec.data[2], 0x94, "SETE opcode byte");
+        assert_eq!(sec.data[3], 0xC6, "ModRM(11 000 110) for RSI");
+    }
+
+    #[test]
+    fn setcc_rax_no_extra_rex() {
+        // RAX (encoding 0) does not need a REX prefix for 8-bit access — AL is
+        // directly addressable. Verify no spurious REX appears before 0x0F.
+        let mi = MInstr {
+            opcode: SETCC,
+            dst: Some(VReg(RAX.0 as u32)),
+            operands: vec![MOperand::Imm(CC_EQ)],
+            phys_uses: vec![],
+            clobbers: vec![],
+        };
+        let mf = single_block_mf("setcc_rax_fn", vec![mi]);
+        let mut e = X86Emitter::new(ObjectFormat::Elf);
+        let sec = e.emit_function(&mf);
+        // First byte must be 0x0F (no REX prefix for RAX).
+        assert_eq!(sec.data[0], 0x0F, "no REX prefix should be emitted for SETCC into RAX");
     }
 
     #[test]

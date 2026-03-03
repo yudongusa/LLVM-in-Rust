@@ -116,13 +116,9 @@ pub fn linear_scan(
         free.extend(returned);
 
         if free.is_empty() {
-            // Spill: choose the active interval with the largest end point,
-            // because that frees the register for the most future instructions.
-            let spill_idx = active
-                .iter()
-                .enumerate()
-                .max_by_key(|(_, (end, _, _))| end)
-                .map(|(i, _)| i);
+            // Spill: the active set is kept sorted by end, so the interval with
+            // the largest end is always at the back — O(1) lookup instead of O(n).
+            let spill_idx = if active.is_empty() { None } else { Some(active.len() - 1) };
 
             if let Some(idx) = spill_idx {
                 let (spill_end, spill_vr, spill_pr) = active[idx];
@@ -131,8 +127,9 @@ pub fn linear_scan(
                     active.remove(idx);
                     result.vreg_to_preg.remove(&spill_vr); // revoke previous assignment
                     result.vreg_to_preg.insert(interval.vreg, spill_pr);
-                    active.push((interval.end, interval.vreg, spill_pr));
-                    active.sort_unstable_by_key(|(e, _, _)| *e);
+                    // Insert in sorted position to maintain invariant.
+                    let pos = active.partition_point(|&(e, _, _)| e <= interval.end);
+                    active.insert(pos, (interval.end, interval.vreg, spill_pr));
                     result.spilled.push(spill_vr);
                 } else {
                     // Current interval has the largest end — spill it.
@@ -144,8 +141,10 @@ pub fn linear_scan(
         } else {
             let pr = free.remove(0);
             result.vreg_to_preg.insert(interval.vreg, pr);
-            active.push((interval.end, interval.vreg, pr));
-            active.sort_unstable_by_key(|(e, _, _)| *e);
+            // Insert in sorted position to maintain the end-sorted invariant without
+            // a full O(n log n) sort on every push.
+            let pos = active.partition_point(|&(e, _, _)| e <= interval.end);
+            active.insert(pos, (interval.end, interval.vreg, pr));
         }
     }
 
@@ -277,6 +276,20 @@ mod tests {
 
         // dst should now contain VReg(2) so that PReg(dst.0 as u8) == PReg(2)
         assert_eq!(mf.blocks[0].instrs[0].dst, Some(VReg(2)));
+    }
+
+    #[test]
+    fn many_overlapping_intervals_all_assigned() {
+        // Issue #38: stress test with many intervals to verify that the
+        // partition_point insertion correctly maintains the sorted invariant.
+        // 5 intervals all starting at 0 with different ends — need 5 registers.
+        let intervals = vec![
+            iv(0, 0, 10), iv(1, 0, 8), iv(2, 0, 6), iv(3, 0, 4), iv(4, 0, 2),
+        ];
+        let alloc: Vec<PReg> = (0u8..5).map(PReg).collect();
+        let result = linear_scan(&intervals, &alloc);
+        assert!(result.spilled.is_empty(), "no spills: 5 regs for 5 simultaneous live ranges");
+        assert_eq!(result.vreg_to_preg.len(), 5);
     }
 
     #[test]

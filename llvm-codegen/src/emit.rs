@@ -282,8 +282,8 @@ fn serialize_macho(obj: &ObjectFile) -> Vec<u8> {
     let reloc_off     = text_off + text_size;
     let reloc_size    = text_relocs.len() as u32 * 8;
 
-    // String table: index 0 = space (Mach-O convention)
-    let mut strtab: Vec<u8> = vec![b' '];
+    // String table: index 0 = \0 (null, required by Mach-O spec — empty string).
+    let mut strtab: Vec<u8> = vec![0u8];
     let sym_name_offs: Vec<u32> = obj.symbols.iter().map(|s| {
         let off = strtab.len() as u32;
         strtab.push(b'_'); // C symbol underscore prefix
@@ -454,6 +454,19 @@ mod tests {
         let bytes = make_obj(ObjectFormat::MachO, vec![0xc3]).to_bytes();
         let filetype = u32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]);
         assert_eq!(filetype, 1, "MH_OBJECT = 1");
+    }
+
+    #[test]
+    fn macho_strtab_first_byte_is_null() {
+        // Issue #37: Mach-O string table byte 0 must be \0 (null), not ' ' (space).
+        // The string table is the last thing written in the object file.
+        // For symbol "f", strtab = [\0, '_', 'f', \0] (4 bytes, aligned).
+        // We verify the first byte of strtab (= last 4 bytes of the file) is \0.
+        let bytes = make_obj(ObjectFormat::MachO, vec![0xc3]).to_bytes();
+        // strtab is padded to 4 bytes: [\0, '_', 'f', \0] = 4 bytes.
+        let strtab_first = bytes[bytes.len() - 4];
+        assert_eq!(strtab_first, 0x00,
+            "Mach-O strtab[0] must be null (\\0), was 0x{:02x}", strtab_first);
     }
 
     #[test]
