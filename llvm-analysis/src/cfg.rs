@@ -10,10 +10,26 @@ use llvm_ir::{BlockId, Function};
 ///
 /// Block indices map directly to `BlockId(i as u32)`. The entry block is
 /// always `BlockId(0)`.
+///
+/// # Reachability
+///
+/// The CFG stores edges for **all** blocks, including those unreachable from
+/// the entry.  Methods that return block counts or iterate over blocks
+/// document whether they include or exclude unreachable blocks:
+///
+/// | Method | Includes unreachable? |
+/// |--------|-----------------------|
+/// | `num_blocks()` | yes |
+/// | `num_reachable_blocks()` | no |
+/// | `rpo()` / `post_order()` | no |
+/// | `is_reachable()` | — |
 pub struct Cfg {
     num_blocks: usize,
     succs: Vec<Vec<BlockId>>,
     preds: Vec<Vec<BlockId>>,
+    /// `reachable[i]` is `true` iff `BlockId(i)` is reachable from entry.
+    reachable: Vec<bool>,
+    reachable_count: usize,
 }
 
 impl Cfg {
@@ -33,7 +49,22 @@ impl Cfg {
             }
         }
 
-        Cfg { num_blocks: n, succs, preds }
+        // DFS from entry to mark reachable blocks.
+        let mut reachable = vec![false; n];
+        let mut reachable_count = 0;
+        if n > 0 {
+            let mut stack = vec![0usize];
+            while let Some(b) = stack.pop() {
+                if reachable[b] { continue; }
+                reachable[b] = true;
+                reachable_count += 1;
+                for &succ in &succs[b] {
+                    stack.push(succ.0 as usize);
+                }
+            }
+        }
+
+        Cfg { num_blocks: n, succs, preds, reachable, reachable_count }
     }
 
     /// The function entry block (always index 0).
@@ -41,9 +72,31 @@ impl Cfg {
         BlockId(0)
     }
 
-    /// Number of blocks in the CFG.
+    /// Total number of blocks in the function, **including unreachable blocks**.
+    ///
+    /// To iterate only reachable blocks use [`rpo`](Self::rpo).
+    /// To count only reachable blocks use [`num_reachable_blocks`](Self::num_reachable_blocks).
     pub fn num_blocks(&self) -> usize {
         self.num_blocks
+    }
+
+    /// Number of blocks reachable from the entry block.
+    ///
+    /// This is an O(1) operation. Equivalent to `cfg.rpo().len()` but without
+    /// the allocation or DFS traversal cost.
+    pub fn num_reachable_blocks(&self) -> usize {
+        self.reachable_count
+    }
+
+    /// Returns `true` if `bid` is reachable from the entry block.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `bid` is not a valid block index for this function (same
+    /// behaviour as [`successors`](Self::successors) and
+    /// [`predecessors`](Self::predecessors)).
+    pub fn is_reachable(&self, bid: BlockId) -> bool {
+        self.reachable[bid.0 as usize]
     }
 
     /// Successor blocks of `bid`.
@@ -56,8 +109,10 @@ impl Cfg {
         &self.preds[bid.0 as usize]
     }
 
-    /// Blocks in post-order (a block appears after all blocks reachable from
-    /// it). Unreachable blocks are omitted.
+    /// Blocks in post-order (a block appears after all blocks it can reach).
+    ///
+    /// **Unreachable blocks are omitted.** Use [`num_blocks`](Self::num_blocks)
+    /// if you need a count that includes them.
     pub fn post_order(&self) -> Vec<BlockId> {
         let mut visited = vec![false; self.num_blocks];
         let mut order = Vec::with_capacity(self.num_blocks);
@@ -67,7 +122,9 @@ impl Cfg {
 
     /// Blocks in reverse post-order (RPO). The entry block is first;
     /// a block always appears before any block it dominates.
-    /// Unreachable blocks are omitted.
+    ///
+    /// **Unreachable blocks are omitted.** Use [`num_blocks`](Self::num_blocks)
+    /// if you need a count that includes them.
     pub fn rpo(&self) -> Vec<BlockId> {
         let mut order = self.post_order();
         order.reverse();
@@ -191,5 +248,37 @@ mod tests {
         let rpo = cfg.rpo();
         assert_eq!(rpo.len(), 2);
         assert!(!rpo.contains(&BlockId(2)));
+    }
+
+    #[test]
+    fn cfg_is_reachable() {
+        // 0 -> 1; block 2 is unreachable
+        let (_ctx, func) = build_func(3, &[(0, vec![1]), (1, vec![]), (2, vec![])]);
+        let cfg = Cfg::compute(&func);
+        assert!(cfg.is_reachable(BlockId(0)));
+        assert!(cfg.is_reachable(BlockId(1)));
+        assert!(!cfg.is_reachable(BlockId(2)));
+    }
+
+    #[test]
+    fn cfg_num_reachable_blocks() {
+        // 0 -> 1; blocks 2 and 3 are unreachable
+        let (_ctx, func) = build_func(4, &[(0, vec![1]), (1, vec![]), (2, vec![3]), (3, vec![])]);
+        let cfg = Cfg::compute(&func);
+        assert_eq!(cfg.num_blocks(), 4);
+        assert_eq!(cfg.num_reachable_blocks(), 2);
+        // num_reachable_blocks() must equal rpo().len()
+        assert_eq!(cfg.num_reachable_blocks(), cfg.rpo().len());
+    }
+
+    #[test]
+    fn cfg_empty_function_reachable_count() {
+        // Zero-block function: num_reachable_blocks() must return 0, not panic.
+        let mut ctx = Context::new();
+        let fn_ty = ctx.mk_fn_type(ctx.void_ty, vec![], false);
+        let func = Function::new("empty", fn_ty, vec![], Linkage::External);
+        let cfg = Cfg::compute(&func);
+        assert_eq!(cfg.num_blocks(), 0);
+        assert_eq!(cfg.num_reachable_blocks(), 0);
     }
 }
