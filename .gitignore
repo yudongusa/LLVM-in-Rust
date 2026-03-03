@@ -1,0 +1,9 @@
+# Rust build output
+/target/
+
+# Claude Code local-only files (not project-wide)
+.claude/settings.local.json
+.claude/worktrees/
+
+# macOS
+.DS_Store
