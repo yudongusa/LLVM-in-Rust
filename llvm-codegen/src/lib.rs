@@ -5,3 +5,6 @@ pub mod isel;
 pub mod legalize;
 pub mod regalloc;
 pub mod schedule;
+
+pub use emit::{emit_object, Emitter, ObjectFile, ObjectFormat, Section, Symbol, Reloc, RelocKind};
+pub use isel::{IselBackend, MachineFunction, MachineBlock, MInstr, MOpcode, MOperand, PReg, VReg};
