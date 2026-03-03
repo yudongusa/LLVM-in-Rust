@@ -7,7 +7,7 @@ use std::fmt;
 
 use llvm_ir::{
     Context, Module, Function, BasicBlock, Instruction, InstrKind,
-    TypeId, BlockId, ArgId, ConstId, ValueRef,
+    TypeId, BlockId, ArgId, ConstId, GlobalId, ValueRef,
     FloatKind,
     ConstantData,
     Argument, GlobalVariable, Linkage,
@@ -214,7 +214,7 @@ impl<'src> Parser<'src> {
             Token::Kw(Keyword::Double) => { self.lex.next()?; self.ctx.f64_ty }
             Token::Kw(Keyword::Fp128)  => { self.lex.next()?; self.ctx.mk_float(FloatKind::Fp128) }
             Token::Kw(Keyword::X86Fp80)=> { self.lex.next()?; self.ctx.mk_float(FloatKind::X86Fp80) }
-            Token::Kw(Keyword::Label)  => { self.lex.next()?; self.ctx.mk_int(0) /* placeholder */ }
+            Token::Kw(Keyword::Label)  => { self.lex.next()?; self.ctx.label_ty }
             Token::Kw(Keyword::Ptr)    => { self.lex.next()?; self.ctx.ptr_ty }
             Token::IntType(bits) => {
                 let b = *bits;
@@ -285,6 +285,7 @@ impl<'src> Parser<'src> {
         Ok((fields, packed))
     }
 
+    #[allow(dead_code)]
     fn parse_function_type(&mut self, ret: TypeId) -> Result<TypeId, ParseError> {
         self.lex.expect(&Token::LParen)?;
         let mut params = Vec::new();
@@ -428,7 +429,7 @@ impl<'src> Parser<'src> {
             _ => "entry".to_string(),
         };
 
-        let fid = self.current_func.expect("no current function");
+        let fid = self.current_func.ok_or_else(|| self.err("block outside function"))?;
         let func = &mut self.module.functions[fid];
 
         // Reuse pre-allocated BlockId if this block was forward-referenced.
@@ -476,7 +477,8 @@ impl<'src> Parser<'src> {
     // -----------------------------------------------------------------------
 
     fn parse_instruction(&mut self, bid: BlockId) -> Result<(), ParseError> {
-        let fid = self.current_func.expect("no current function");
+        let fid = self.current_func
+            .ok_or_else(|| self.err("instruction outside function"))?;
 
         // Parse optional result assignment: `%name = ` or `%N = `.
         let (result_name, result_slot) = match self.lex.peek()? {
@@ -1117,27 +1119,40 @@ impl<'src> Parser<'src> {
                 return Ok(v);
             }
         }
-        Err(ParseError { line: 0, col: 0, message: format!("undefined local value '%{}'", name) })
+        Err(ParseError {
+            line: self.lex.current_line(),
+            col:  self.lex.current_col(),
+            message: format!("undefined local value '%{}'", name),
+        })
     }
 
     fn resolve_global_ref(&mut self, name: &str) -> Result<ValueRef, ParseError> {
-        // Look up in module globals and functions.
-        if let Some(gid) = self.module.get_global_id(name) {
-            let ptr_ty = self.ctx.ptr_ty;
-            let c = self.ctx.push_const(ConstantData::GlobalRef { ty: ptr_ty, id: gid });
-            return Ok(ValueRef::Constant(c));
-        }
-        if let Some(_fid) = self.module.get_function_id(name) {
-            // Return a function pointer constant.
-            let ptr_ty = self.ctx.ptr_ty;
-            // We don't have a dedicated function-pointer variant; use GlobalRef with GlobalId(fid.0).
-            // For now, just produce a pointer constant.
-            let c = self.ctx.const_null(ptr_ty);
-            return Ok(ValueRef::Constant(c));
-        }
-        // Unknown global — create a null constant as a placeholder.
         let ptr_ty = self.ctx.ptr_ty;
-        let c = self.ctx.const_null(ptr_ty);
+        // Look up in module globals first.
+        if let Some(gid) = self.module.get_global_id(name) {
+            let c = self.ctx.push_const(ConstantData::GlobalRef {
+                ty: ptr_ty,
+                id: gid,
+                name: name.to_string(),
+            });
+            return Ok(ValueRef::Constant(c));
+        }
+        // Functions are also referenced by @name (as function pointers / callees).
+        // Use GlobalId::MAX as a sentinel meaning "function reference".
+        if self.module.get_function_id(name).is_some() {
+            let c = self.ctx.push_const(ConstantData::GlobalRef {
+                ty: ptr_ty,
+                id: GlobalId(u32::MAX),
+                name: name.to_string(),
+            });
+            return Ok(ValueRef::Constant(c));
+        }
+        // Forward/unknown reference — record name for future resolution.
+        let c = self.ctx.push_const(ConstantData::GlobalRef {
+            ty: ptr_ty,
+            id: GlobalId(u32::MAX),
+            name: name.to_string(),
+        });
         Ok(ValueRef::Constant(c))
     }
 
@@ -1162,7 +1177,7 @@ impl<'src> Parser<'src> {
     }
 
     fn get_or_create_block(&mut self, name: &str) -> Result<BlockId, ParseError> {
-        let fid = self.current_func.expect("no current function");
+        let fid = self.current_func.ok_or_else(|| self.err("block reference outside function"))?;
         if let Some(&bid) = self.pending_blocks.get(name) {
             return Ok(bid);
         }
@@ -1371,7 +1386,7 @@ entry:
   ret void
 }
 "#;
-        let (ctx, module) = parse(src).expect("parse failed");
+        let (_ctx, module) = parse(src).expect("parse failed");
         assert_eq!(module.functions.len(), 1);
         let f = &module.functions[0];
         assert_eq!(f.name, "empty");
@@ -1389,7 +1404,7 @@ entry:
   ret i32 %result
 }
 "#;
-        let (ctx, module) = parse(src).expect("parse failed");
+        let (_ctx, module) = parse(src).expect("parse failed");
         let f = &module.functions[0];
         assert_eq!(f.name, "add");
         assert_eq!(f.args.len(), 2);
@@ -1401,7 +1416,7 @@ entry:
     #[test]
     fn parse_declaration() {
         let src = "declare i32 @printf(ptr, ...)";
-        let (ctx, module) = parse(src).expect("parse failed");
+        let (_ctx, module) = parse(src).expect("parse failed");
         assert_eq!(module.functions.len(), 1);
         assert!(module.functions[0].is_declaration);
     }
@@ -1438,7 +1453,7 @@ else:
   ret void
 }
 "#;
-        let (ctx, module) = parse(src).expect("parse failed");
+        let (_ctx, module) = parse(src).expect("parse failed");
         let f = &module.functions[0];
         assert_eq!(f.blocks.len(), 3);
     }

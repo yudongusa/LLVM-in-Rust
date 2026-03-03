@@ -1,9 +1,8 @@
 //! Round-trip test: build IR → print → parse → print → assert text equality.
 
 use llvm_ir::{
-    Context, Module, Function, BasicBlock, Instruction, InstrKind,
-    Builder, Printer, Linkage, IntArithFlags, IntPredicate,
-    ValueRef,
+    Context, Module,
+    Builder, Printer, Linkage, IntPredicate,
 };
 
 /// Build a simple add function and check that the printer emits expected text.
@@ -121,7 +120,7 @@ fn roundtrip_global() {
     let mut b = Builder::new(&mut ctx, &mut module);
 
     let init = b.ctx.const_int(b.ctx.i32_ty, 100);
-    let gid = b.add_global("LIMIT", b.ctx.i32_ty, Some(init), true, Linkage::Internal);
+    let _gid = b.add_global("LIMIT", b.ctx.i32_ty, Some(init), true, Linkage::Internal);
 
     let p = Printer::new(b.ctx);
     let ir = p.print_module(b.module);

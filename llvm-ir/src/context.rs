@@ -80,6 +80,7 @@ pub struct Context {
     pub f32_ty: TypeId,
     pub f64_ty: TypeId,
     pub ptr_ty: TypeId,
+    pub label_ty: TypeId,
 }
 
 impl Context {
@@ -99,6 +100,7 @@ impl Context {
             f32_ty: TypeId(0),
             f64_ty: TypeId(0),
             ptr_ty: TypeId(0),
+            label_ty: TypeId(0),
         };
         ctx.void_ty = ctx.intern_anon(TypeData::Void);
         ctx.i1_ty = ctx.intern_anon(TypeData::Integer(1));
@@ -109,6 +111,7 @@ impl Context {
         ctx.f32_ty = ctx.intern_anon(TypeData::Float(FloatKind::Single));
         ctx.f64_ty = ctx.intern_anon(TypeData::Float(FloatKind::Double));
         ctx.ptr_ty = ctx.intern_anon(TypeData::Pointer);
+        ctx.label_ty = ctx.intern_anon(TypeData::Label);
         ctx
     }
 
@@ -137,6 +140,10 @@ impl Context {
 
     pub fn mk_ptr(&mut self) -> TypeId {
         self.ptr_ty
+    }
+
+    pub fn mk_label(&mut self) -> TypeId {
+        self.label_ty
     }
 
     pub fn mk_array(&mut self, element: TypeId, len: u64) -> TypeId {
@@ -305,7 +312,7 @@ impl Context {
             ConstantData::Array { ty, .. } => *ty,
             ConstantData::Struct { ty, .. } => *ty,
             ConstantData::Vector { ty, .. } => *ty,
-            ConstantData::GlobalRef { ty, .. } => *ty,
+            ConstantData::GlobalRef { ty, .. } => *ty, // name field ignored here
         }
     }
 }

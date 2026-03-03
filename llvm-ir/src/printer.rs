@@ -212,9 +212,8 @@ impl<'a> Printer<'a> {
                 }
                 out.push('>');
             }
-            ConstantData::GlobalRef { id: gid, .. } => {
-                // We don't have the module here; just emit placeholder.
-                write!(out, "@g{}", gid.0).unwrap();
+            ConstantData::GlobalRef { name, .. } => {
+                write!(out, "@{}", name).unwrap();
             }
         }
     }

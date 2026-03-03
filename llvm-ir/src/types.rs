@@ -43,7 +43,7 @@ pub struct FunctionType {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::context::{Context, TypeId};
+    use crate::context::Context;
 
     #[test]
     fn type_data_eq() {
