@@ -1,0 +1,13 @@
+[workspace]
+resolver = "2"
+members = [
+    "llvm-ir",
+    "llvm-ir-parser",
+    "llvm-analysis",
+    "llvm-transforms",
+    "llvm-codegen",
+    "llvm-target-x86",
+    "llvm-target-arm",
+    "llvm-bitcode",
+    "llvm",
+]

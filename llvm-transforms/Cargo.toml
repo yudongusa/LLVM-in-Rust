@@ -1,0 +1,8 @@
+[package]
+name = "llvm-transforms"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+llvm-ir = { path = "../llvm-ir" }
+llvm-analysis = { path = "../llvm-analysis" }

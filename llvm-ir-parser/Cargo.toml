@@ -1,0 +1,7 @@
+[package]
+name = "llvm-ir-parser"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+llvm-ir = { path = "../llvm-ir" }
