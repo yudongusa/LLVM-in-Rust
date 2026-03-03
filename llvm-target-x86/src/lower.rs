@@ -190,11 +190,11 @@ fn lower_instr(
         Sub { lhs, rhs, .. }  => { emit_binop!(SUB_RR, *lhs, *rhs); }
         Mul { lhs, rhs, .. }  => { emit_binop!(IMUL_RR, *lhs, *rhs); }
 
-        SDiv { lhs, rhs, .. } | UDiv { lhs, rhs, .. } => {
+        SDiv { lhs, rhs, .. } => {
             let dst = new_dst!();
             let l = res!(*lhs);
             let r = res!(*rhs);
-            // mov rax, lhs; cqo; idiv rhs → rax = quotient
+            // mov rax, lhs; cqo; idiv rhs → rax = quotient (signed)
             emit_mov_to_preg(mf, mblock, SYSV_INT_RET, l);
             mf.push(mblock, MInstr::new(CQO));
             let mut div_mi = MInstr::new(IDIV_R).with_vreg(r);
@@ -203,14 +203,44 @@ fn lower_instr(
             emit_mov_from_preg(mf, mblock, dst, SYSV_INT_RET);
         }
 
-        SRem { lhs, rhs, .. } | URem { lhs, rhs, .. } => {
+        UDiv { lhs, rhs, .. } => {
             let dst = new_dst!();
             let l = res!(*lhs);
             let r = res!(*rhs);
-            // mov rax, lhs; cqo; idiv rhs → rdx = remainder
+            // mov rax, lhs; xor rdx, rdx; div rhs → rax = quotient (unsigned)
+            emit_mov_to_preg(mf, mblock, SYSV_INT_RET, l);
+            let zero = mf.fresh_vreg();
+            mf.push(mblock, MInstr::new(MOV_RI).with_dst(zero).with_imm(0));
+            emit_mov_to_preg(mf, mblock, RDX, zero);
+            let mut div_mi = MInstr::new(DIV_R).with_vreg(r);
+            div_mi.clobbers = vec![SYSV_INT_RET, RDX];
+            mf.push(mblock, div_mi);
+            emit_mov_from_preg(mf, mblock, dst, SYSV_INT_RET);
+        }
+
+        SRem { lhs, rhs, .. } => {
+            let dst = new_dst!();
+            let l = res!(*lhs);
+            let r = res!(*rhs);
+            // mov rax, lhs; cqo; idiv rhs → rdx = remainder (signed)
             emit_mov_to_preg(mf, mblock, SYSV_INT_RET, l);
             mf.push(mblock, MInstr::new(CQO));
             let mut div_mi = MInstr::new(IDIV_R).with_vreg(r);
+            div_mi.clobbers = vec![SYSV_INT_RET, RDX];
+            mf.push(mblock, div_mi);
+            emit_mov_from_preg(mf, mblock, dst, RDX);
+        }
+
+        URem { lhs, rhs, .. } => {
+            let dst = new_dst!();
+            let l = res!(*lhs);
+            let r = res!(*rhs);
+            // mov rax, lhs; xor rdx, rdx; div rhs → rdx = remainder (unsigned)
+            emit_mov_to_preg(mf, mblock, SYSV_INT_RET, l);
+            let zero = mf.fresh_vreg();
+            mf.push(mblock, MInstr::new(MOV_RI).with_dst(zero).with_imm(0));
+            emit_mov_to_preg(mf, mblock, RDX, zero);
+            let mut div_mi = MInstr::new(DIV_R).with_vreg(r);
             div_mi.clobbers = vec![SYSV_INT_RET, RDX];
             mf.push(mblock, div_mi);
             emit_mov_from_preg(mf, mblock, dst, RDX);
@@ -554,6 +584,55 @@ mod tests {
         });
         assert!(has_cmp,   "should emit CMP");
         assert!(has_setcc, "should emit SETCC");
+    }
+
+    fn make_div_fn(unsigned: bool) -> (Context, Module) {
+        let mut ctx = Context::new();
+        let mut module = Module::new("test");
+        let mut b = Builder::new(&mut ctx, &mut module);
+        b.add_function(
+            "div_fn",
+            b.ctx.i64_ty,
+            vec![b.ctx.i64_ty, b.ctx.i64_ty],
+            vec!["a".into(), "b".into()],
+            false,
+            Linkage::External,
+        );
+        let entry = b.add_block("entry");
+        b.position_at_end(entry);
+        let a = b.get_arg(0);
+        let bv = b.get_arg(1);
+        let result = if unsigned {
+            b.build_udiv("q", a, bv)
+        } else {
+            b.build_sdiv("q", a, bv)
+        };
+        b.build_ret(result);
+        (ctx, module)
+    }
+
+    #[test]
+    fn udiv_uses_div_r_not_idiv_r() {
+        // Issue #31: UDiv must emit DIV_R (unsigned) not IDIV_R (signed).
+        let (ctx, module) = make_div_fn(true);
+        let mut be = X86Backend;
+        let mf = be.lower_function(&ctx, &module, &module.functions[0]);
+        let has_div_r = mf.blocks.iter().any(|bl| bl.instrs.iter().any(|i| i.opcode == DIV_R));
+        let has_idiv_r = mf.blocks.iter().any(|bl| bl.instrs.iter().any(|i| i.opcode == IDIV_R));
+        assert!(has_div_r,  "UDiv must emit DIV_R (unsigned div)");
+        assert!(!has_idiv_r, "UDiv must NOT emit IDIV_R (signed div)");
+    }
+
+    #[test]
+    fn sdiv_uses_idiv_r() {
+        // Regression: SDiv must still emit IDIV_R (signed).
+        let (ctx, module) = make_div_fn(false);
+        let mut be = X86Backend;
+        let mf = be.lower_function(&ctx, &module, &module.functions[0]);
+        let has_idiv_r = mf.blocks.iter().any(|bl| bl.instrs.iter().any(|i| i.opcode == IDIV_R));
+        let has_div_r  = mf.blocks.iter().any(|bl| bl.instrs.iter().any(|i| i.opcode == DIV_R));
+        assert!(has_idiv_r, "SDiv must emit IDIV_R (signed div)");
+        assert!(!has_div_r,  "SDiv must NOT emit DIV_R (unsigned div)");
     }
 
     #[test]

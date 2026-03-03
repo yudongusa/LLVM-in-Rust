@@ -194,6 +194,17 @@ fn encode_instr(instr: &MInstr, ctx: &mut EncodeCtx) {
             }
         }
 
+        // ── DIV src (REX.W 0xF7 /6) — unsigned ───────────────────────────
+        DIV_R => {
+            if let Some(src) = instr.operands.first().and_then(preg) {
+                maybe_rex(ctx, true, PReg(0), src);
+                ctx.emit(0xF7);
+                ctx.emit(0xC0 | (6 << 3) | reg_enc(src)); // ModRM /6
+            } else {
+                ctx.emit(0x90);
+            }
+        }
+
         // ── CQO (REX.W 0x99) ─────────────────────────────────────────────
         CQO => {
             ctx.emit(0x48); // REX.W
@@ -521,6 +532,44 @@ mod tests {
         // REX.W=0x48, MOV r/m64,r64=0x89, ModRM(11 110 000)=0xF0
         assert_eq!(&sec.data[0..3], &[0x48, 0x89, 0xF0]);
         let _ = mi;
+    }
+
+    #[test]
+    fn div_r_encodes_correctly() {
+        // div rcx → REX.W(0x48) + 0xF7 + ModRM(/6, rcx=1) = 0xF1
+        use crate::regs::RCX;
+        let mi = MInstr {
+            opcode: DIV_R,
+            dst: None,
+            operands: vec![MOperand::PReg(RCX)],
+            phys_uses: vec![],
+            clobbers: vec![],
+        };
+        let mf = single_block_mf("div_fn", vec![mi]);
+        let mut e = X86Emitter::new(ObjectFormat::Elf);
+        let sec = e.emit_function(&mf);
+        // REX.W=0x48, F7, ModRM(11 110 001) = 0xF1 (digit /6 = 110b, rcx=001b)
+        assert_eq!(&sec.data[0..3], &[0x48, 0xF7, 0xF1],
+            "div rcx should encode as REX.W + 0xF7 + ModRM(/6)");
+    }
+
+    #[test]
+    fn idiv_r_encodes_correctly() {
+        // idiv rcx → REX.W(0x48) + 0xF7 + ModRM(/7, rcx=1) = 0xF9
+        use crate::regs::RCX;
+        let mi = MInstr {
+            opcode: IDIV_R,
+            dst: None,
+            operands: vec![MOperand::PReg(RCX)],
+            phys_uses: vec![],
+            clobbers: vec![],
+        };
+        let mf = single_block_mf("idiv_fn", vec![mi]);
+        let mut e = X86Emitter::new(ObjectFormat::Elf);
+        let sec = e.emit_function(&mf);
+        // REX.W=0x48, F7, ModRM(11 111 001) = 0xF9 (digit /7 = 111b, rcx=001b)
+        assert_eq!(&sec.data[0..3], &[0x48, 0xF7, 0xF9],
+            "idiv rcx should encode as REX.W + 0xF7 + ModRM(/7)");
     }
 
     #[test]

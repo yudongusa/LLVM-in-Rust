@@ -28,12 +28,14 @@ pub const SUB_RI:    MOpcode = MOpcode(0x13);
 pub const IMUL_RR:   MOpcode = MOpcode(0x14);
 /// `imul dst, src, imm`  (3-operand)
 pub const IMUL_RRI:  MOpcode = MOpcode(0x15);
-/// `idiv src`  (rax,rdx:rax ÷ src → rax=quot, rdx=rem)
+/// `idiv src`  (signed: rdx:rax ÷ src → rax=quot, rdx=rem; requires CQO first)
 pub const IDIV_R:    MOpcode = MOpcode(0x16);
 /// `neg dst`
 pub const NEG_R:     MOpcode = MOpcode(0x17);
 /// `cqo` — sign-extend rax into rdx:rax before idiv
 pub const CQO:       MOpcode = MOpcode(0x18);
+/// `div src`  (unsigned: rdx:rax ÷ src → rax=quot, rdx=rem; requires `xor rdx, rdx` first)
+pub const DIV_R:     MOpcode = MOpcode(0x19);
 
 // ── bitwise ────────────────────────────────────────────────────────────────
 pub const AND_RR:    MOpcode = MOpcode(0x20);
