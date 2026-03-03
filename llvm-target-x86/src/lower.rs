@@ -172,13 +172,15 @@ fn lower_instr(
         };
     }
     // Helper: emit a two-input binary op as: dst=mov(lhs); op(dst,rhs).
+    // The binary op instruction carries only the RHS in operands (not dst
+    // itself) so that `get_dst_src` in the encoder sees the correct source.
     macro_rules! emit_binop {
         ($op:expr, $lhs:expr, $rhs:expr) => {{
             let dst = new_dst!();
             let l = res!($lhs);
             let r = res!($rhs);
             mf.push(mblock, MInstr::new(MOV_RR).with_dst(dst).with_vreg(l));
-            mf.push(mblock, MInstr::new($op).with_dst(dst).with_vreg(dst).with_vreg(r));
+            mf.push(mblock, MInstr::new($op).with_dst(dst).with_vreg(r));
         }};
     }
 
@@ -550,5 +552,25 @@ mod tests {
         });
         assert!(has_cmp,   "should emit CMP");
         assert!(has_setcc, "should emit SETCC");
+    }
+
+    #[test]
+    fn add_binop_instr_has_single_rhs_operand() {
+        // After fix for issue #34: the ADD_RR instruction must have exactly
+        // one operand (the RHS vreg), not two (self-reference + rhs).
+        let (ctx, module) = make_add_fn();
+        let mut be = X86Backend;
+        let mf = be.lower_function(&ctx, &module, &module.functions[0]);
+
+        // Find the ADD_RR instruction.
+        let add_instr = mf.blocks.iter()
+            .flat_map(|b| b.instrs.iter())
+            .find(|i| i.opcode == ADD_RR);
+        let add_instr = add_instr.expect("should have an ADD_RR instruction");
+
+        assert_eq!(
+            add_instr.operands.len(), 1,
+            "ADD_RR must carry only the RHS operand, not a self-reference (issue #34)"
+        );
     }
 }
