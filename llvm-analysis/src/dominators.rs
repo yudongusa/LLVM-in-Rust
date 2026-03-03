@@ -130,6 +130,14 @@ impl DomTree {
 
         for y_idx in 0..n {
             let y = BlockId(y_idx as u32);
+            // Unreachable blocks have idom = None. Skipping them prevents the
+            // while-loop condition `Some(runner) != None` from being permanently
+            // true and adding spurious DF entries before the `None => break` fires.
+            // The entry block also has idom = None but has 0 predecessors and is
+            // already excluded by the preds.len() < 2 check below.
+            if self.idom[y_idx].is_none() {
+                continue;
+            }
             let preds = cfg.predecessors(y);
             if preds.len() < 2 {
                 continue; // only join points have non-empty DF contributions
@@ -283,6 +291,29 @@ mod tests {
         let dom = DomTree::compute(&func, &cfg);
         let df = dom.dominance_frontier(&cfg);
         assert!(df.get(&BlockId(2)).map_or(false, |v| v.contains(&BlockId(1))));
+    }
+
+    #[test]
+    fn dominance_frontier_unreachable_join_point() {
+        // Block 0 has no successors; blocks 1, 2, 3 are all unreachable.
+        // Block 3 has two unreachable predecessors (1 and 2), so preds.len() >= 2
+        // and idom[3] = None.  Without the fix the while-condition
+        // `Some(runner) != None` would be permanently true until the inner
+        // `None => break` fires, producing spurious DF entries for blocks 1 and 2.
+        let (_ctx, func) = build_func(4, &[
+            (0, vec![]),
+            (1, vec![3]),
+            (2, vec![3]),
+            (3, vec![]),
+        ]);
+        let cfg = Cfg::compute(&func);
+        let dom = DomTree::compute(&func, &cfg);
+        let df = dom.dominance_frontier(&cfg);
+        // No reachable block exists, so the dominance frontier must be empty.
+        assert!(df.get(&BlockId(1)).map_or(true, |v| v.is_empty()),
+            "spurious DF entry for unreachable block 1: {:?}", df.get(&BlockId(1)));
+        assert!(df.get(&BlockId(2)).map_or(true, |v| v.is_empty()),
+            "spurious DF entry for unreachable block 2: {:?}", df.get(&BlockId(2)));
     }
 }
 
