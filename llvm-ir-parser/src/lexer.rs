@@ -334,12 +334,12 @@ impl<'src> Lexer<'src> {
         match ch {
             b'%' => {
                 self.advance();
-                let name = self.read_ident_or_int();
+                let name = self.read_ident_or_int()?;
                 Ok(Token::LocalIdent(name))
             }
             b'@' => {
                 self.advance();
-                let name = self.read_ident_or_int();
+                let name = self.read_ident_or_int()?;
                 Ok(Token::GlobalIdent(name))
             }
             b'"' => {
@@ -400,16 +400,16 @@ impl<'src> Lexer<'src> {
     }
 
     /// After `%` or `@`, read an identifier (possibly quoted or numeric).
-    fn read_ident_or_int(&mut self) -> String {
+    fn read_ident_or_int(&mut self) -> Result<String, LexError> {
         if self.peek_ch() == Some(b'"') {
             self.advance();
-            self.read_string_literal().unwrap_or_default()
+            return self.read_string_literal();
         } else if self.peek_ch().map_or(false, |c| c.is_ascii_digit()) {
             let mut s = String::new();
             while let Some(c) = self.peek_ch() {
                 if c.is_ascii_digit() { self.advance(); s.push(c as char); } else { break; }
             }
-            s
+            Ok(s)
         } else {
             let mut s = String::new();
             while let Some(c) = self.peek_ch() {
@@ -420,7 +420,7 @@ impl<'src> Lexer<'src> {
                     break;
                 }
             }
-            s
+            Ok(s)
         }
     }
 
@@ -435,7 +435,8 @@ impl<'src> Lexer<'src> {
                     let h1 = self.advance().ok_or_else(|| self.make_err("bad escape"))?;
                     let h2 = self.advance().ok_or_else(|| self.make_err("bad escape"))?;
                     let hex_str = format!("{}{}", h1 as char, h2 as char);
-                    let byte = u8::from_str_radix(&hex_str, 16).unwrap_or(0);
+                    let byte = u8::from_str_radix(&hex_str, 16)
+                        .map_err(|_| self.make_err(format!("invalid hex escape \\{}", hex_str)))?;
                     s.push(byte as char);
                 }
                 Some(c) => { self.advance(); s.push(c as char); }
@@ -500,7 +501,11 @@ impl<'src> Lexer<'src> {
             // Integer.
             let n: u64 = digits.parse().map_err(|_| self.make_err(format!("bad int: {}", digits)))?;
             if negative {
-                Ok(Token::IntLit(-(n as i64)))
+                // i64::MIN is -(2^63) = 9223372036854775808; values beyond that don't fit.
+                if n > (i64::MAX as u64) + 1 {
+                    return Err(self.make_err(format!("integer -{} out of i64 range", n)));
+                }
+                Ok(Token::IntLit((n as i64).wrapping_neg()))
             } else if n <= i64::MAX as u64 {
                 Ok(Token::IntLit(n as i64))
             } else {

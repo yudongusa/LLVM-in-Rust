@@ -304,7 +304,11 @@ impl<'a> Printer<'a> {
                 out.push_str("...");
             }
         } else {
-            write!(out, "??? @{}(", func.name).unwrap();
+            panic!(
+                "printer: function '{}' has non-function type {:?}",
+                func.name,
+                self.ctx.get_type(func.ty)
+            );
         }
         out.push(')');
 

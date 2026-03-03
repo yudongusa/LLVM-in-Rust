@@ -1157,17 +1157,18 @@ impl<'src> Parser<'src> {
     }
 
     fn type_of_vref(&self, vref: ValueRef) -> TypeId {
-        let fid = self.current_func.unwrap_or(0);
-        if fid < self.module.functions.len() {
-            let func = &self.module.functions[fid];
-            match vref {
-                ValueRef::Instruction(id) if (id.0 as usize) < func.instructions.len() => {
-                    return func.instr(id).ty;
+        if let Some(fid) = self.current_func {
+            if fid < self.module.functions.len() {
+                let func = &self.module.functions[fid];
+                match vref {
+                    ValueRef::Instruction(id) if (id.0 as usize) < func.instructions.len() => {
+                        return func.instr(id).ty;
+                    }
+                    ValueRef::Argument(id) if (id.0 as usize) < func.args.len() => {
+                        return func.arg(id).ty;
+                    }
+                    _ => {}
                 }
-                ValueRef::Argument(id) if (id.0 as usize) < func.args.len() => {
-                    return func.arg(id).ty;
-                }
-                _ => {}
             }
         }
         match vref {
