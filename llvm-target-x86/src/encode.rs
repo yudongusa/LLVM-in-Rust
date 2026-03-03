@@ -133,6 +133,21 @@ fn encode_instr(instr: &MInstr, ctx: &mut EncodeCtx) {
             }
         }
 
+        // ── MOV fixed_preg, src_preg (REX.W 0x89 /r) ────────────────────
+        // operands[0] = PReg destination (ABI-fixed, not in `dst`),
+        // operands[1] = PReg source (VReg resolved by regalloc).
+        MOV_PR => {
+            if let (Some(MOperand::PReg(dst)), Some(MOperand::PReg(src))) =
+                (instr.operands.first(), instr.operands.get(1))
+            {
+                maybe_rex(ctx, true, *src, *dst);
+                ctx.emit(0x89);
+                ctx.emit(modrm_rr(*src, *dst));
+            } else {
+                ctx.emit(0x90); // fallback NOP (pre-allocation, should not reach encoder)
+            }
+        }
+
         // ── MOV reg, imm64 (REX.W 0xB8+rd) ───────────────────────────────
         MOV_RI => {
             if let (Some(dst), Some(val)) = (instr.dst, instr.operands.first().and_then(imm)) {
@@ -506,6 +521,47 @@ mod tests {
         // REX.W=0x48, MOV r/m64,r64=0x89, ModRM(11 110 000)=0xF0
         assert_eq!(&sec.data[0..3], &[0x48, 0x89, 0xF0]);
         let _ = mi;
+    }
+
+    #[test]
+    fn mov_pr_rax_rsi_encodes_correctly() {
+        // MOV_PR: mov rax, rsi
+        // operands[0] = PReg(RAX=0), operands[1] = PReg(RSI=6)
+        // Expected: REX.W(0x48) + MOV r/m64,r64(0x89) + ModRM(11_110_000=0xF0)
+        use llvm_codegen::isel::MOperand;
+        let mi = MInstr {
+            opcode: MOV_PR,
+            dst: None,
+            operands: vec![MOperand::PReg(RAX), MOperand::PReg(RSI)],
+            phys_uses: vec![],
+            clobbers: vec![],
+        };
+        let mf = single_block_mf("mov_pr_fn", vec![mi]);
+        let mut e = X86Emitter::new(ObjectFormat::Elf);
+        let sec = e.emit_function(&mf);
+        assert_eq!(&sec.data[0..3], &[0x48, 0x89, 0xF0],
+            "mov rax, rsi should be REX.W + 0x89 + ModRM(11 110 000)");
+    }
+
+    #[test]
+    fn mov_pr_emits_non_nop_for_extended_reg() {
+        // MOV_PR: mov r8, rdi (R8 is an extended register, needs REX.B)
+        // Expected: REX.WB(0x49) + 0x89 + ModRM(11_111_000=0xF8)
+        use llvm_codegen::isel::MOperand;
+        use crate::regs::{R8, RDI};
+        let mi = MInstr {
+            opcode: MOV_PR,
+            dst: None,
+            operands: vec![MOperand::PReg(R8), MOperand::PReg(RDI)],
+            phys_uses: vec![],
+            clobbers: vec![],
+        };
+        let mf = single_block_mf("mov_pr_ext_fn", vec![mi]);
+        let mut e = X86Emitter::new(ObjectFormat::Elf);
+        let sec = e.emit_function(&mf);
+        // REX.W + REX.B = 0x49, opcode = 0x89, ModRM(11 111 000) = 0xF8
+        assert_eq!(&sec.data[0..3], &[0x49, 0x89, 0xF8],
+            "mov r8, rdi should use REX.WB");
     }
 
     #[test]

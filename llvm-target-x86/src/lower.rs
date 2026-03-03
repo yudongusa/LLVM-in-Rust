@@ -443,9 +443,11 @@ fn emit_phi_copies(
 // ── ABI register helpers ──────────────────────────────────────────────────
 
 fn emit_mov_to_preg(mf: &mut MachineFunction, mblock: usize, preg: PReg, src: VReg) {
-    let mut mi = MInstr::new(MOV_RR).with_vreg(src).with_preg(preg);
-    mi.phys_uses = vec![preg];
-    mf.push(mblock, mi);
+    // MOV_PR: operands[0] = fixed PReg destination, operands[1] = VReg source.
+    // dst is intentionally None so apply_allocation does not reassign preg.
+    // After regalloc operands[1] becomes PReg(src_allocated) and the encoder
+    // generates `mov preg, src_allocated`.
+    mf.push(mblock, MInstr::new(MOV_PR).with_preg(preg).with_vreg(src));
 }
 
 fn emit_mov_from_preg(mf: &mut MachineFunction, mblock: usize, dst: VReg, preg: PReg) {
@@ -552,6 +554,28 @@ mod tests {
         });
         assert!(has_cmp,   "should emit CMP");
         assert!(has_setcc, "should emit SETCC");
+    }
+
+    #[test]
+    fn emit_mov_to_preg_uses_mov_pr_opcode() {
+        // emit_mov_to_preg must use MOV_PR (not MOV_RR) so that the fixed
+        // physical register destination survives register allocation.
+        // Verify: the instruction has dst=None, opcode=MOV_PR,
+        //         operands[0]=PReg(preg), operands[1]=VReg(src).
+        use llvm_codegen::isel::{MachineFunction, MOperand};
+        use crate::regs::RAX;
+
+        let mut mf = MachineFunction::new("f".into());
+        let b = mf.add_block("entry");
+        let src = mf.fresh_vreg();
+        super::emit_mov_to_preg(&mut mf, b, RAX, src);
+
+        let instr = &mf.blocks[b].instrs[0];
+        assert_eq!(instr.opcode, MOV_PR, "emit_mov_to_preg must use MOV_PR opcode");
+        assert!(instr.dst.is_none(), "dst must be None (destination is a fixed PReg)");
+        assert_eq!(instr.operands.len(), 2);
+        assert_eq!(instr.operands[0], MOperand::PReg(RAX), "operands[0] must be the fixed PReg");
+        assert_eq!(instr.operands[1], MOperand::VReg(src), "operands[1] must be the source VReg");
     }
 
     #[test]
