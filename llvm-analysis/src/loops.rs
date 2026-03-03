@@ -7,6 +7,22 @@
 //!    from the tail up to (and including) the header.
 //! 3. Assign loop nesting: a loop is a child of the smallest loop whose body
 //!    contains the child's header.
+//!
+//! # Reducibility requirement
+//!
+//! This algorithm detects **natural loops** only, which requires the CFG to be
+//! **reducible**.  A CFG is reducible when every strongly-connected component
+//! has a single entry node that dominates all other nodes in the component.
+//! Irreducible CFGs — those containing a
+//! strongly-connected component with two or more entry edges that do not
+//! dominate each other — are not handled correctly: the multi-entry cycle will
+//! not be detected, and `LoopInfo` will report zero loops for it.
+//!
+//! Irreducible CFGs are uncommon in practice (most front-ends and optimisers
+//! avoid them), but the LLVM IR format permits them.  Callers that need
+//! correct results on irreducible graphs should either:
+//! * structurise the CFG before calling `LoopInfo::compute`, or
+//! * use a full SCC-based (Havlak/Sreedhar) algorithm instead.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use llvm_ir::{BlockId, Function};
@@ -33,6 +49,12 @@ pub struct LoopInfo {
 
 impl LoopInfo {
     /// Detect all natural loops in `func`.
+    ///
+    /// Uses the standard back-edge + reverse-CFG-BFS algorithm, which is
+    /// correct only for **reducible** CFGs.  On an irreducible CFG, cycles
+    /// whose strongly-connected component has no single dominating header will
+    /// not be reported.  See the [module-level documentation](self) for
+    /// details and mitigation options.
     pub fn compute(func: &Function, cfg: &Cfg, dom: &DomTree) -> Self {
         if func.num_blocks() == 0 {
             return LoopInfo { loops: vec![], block_loop: HashMap::new() };
@@ -79,7 +101,11 @@ impl LoopInfo {
     }
 
     /// Find all back-edges (tail, header) using iterative DFS on the CFG.
-    /// An edge (n → h) is a back-edge when h dominates n.
+    ///
+    /// An edge `(n → h)` is classified as a back-edge when `h` dominates `n`.
+    /// This definition is equivalent to natural-loop back-edges **only for
+    /// reducible CFGs**.  In an irreducible CFG, cross-edges inside a
+    /// multi-entry SCC are not dominance back-edges and will be missed.
     fn find_back_edges(cfg: &Cfg, dom: &DomTree) -> Vec<(BlockId, BlockId)> {
         let mut back_edges = Vec::new();
         let mut visited = HashSet::new();
@@ -251,5 +277,29 @@ mod tests {
         assert_eq!(li.depth(BlockId(3)), 2); // in both
         assert_eq!(li.depth(BlockId(0)), 0);
         assert_eq!(li.depth(BlockId(4)), 0);
+    }
+
+    #[test]
+    fn irreducible_cfg_not_detected() {
+        // Irreducible CFG: 0 → 1, 0 → 2, 1 → 2, 2 → 1
+        //
+        // Blocks 1 and 2 form a cycle but neither dominates the other, so no
+        // back-edge is detected by the dominance-based algorithm.  This test
+        // documents the known limitation described in issue #9: natural loop
+        // detection silently under-reports loops in irreducible CFGs.
+        let (_ctx, func) = build_func(3, &[
+            (0, vec![1, 2]),
+            (1, vec![2]),
+            (2, vec![1]),
+        ]);
+        let cfg = Cfg::compute(&func);
+        let dom = DomTree::compute(&func, &cfg);
+        let li = LoopInfo::compute(&func, &cfg, &dom);
+
+        // The cycle 1 ↔ 2 is NOT reported because neither block dominates the
+        // other (irreducible CFG).  Zero loops is the known, documented
+        // behaviour for this input; a correct SCC-based detector would find 1.
+        assert_eq!(li.loops().len(), 0,
+            "dominance-based algorithm does not detect irreducible cycle (known limitation, see issue #9)");
     }
 }
