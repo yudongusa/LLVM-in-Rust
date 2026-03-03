@@ -1,16 +1,18 @@
 //! Constant propagation pass.
 //!
-//! Walks every instruction in a function in program order.  When all operands
-//! of an instruction are constants it folds the instruction to a constant
-//! (via `try_fold`), records the substitution, and rewrites all downstream
-//! uses of that instruction result.  Folded instructions are then dropped from
-//! block bodies; a subsequent DCE pass can remove any that remain dead.
+//! Walks every instruction in a function in **reverse post-order (RPO)** so
+//! that each block's predecessors are generally visited before the block
+//! itself.  When all operands of an instruction are constants it folds the
+//! instruction to a constant (via `try_fold`), records the substitution, and
+//! rewrites all downstream uses of that instruction result.  Folded
+//! instructions are then dropped from block bodies.
 //!
-//! A single forward scan is sufficient for straight-line code.  Run the pass
-//! in a loop (or use `PassManager::run_until_fixed_point`) to handle chains
-//! that span multiple iterations.
+//! RPO traversal propagates constants through straight-line code and through
+//! forward edges of loops in a single pass.  Back-edges (loop-carried
+//! constants) require a second pass; use `PassManager::run_until_fixed_point`
+//! when that is needed.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use llvm_ir::{Context, Function, InstrId, InstrKind, ValueRef};
 use crate::pass::FunctionPass;
 use crate::constant_fold::try_fold;
@@ -22,11 +24,13 @@ impl FunctionPass for ConstProp {
     fn name(&self) -> &'static str { "const-prop" }
 
     fn run_on_function(&mut self, ctx: &mut Context, func: &mut Function) -> bool {
+        if func.blocks.is_empty() { return false; }
+
         // Map InstrId → its constant replacement (ValueRef::Constant).
         let mut subst: HashMap<InstrId, ValueRef> = HashMap::new();
 
-        // Forward scan: process blocks in order.
-        for bi in 0..func.blocks.len() {
+        // Process blocks in RPO so each block's predecessors generally come first.
+        for bi in rpo(func) {
             let body: Vec<InstrId> = func.blocks[bi].body.clone();
             for iid in body {
                 // Apply pending substitutions to this instruction's operands.
@@ -167,6 +171,61 @@ pub(crate) fn subst_kind(kind: InstrKind, subst: &HashMap<InstrId, ValueRef>) ->
     }
 }
 
+// ---------------------------------------------------------------------------
+// RPO helper — produces block indices in reverse post-order
+// ---------------------------------------------------------------------------
+
+/// Returns block indices of `func` in reverse post-order (RPO) from the
+/// entry block (index 0).
+///
+/// RPO ensures that for any non-back-edge A→B in the CFG, A appears before B
+/// in the returned sequence.  This means constant values defined in a block
+/// are available for substitution in successor blocks in the same pass,
+/// maximising the number of folds performed per iteration.
+///
+/// Unreachable blocks are appended at the end (in their stored order) so that
+/// the pass still processes them for correctness.
+fn rpo(func: &Function) -> Vec<usize> {
+    let n = func.blocks.len();
+    let mut visited: HashSet<usize> = HashSet::with_capacity(n);
+    let mut post_order: Vec<usize> = Vec::with_capacity(n);
+
+    // Iterative DFS to avoid stack overflow on deep CFGs.
+    let mut stack: Vec<(usize, bool)> = vec![(0, false)]; // (block_idx, post-visit?)
+    while let Some((bi, post)) = stack.pop() {
+        if post {
+            post_order.push(bi);
+            continue;
+        }
+        if visited.contains(&bi) { continue; }
+        visited.insert(bi);
+        // Push post-visit marker first, then successors in reverse so we
+        // process them left-to-right.
+        stack.push((bi, true));
+        if let Some(tid) = func.blocks[bi].terminator {
+            let succs = func.instr(tid).successors();
+            for &succ in succs.iter().rev() {
+                let si = succ.0 as usize;
+                if si < n && !visited.contains(&si) {
+                    stack.push((si, false));
+                }
+            }
+        }
+    }
+
+    // Reverse post-order.
+    post_order.reverse();
+
+    // Append any unreachable blocks not visited by the DFS.
+    for bi in 0..n {
+        if !visited.contains(&bi) {
+            post_order.push(bi);
+        }
+    }
+
+    post_order
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -245,5 +304,70 @@ mod tests {
         } else {
             panic!("expected ret with constant 50");
         }
+    }
+
+    #[test]
+    fn const_prop_across_blocks_rpo() {
+        // Two blocks: entry defines a constant, then branches to exit which uses it.
+        //   entry: a = add 2, 3; br exit
+        //   exit:  b = add a, 10; ret b
+        // With RPO ordering, entry is processed before exit so `a` is folded (=5)
+        // and then `b = add 5, 10` is also folded (=15).
+        let mut ctx = Context::new();
+        let mut module = Module::new("test");
+        let mut b = Builder::new(&mut ctx, &mut module);
+        b.add_function("f", b.ctx.i32_ty, vec![], vec![], false, Linkage::External);
+
+        let entry = b.add_block("entry");
+        let exit  = b.add_block("exit");
+
+        b.position_at_end(entry);
+        let c2 = b.const_int(b.ctx.i32_ty, 2);
+        let c3 = b.const_int(b.ctx.i32_ty, 3);
+        let a = b.build_add("a", c2, c3);
+        b.build_br(exit);
+
+        b.position_at_end(exit);
+        let c10 = b.const_int(b.ctx.i32_ty, 10);
+        let bv = b.build_add("b", a, c10);
+        b.build_ret(bv);
+
+        let mut pass = ConstProp;
+        pass.run_on_function(&mut ctx, &mut module.functions[0]);
+
+        let func = &module.functions[0];
+        // Both `a` and `b` should be folded away.
+        assert_eq!(func.blocks[0].body.len(), 0, "`a` should be folded in entry");
+        assert_eq!(func.blocks[1].body.len(), 0, "`b` should be folded in exit");
+        // ret in exit block should reference constant 15.
+        let tid = func.blocks[1].terminator.unwrap();
+        if let llvm_ir::InstrKind::Ret { val: Some(ValueRef::Constant(cid)) } = &func.instr(tid).kind {
+            assert_eq!(ctx.get_const(*cid),
+                &llvm_ir::ConstantData::Int { ty: ctx.i32_ty, val: 15 });
+        } else {
+            panic!("expected ret with constant 15");
+        }
+    }
+
+    #[test]
+    fn rpo_order_entry_before_successor() {
+        // Verify that rpo() returns entry block (0) before its successor.
+        let mut ctx = Context::new();
+        let mut module = Module::new("test");
+        let mut b = Builder::new(&mut ctx, &mut module);
+        b.add_function("f", b.ctx.i32_ty, vec![], vec![], false, Linkage::External);
+        let entry = b.add_block("entry");
+        let exit  = b.add_block("exit");
+        b.position_at_end(entry);
+        b.build_br(exit);
+        b.position_at_end(exit);
+        let c = b.const_int(b.ctx.i32_ty, 0);
+        b.build_ret(c);
+
+        let func = &module.functions[0];
+        let order = rpo(func);
+        let entry_pos = order.iter().position(|&i| i == entry.0 as usize).unwrap();
+        let exit_pos  = order.iter().position(|&i| i == exit.0 as usize).unwrap();
+        assert!(entry_pos < exit_pos, "entry must come before exit in RPO");
     }
 }
