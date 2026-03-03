@@ -43,8 +43,14 @@ pub fn try_fold(ctx: &mut Context, kind: &InstrKind) -> Option<ConstId> {
         InstrKind::SDiv { lhs, rhs, .. } => {
             let (ty, l) = const_int(ctx, *lhs)?;
             let (_, r)  = const_int(ctx, *rhs)?;
-            if r == 0 { return None; }
-            Some(ctx.const_int(ty, (l as i64).wrapping_div(r as i64) as u64))
+            let bits = int_bit_width(ctx, ty)?;
+            let sl = sign_extend(l, bits);
+            let sr = sign_extend(r, bits);
+            if sr == 0 { return None; }
+            // MIN_INT / -1 overflows → poison; return None.
+            let type_min: i64 = if bits >= 64 { i64::MIN } else { -(1i64 << (bits - 1)) };
+            if sl == type_min && sr == -1 { return None; }
+            Some(ctx.const_int(ty, trunc_bits(sl.wrapping_div(sr) as u64, bits)))
         }
         InstrKind::URem { lhs, rhs } => {
             let (ty, l) = const_int(ctx, *lhs)?;
@@ -55,8 +61,11 @@ pub fn try_fold(ctx: &mut Context, kind: &InstrKind) -> Option<ConstId> {
         InstrKind::SRem { lhs, rhs } => {
             let (ty, l) = const_int(ctx, *lhs)?;
             let (_, r)  = const_int(ctx, *rhs)?;
-            if r == 0 { return None; }
-            Some(ctx.const_int(ty, (l as i64).wrapping_rem(r as i64) as u64))
+            let bits = int_bit_width(ctx, ty)?;
+            let sl = sign_extend(l, bits);
+            let sr = sign_extend(r, bits);
+            if sr == 0 { return None; }
+            Some(ctx.const_int(ty, trunc_bits(sl.wrapping_rem(sr) as u64, bits)))
         }
 
         // --- Bitwise ---
@@ -93,14 +102,17 @@ pub fn try_fold(ctx: &mut Context, kind: &InstrKind) -> Option<ConstId> {
             let (ty, l) = const_int(ctx, *lhs)?;
             let (_, r)  = const_int(ctx, *rhs)?;
             let mask = shift_mask(ctx, ty)?;
-            Some(ctx.const_int(ty, ((l as i64) >> ((r & mask) as u32)) as u64))
+            let bits = int_bit_width(ctx, ty)?;
+            let sl = sign_extend(l, bits);
+            Some(ctx.const_int(ty, trunc_bits((sl >> ((r & mask) as u32)) as u64, bits)))
         }
 
         // --- Integer comparison → i1 result ---
         InstrKind::ICmp { pred, lhs, rhs } => {
-            let (_, l) = const_int(ctx, *lhs)?;
-            let (_, r) = const_int(ctx, *rhs)?;
-            let result = icmp_eval(*pred, l, r) as u64;
+            let (ty, l) = const_int(ctx, *lhs)?;
+            let (_, r)  = const_int(ctx, *rhs)?;
+            let bits = int_bit_width(ctx, ty)?;
+            let result = icmp_eval(*pred, l, r, bits) as u64;
             Some(ctx.const_int(ctx.i1_ty, result))
         }
 
@@ -135,6 +147,35 @@ pub(crate) fn const_int(ctx: &Context, vref: ValueRef) -> Option<(llvm_ir::TypeI
     }
 }
 
+/// Sign-extend a value from `bits` width to a full `i64`.
+///
+/// Constants for iN types are stored as their unsigned bit pattern in the
+/// low `bits` of a `u64`.  For signed operations we must first recover the
+/// true signed value.  For example, i8 value `0xFF` = 255u64 → -1i64.
+fn sign_extend(val: u64, bits: u32) -> i64 {
+    debug_assert!(bits > 0 && bits <= 64);
+    let shift = 64u32.saturating_sub(bits);
+    ((val << shift) as i64) >> shift
+}
+
+/// Truncate a `u64` to the low `bits` bits.
+///
+/// Used to bring signed-operation results back to the canonical `u64`
+/// storage format (no bits above position `bits-1` set).
+fn trunc_bits(val: u64, bits: u32) -> u64 {
+    if bits >= 64 { val } else { val & ((1u64 << bits).wrapping_sub(1)) }
+}
+
+/// Extract the integer bit width from a `TypeId`.  Returns `None` for
+/// non-integer types (Float, Pointer, etc.).
+fn int_bit_width(ctx: &Context, ty: llvm_ir::TypeId) -> Option<u32> {
+    if let llvm_ir::TypeData::Integer(bits) = ctx.get_type(ty) {
+        Some(*bits)
+    } else {
+        None
+    }
+}
+
 /// Returns the shift-amount mask for an integer type: `bit_width - 1`.
 ///
 /// LLVM semantics: a shift by `r` on an `iN` value uses only the low
@@ -148,7 +189,7 @@ fn shift_mask(ctx: &Context, ty: llvm_ir::TypeId) -> Option<u64> {
     }
 }
 
-fn icmp_eval(pred: IntPredicate, l: u64, r: u64) -> bool {
+fn icmp_eval(pred: IntPredicate, l: u64, r: u64, bits: u32) -> bool {
     match pred {
         IntPredicate::Eq  => l == r,
         IntPredicate::Ne  => l != r,
@@ -156,10 +197,10 @@ fn icmp_eval(pred: IntPredicate, l: u64, r: u64) -> bool {
         IntPredicate::Uge => l >= r,
         IntPredicate::Ult => l <  r,
         IntPredicate::Ule => l <= r,
-        IntPredicate::Sgt => (l as i64) >  (r as i64),
-        IntPredicate::Sge => (l as i64) >= (r as i64),
-        IntPredicate::Slt => (l as i64) <  (r as i64),
-        IntPredicate::Sle => (l as i64) <= (r as i64),
+        IntPredicate::Sgt => sign_extend(l, bits) >  sign_extend(r, bits),
+        IntPredicate::Sge => sign_extend(l, bits) >= sign_extend(r, bits),
+        IntPredicate::Slt => sign_extend(l, bits) <  sign_extend(r, bits),
+        IntPredicate::Sle => sign_extend(l, bits) <= sign_extend(r, bits),
     }
 }
 
@@ -329,7 +370,7 @@ mod tests {
 
     #[test]
     fn ashr_i8_sign_extends() {
-        // i8 ashr 0x80 (-128 as i8), 7 → 0xFF (-1 as i8) = 255 as u64 stored
+        // i8 ashr 0x80 (-128 as i8), 7 → 0xFF (-1 as i8) stored as 255u64
         let mut ctx = Context::new();
         let kind = InstrKind::AShr {
             exact: false,
@@ -337,10 +378,91 @@ mod tests {
             rhs: c8(&mut ctx, 7),
         };
         let result = try_fold(&mut ctx, &kind).unwrap();
-        // (0x80u64 as i64 = 128) >> 7 = 0  — this still has the sign-extension
-        // bug (#18) for AShr, but the shift mask itself is now correct (7 not 63).
-        // After #18 is fixed this test should yield 0xFF. For now just verify
-        // the shift mask applied correctly: 7 & 7 = 7 (same as before in this case).
-        let _ = ctx.get_const(result); // just verify it doesn't panic
+        assert_eq!(ctx.get_const(result),
+            &ConstantData::Int { ty: ctx.i8_ty, val: 0xFF }); // -1 as i8
+    }
+
+    #[test]
+    fn sdiv_i8_signs() {
+        // i8 sdiv -1, 2 → 0  (truncates toward zero)
+        // -1 stored as 0xFF = 255u64; 2 stored as 2
+        let mut ctx = Context::new();
+        let kind = InstrKind::SDiv {
+            exact: false,
+            lhs: c8(&mut ctx, 0xFF), // -1
+            rhs: c8(&mut ctx, 2),
+        };
+        let result = try_fold(&mut ctx, &kind).unwrap();
+        assert_eq!(ctx.get_const(result),
+            &ConstantData::Int { ty: ctx.i8_ty, val: 0 }); // -1 / 2 = 0
+    }
+
+    #[test]
+    fn sdiv_i8_negative_by_negative() {
+        // i8 sdiv -4, -2 → 2
+        let mut ctx = Context::new();
+        let kind = InstrKind::SDiv {
+            exact: false,
+            lhs: c8(&mut ctx, 0xFC), // -4
+            rhs: c8(&mut ctx, 0xFE), // -2
+        };
+        let result = try_fold(&mut ctx, &kind).unwrap();
+        assert_eq!(ctx.get_const(result),
+            &ConstantData::Int { ty: ctx.i8_ty, val: 2 });
+    }
+
+    #[test]
+    fn sdiv_overflow_returns_none() {
+        // i8 sdiv MIN_INT(-128), -1 → overflow → None
+        let mut ctx = Context::new();
+        let kind = InstrKind::SDiv {
+            exact: false,
+            lhs: c8(&mut ctx, 0x80), // -128
+            rhs: c8(&mut ctx, 0xFF), // -1
+        };
+        assert!(try_fold(&mut ctx, &kind).is_none());
+    }
+
+    #[test]
+    fn srem_i8_negative() {
+        // i8 srem -7, 3 → -1  (sign follows dividend)
+        let mut ctx = Context::new();
+        let kind = InstrKind::SRem {
+            lhs: c8(&mut ctx, 0xF9), // -7
+            rhs: c8(&mut ctx, 3),
+        };
+        let result = try_fold(&mut ctx, &kind).unwrap();
+        assert_eq!(ctx.get_const(result),
+            &ConstantData::Int { ty: ctx.i8_ty, val: 0xFF }); // -1
+    }
+
+    #[test]
+    fn icmp_slt_i8_negative() {
+        // i8 icmp slt -1, 0 → true
+        // -1 stored as 0xFF; without sign-extend (0xFF as i64 = 255) > 0 → wrong
+        let mut ctx = Context::new();
+        let kind = InstrKind::ICmp {
+            pred: IntPredicate::Slt,
+            lhs: c8(&mut ctx, 0xFF), // -1
+            rhs: c8(&mut ctx, 0),
+        };
+        let result = try_fold(&mut ctx, &kind).unwrap();
+        assert_eq!(ctx.get_const(result),
+            &ConstantData::Int { ty: ctx.i1_ty, val: 1 }); // true
+    }
+
+    #[test]
+    fn icmp_sgt_i32_negative() {
+        // i32 icmp sgt 0, -1 → true
+        // -1 stored as 0xFFFF_FFFF
+        let mut ctx = Context::new();
+        let kind = InstrKind::ICmp {
+            pred: IntPredicate::Sgt,
+            lhs: c(&mut ctx, 0),
+            rhs: c(&mut ctx, 0xFFFF_FFFF), // -1 as i32
+        };
+        let result = try_fold(&mut ctx, &kind).unwrap();
+        assert_eq!(ctx.get_const(result),
+            &ConstantData::Int { ty: ctx.i1_ty, val: 1 }); // true
     }
 }
