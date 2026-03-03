@@ -155,10 +155,21 @@ pub fn linear_scan(
 // ── apply allocation ───────────────────────────────────────────────────────
 
 /// Replace `MOperand::VReg` with `MOperand::PReg` in `mf` according to
-/// `result`.  Spilled VRegs are left unchanged (the caller must handle them).
+/// `result`.  Also rewrites `instr.dst` so that the destination register
+/// number reflects the assigned physical register rather than the raw VReg
+/// counter.  Spilled VRegs are left unchanged (the caller must handle them).
 pub fn apply_allocation(mf: &mut MachineFunction, result: &RegAllocResult) {
     for block in &mut mf.blocks {
         for instr in &mut block.instrs {
+            // Rewrite destination VReg.
+            if let Some(ref mut vr) = instr.dst {
+                if let Some(&pr) = result.vreg_to_preg.get(vr) {
+                    // Store the physical register number in the VReg wrapper
+                    // so encoder casts `PReg(dst.0 as u8)` yield the correct reg.
+                    *vr = VReg(pr.0 as u32);
+                }
+            }
+            // Rewrite source operands.
             for op in &mut instr.operands {
                 if let MOperand::VReg(vr) = op {
                     if let Some(&pr) = result.vreg_to_preg.get(vr) {
@@ -243,8 +254,29 @@ mod tests {
 
         apply_allocation(&mut mf, &result);
 
+        // instr 0: dst=v0→PReg(3), src operand v1→PReg(7)
+        assert_eq!(mf.blocks[0].instrs[0].dst, Some(VReg(3)));  // physical reg 3
         assert_eq!(mf.blocks[0].instrs[0].operands[0], MOperand::PReg(PReg(7)));
+        // instr 1: src operand v0→PReg(3)
         assert_eq!(mf.blocks[0].instrs[1].operands[0], MOperand::PReg(PReg(3)));
+    }
+
+    #[test]
+    fn apply_allocation_rewrites_dst_register() {
+        use crate::isel::{MachineFunction, MInstr, MOpcode};
+        let mut mf = MachineFunction::new("f".into());
+        let b = mf.add_block("entry");
+        let v5 = VReg(5); // VReg 5 allocated to PReg 2
+        mf.next_vreg = 6;
+        mf.push(b, MInstr::new(MOpcode(0)).with_dst(v5));
+
+        let mut result = RegAllocResult::default();
+        result.vreg_to_preg.insert(v5, PReg(2));
+
+        apply_allocation(&mut mf, &result);
+
+        // dst should now contain VReg(2) so that PReg(dst.0 as u8) == PReg(2)
+        assert_eq!(mf.blocks[0].instrs[0].dst, Some(VReg(2)));
     }
 
     #[test]
