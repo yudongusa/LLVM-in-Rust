@@ -13,7 +13,7 @@ use llvm_ir::{
 use crate::{
     abi::{classify_sysv_args, ArgLocation, SYSV_INT_RET},
     instructions::*,
-    regs::{ALLOCATABLE, CALLEE_SAVED, RDX},
+    regs::{ALLOCATABLE, CALLEE_SAVED, RCX, RDX},
 };
 
 /// x86_64 instruction-selection backend.
@@ -183,6 +183,22 @@ fn lower_instr(
             mf.push(mblock, MInstr::new($op).with_dst(dst).with_vreg(r));
         }};
     }
+    // Helper: emit a variable shift — loads the count into RCX (CL) first,
+    // then emits the shift instruction with phys_uses=[RCX].
+    // x86 variable shifts require the count in CL (low byte of RCX).
+    macro_rules! emit_shift {
+        ($op:expr, $lhs:expr, $rhs:expr) => {{
+            let dst = new_dst!();
+            let l = res!($lhs);
+            let r = res!($rhs);
+            mf.push(mblock, MInstr::new(MOV_RR).with_dst(dst).with_vreg(l));
+            emit_mov_to_preg(mf, mblock, RCX, r);
+            let mut shift_mi = MInstr::new($op).with_dst(dst);
+            shift_mi.phys_uses = vec![RCX];
+            shift_mi.clobbers  = vec![RCX];
+            mf.push(mblock, shift_mi);
+        }};
+    }
 
     match &instr.kind {
         // ── arithmetic ─────────────────────────────────────────────────────
@@ -252,10 +268,11 @@ fn lower_instr(
         Xor { lhs, rhs } => { emit_binop!(XOR_RR, *lhs, *rhs); }
 
         // ── shifts ─────────────────────────────────────────────────────────
-        // Amount must be in CL (low byte of RCX) per x86 calling convention.
-        Shl { lhs, rhs, .. } => { emit_binop!(SHL_RR, *lhs, *rhs); }
-        LShr { lhs, rhs, .. } => { emit_binop!(SHR_RR, *lhs, *rhs); }
-        AShr { lhs, rhs, .. } => { emit_binop!(SAR_RR, *lhs, *rhs); }
+        // x86 variable shifts require the count in CL (low byte of RCX).
+        // emit_shift! (defined above) loads rhs into RCX then emits the shift.
+        Shl  { lhs, rhs, .. } => { emit_shift!(SHL_RR, *lhs, *rhs); }
+        LShr { lhs, rhs, .. } => { emit_shift!(SHR_RR, *lhs, *rhs); }
+        AShr { lhs, rhs, .. } => { emit_shift!(SAR_RR, *lhs, *rhs); }
 
         // ── comparisons ────────────────────────────────────────────────────
         ICmp { pred, lhs, rhs } => {
@@ -609,6 +626,54 @@ mod tests {
         };
         b.build_ret(result);
         (ctx, module)
+    }
+
+    fn make_shl_fn() -> (Context, Module) {
+        let mut ctx = Context::new();
+        let mut module = Module::new("test");
+        let mut b = Builder::new(&mut ctx, &mut module);
+        b.add_function(
+            "shl_fn",
+            b.ctx.i64_ty,
+            vec![b.ctx.i64_ty, b.ctx.i64_ty],
+            vec!["val".into(), "amt".into()],
+            false,
+            Linkage::External,
+        );
+        let entry = b.add_block("entry");
+        b.position_at_end(entry);
+        let v = b.get_arg(0);
+        let a = b.get_arg(1);
+        let shifted = b.build_shl("shifted", v, a);
+        b.build_ret(shifted);
+        (ctx, module)
+    }
+
+    #[test]
+    fn shl_loads_shift_amount_into_rcx() {
+        // Issue #33: shift amount must be moved into RCX (CL) before the shift.
+        // Verify: a MOV_PR to RCX appears immediately before SHL_RR, and
+        //         the SHL_RR instruction has phys_uses containing RCX.
+        use crate::regs::RCX;
+        let (ctx, module) = make_shl_fn();
+        let mut be = X86Backend;
+        let mf = be.lower_function(&ctx, &module, &module.functions[0]);
+
+        // There must be a SHL_RR in the function.
+        let shl_instr = mf.blocks.iter().flat_map(|b| b.instrs.iter())
+            .find(|i| i.opcode == SHL_RR)
+            .expect("should emit SHL_RR");
+
+        // SHL_RR must declare RCX as a physical use (shift reads CL).
+        assert!(shl_instr.phys_uses.contains(&RCX),
+            "SHL_RR must have RCX in phys_uses (CL holds the shift amount)");
+
+        // There must be a MOV_PR targeting RCX somewhere in the function.
+        let has_mov_to_rcx = mf.blocks.iter().flat_map(|b| b.instrs.iter()).any(|i| {
+            i.opcode == MOV_PR && i.operands.first() == Some(&llvm_codegen::isel::MOperand::PReg(RCX))
+        });
+        assert!(has_mov_to_rcx,
+            "a MOV_PR loading the shift count into RCX must be emitted before SHL_RR");
     }
 
     #[test]
