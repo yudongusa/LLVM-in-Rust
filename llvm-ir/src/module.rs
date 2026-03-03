@@ -134,7 +134,7 @@ mod tests {
 
     #[test]
     fn module_globals() {
-        let mut ctx = Context::new();
+        let ctx = Context::new();
         let gv = GlobalVariable {
             name: "x".to_string(),
             ty: ctx.i32_ty,

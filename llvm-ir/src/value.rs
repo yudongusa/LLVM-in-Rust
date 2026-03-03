@@ -25,8 +25,9 @@ pub enum ConstantData {
     Struct { ty: TypeId, fields: Vec<ConstId> },
     /// Constant vector.
     Vector { ty: TypeId, elements: Vec<ConstId> },
-    /// Reference to a global symbol.
-    GlobalRef { ty: TypeId, id: GlobalId },
+    /// Reference to a global symbol (global variable or function).
+    /// `name` is the LLVM IR name (without `@`), used for printing.
+    GlobalRef { ty: TypeId, id: GlobalId, name: String },
 }
 
 /// A function argument (SSA value produced by function entry).

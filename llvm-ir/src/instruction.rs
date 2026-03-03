@@ -406,11 +406,11 @@ impl Instruction {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::context::{Context, InstrId};
+    use crate::context::Context;
 
     #[test]
     fn terminator_check() {
-        let ctx = Context::new();
+        let _ctx = Context::new();
         let ret = InstrKind::Ret { val: None };
         assert!(ret.is_terminator());
         let add = InstrKind::Add {

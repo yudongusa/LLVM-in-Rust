@@ -496,7 +496,7 @@ mod tests {
         let mut module = Module::new("test");
         let mut b = Builder::new(&mut ctx, &mut module);
 
-        let fid = b.add_function(
+        let _fid = b.add_function(
             "foo",
             b.ctx.i32_ty,
             vec![b.ctx.i32_ty],
@@ -525,7 +525,7 @@ mod tests {
         let mut module = Module::new("test");
         let mut b = Builder::new(&mut ctx, &mut module);
 
-        let fid = b.add_function(
+        let _fid = b.add_function(
             "check",
             b.ctx.void_ty,
             vec![b.ctx.i1_ty],

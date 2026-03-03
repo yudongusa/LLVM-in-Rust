@@ -158,7 +158,7 @@ fn parse_named_struct() {
     let src = r#"
 %Point = type { i32, i32 }
 "#;
-    let (ctx, module) = parse(src).expect("parse failed");
+    let (_ctx, module) = parse(src).expect("parse failed");
     assert_eq!(module.named_types.len(), 1);
     assert_eq!(module.named_types[0].0, "Point");
 }

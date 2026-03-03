@@ -177,7 +177,6 @@ impl Function {
 mod tests {
     use super::*;
     use crate::context::Context;
-    use crate::instruction::{Instruction, InstrKind};
 
     #[test]
     fn function_fresh_names() {
