@@ -10,4 +10,5 @@ members = [
     "src/llvm-target-arm",
     "src/llvm-bitcode",
     "src/llvm",
+    "src/llvm-bench",
 ]
