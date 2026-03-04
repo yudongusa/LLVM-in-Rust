@@ -4,17 +4,17 @@
 //! translated to one or more machine instructions using virtual registers.
 //! Phi-destruction (parallel copy insertion) is also handled here.
 
-use std::collections::HashMap;
-use llvm_codegen::isel::{IselBackend, MachineFunction, MInstr, PReg, VReg};
-use llvm_ir::{
-    ArgId, BlockId, ConstantData, Context, Function, InstrId, InstrKind,
-    IntPredicate, Module, TypeData, ValueRef,
-};
 use crate::{
     abi::{classify_aapcs64_args, ArgLocation, INT_RET},
     instructions::*,
     regs::{ALLOCATABLE, CALLEE_SAVED},
 };
+use llvm_codegen::isel::{IselBackend, MInstr, MachineFunction, PReg, VReg};
+use llvm_ir::{
+    ArgId, BlockId, ConstantData, Context, Function, InstrId, InstrKind, IntPredicate, Module,
+    TypeData, ValueRef,
+};
+use std::collections::HashMap;
 
 /// AArch64 instruction-selection backend.
 pub struct AArch64Backend;
@@ -130,8 +130,8 @@ fn const_to_imm(cd: &ConstantData) -> i64 {
 
 fn pred_to_cc(pred: IntPredicate) -> i64 {
     match pred {
-        IntPredicate::Eq  => CC_EQ,
-        IntPredicate::Ne  => CC_NE,
+        IntPredicate::Eq => CC_EQ,
+        IntPredicate::Ne => CC_NE,
         IntPredicate::Slt => CC_LT,
         IntPredicate::Sle => CC_LE,
         IntPredicate::Sgt => CC_GT,
@@ -178,18 +178,31 @@ fn lower_instr(
             let dst = new_dst!();
             let l = res!($lhs);
             let r = res!($rhs);
-            mf.push(mblock, MInstr::new($op).with_dst(dst).with_vreg(l).with_vreg(r));
+            mf.push(
+                mblock,
+                MInstr::new($op).with_dst(dst).with_vreg(l).with_vreg(r),
+            );
         }};
     }
 
     match &instr.kind {
         // ── arithmetic ─────────────────────────────────────────────────────
         // AArch64 has 3-address instructions: dst = op(lhs, rhs)
-        Add { lhs, rhs, .. }  => { emit_binop3!(ADD_RR,  *lhs, *rhs); }
-        Sub { lhs, rhs, .. }  => { emit_binop3!(SUB_RR,  *lhs, *rhs); }
-        Mul { lhs, rhs, .. }  => { emit_binop3!(MUL_RR,  *lhs, *rhs); }
-        SDiv { lhs, rhs, .. } => { emit_binop3!(SDIV_RR, *lhs, *rhs); }
-        UDiv { lhs, rhs, .. } => { emit_binop3!(UDIV_RR, *lhs, *rhs); }
+        Add { lhs, rhs, .. } => {
+            emit_binop3!(ADD_RR, *lhs, *rhs);
+        }
+        Sub { lhs, rhs, .. } => {
+            emit_binop3!(SUB_RR, *lhs, *rhs);
+        }
+        Mul { lhs, rhs, .. } => {
+            emit_binop3!(MUL_RR, *lhs, *rhs);
+        }
+        SDiv { lhs, rhs, .. } => {
+            emit_binop3!(SDIV_RR, *lhs, *rhs);
+        }
+        UDiv { lhs, rhs, .. } => {
+            emit_binop3!(UDIV_RR, *lhs, *rhs);
+        }
 
         SRem { lhs, rhs, .. } => {
             // AArch64 has no SREM instruction.
@@ -198,10 +211,28 @@ fn lower_instr(
             let l = res!(*lhs);
             let r = res!(*rhs);
             let quot = mf.fresh_vreg();
-            mf.push(mblock, MInstr::new(SDIV_RR).with_dst(quot).with_vreg(l).with_vreg(r));
+            mf.push(
+                mblock,
+                MInstr::new(SDIV_RR)
+                    .with_dst(quot)
+                    .with_vreg(l)
+                    .with_vreg(r),
+            );
             let prod = mf.fresh_vreg();
-            mf.push(mblock, MInstr::new(MUL_RR).with_dst(prod).with_vreg(quot).with_vreg(r));
-            mf.push(mblock, MInstr::new(SUB_RR).with_dst(dst).with_vreg(l).with_vreg(prod));
+            mf.push(
+                mblock,
+                MInstr::new(MUL_RR)
+                    .with_dst(prod)
+                    .with_vreg(quot)
+                    .with_vreg(r),
+            );
+            mf.push(
+                mblock,
+                MInstr::new(SUB_RR)
+                    .with_dst(dst)
+                    .with_vreg(l)
+                    .with_vreg(prod),
+            );
         }
 
         URem { lhs, rhs, .. } => {
@@ -211,22 +242,52 @@ fn lower_instr(
             let l = res!(*lhs);
             let r = res!(*rhs);
             let quot = mf.fresh_vreg();
-            mf.push(mblock, MInstr::new(UDIV_RR).with_dst(quot).with_vreg(l).with_vreg(r));
+            mf.push(
+                mblock,
+                MInstr::new(UDIV_RR)
+                    .with_dst(quot)
+                    .with_vreg(l)
+                    .with_vreg(r),
+            );
             let prod = mf.fresh_vreg();
-            mf.push(mblock, MInstr::new(MUL_RR).with_dst(prod).with_vreg(quot).with_vreg(r));
-            mf.push(mblock, MInstr::new(SUB_RR).with_dst(dst).with_vreg(l).with_vreg(prod));
+            mf.push(
+                mblock,
+                MInstr::new(MUL_RR)
+                    .with_dst(prod)
+                    .with_vreg(quot)
+                    .with_vreg(r),
+            );
+            mf.push(
+                mblock,
+                MInstr::new(SUB_RR)
+                    .with_dst(dst)
+                    .with_vreg(l)
+                    .with_vreg(prod),
+            );
         }
 
         // ── bitwise ────────────────────────────────────────────────────────
-        And { lhs, rhs }      => { emit_binop3!(AND_RR, *lhs, *rhs); }
-        Or  { lhs, rhs }      => { emit_binop3!(ORR_RR, *lhs, *rhs); }
-        Xor { lhs, rhs }      => { emit_binop3!(EOR_RR, *lhs, *rhs); }
+        And { lhs, rhs } => {
+            emit_binop3!(AND_RR, *lhs, *rhs);
+        }
+        Or { lhs, rhs } => {
+            emit_binop3!(ORR_RR, *lhs, *rhs);
+        }
+        Xor { lhs, rhs } => {
+            emit_binop3!(EOR_RR, *lhs, *rhs);
+        }
 
         // ── shifts ─────────────────────────────────────────────────────────
         // AArch64 shift-by-register instructions (LSLV/LSRV/ASRV) are 3-address.
-        Shl  { lhs, rhs, .. } => { emit_binop3!(LSL_RR, *lhs, *rhs); }
-        LShr { lhs, rhs, .. } => { emit_binop3!(LSR_RR, *lhs, *rhs); }
-        AShr { lhs, rhs, .. } => { emit_binop3!(ASR_RR, *lhs, *rhs); }
+        Shl { lhs, rhs, .. } => {
+            emit_binop3!(LSL_RR, *lhs, *rhs);
+        }
+        LShr { lhs, rhs, .. } => {
+            emit_binop3!(LSR_RR, *lhs, *rhs);
+        }
+        AShr { lhs, rhs, .. } => {
+            emit_binop3!(ASR_RR, *lhs, *rhs);
+        }
 
         // ── comparisons ────────────────────────────────────────────────────
         ICmp { pred, lhs, rhs } => {
@@ -245,9 +306,13 @@ fn lower_instr(
         }
 
         // ── select ─────────────────────────────────────────────────────────
-        Select { cond, then_val, else_val } => {
+        Select {
+            cond,
+            then_val,
+            else_val,
+        } => {
             let dst = new_dst!();
-            let c  = res!(*cond);
+            let c = res!(*cond);
             let tv = res!(*then_val);
             let fv = res!(*else_val);
             // Compare condition to zero, then conditionally select.
@@ -259,7 +324,10 @@ fn lower_instr(
             let scratch = mf.fresh_vreg();
             mf.push(mblock, MInstr::new(CSET).with_dst(scratch).with_imm(CC_NE));
             // neg scratch: scratch = 0 → 0, 1 → -1 (all ones).
-            mf.push(mblock, MInstr::new(NEG_R).with_dst(scratch).with_vreg(scratch));
+            mf.push(
+                mblock,
+                MInstr::new(NEG_R).with_dst(scratch).with_vreg(scratch),
+            );
             // dst = (tv & scratch) | (fv & ~scratch)
             // We don't have NOT, so use: fv & (neg scratch ^ -1) = fv xor scratch... too complex.
             // Simple fallback: dst = fv; if cond != 0 => dst = tv.
@@ -275,10 +343,34 @@ fn lower_instr(
             // MOV_IMM (MOVZ) only loads a 16-bit zero-extended immediate and
             // would produce 0xFFFF instead of all-ones.
             mf.push(mblock, MInstr::new(MOV_WIDE).with_dst(allones).with_imm(-1));
-            mf.push(mblock, MInstr::new(EOR_RR).with_dst(notmask).with_vreg(scratch).with_vreg(allones));
-            mf.push(mblock, MInstr::new(AND_RR).with_dst(tmp1).with_vreg(fv).with_vreg(notmask));
-            mf.push(mblock, MInstr::new(AND_RR).with_dst(tmp2).with_vreg(tv).with_vreg(scratch));
-            mf.push(mblock, MInstr::new(ORR_RR).with_dst(dst).with_vreg(tmp1).with_vreg(tmp2));
+            mf.push(
+                mblock,
+                MInstr::new(EOR_RR)
+                    .with_dst(notmask)
+                    .with_vreg(scratch)
+                    .with_vreg(allones),
+            );
+            mf.push(
+                mblock,
+                MInstr::new(AND_RR)
+                    .with_dst(tmp1)
+                    .with_vreg(fv)
+                    .with_vreg(notmask),
+            );
+            mf.push(
+                mblock,
+                MInstr::new(AND_RR)
+                    .with_dst(tmp2)
+                    .with_vreg(tv)
+                    .with_vreg(scratch),
+            );
+            mf.push(
+                mblock,
+                MInstr::new(ORR_RR)
+                    .with_dst(dst)
+                    .with_vreg(tmp1)
+                    .with_vreg(tmp2),
+            );
         }
 
         // ── phi ────────────────────────────────────────────────────────────
@@ -288,11 +380,17 @@ fn lower_instr(
         }
 
         // ── casts ──────────────────────────────────────────────────────────
-        ZExt { val, .. } | Trunc { val, .. } | BitCast { val, .. }
-        | PtrToInt { val, .. } | IntToPtr { val, .. }
-        | FPTrunc { val, .. } | FPExt { val, .. }
-        | FPToUI { val, .. } | FPToSI { val, .. }
-        | UIToFP { val, .. } | SIToFP { val, .. }
+        ZExt { val, .. }
+        | Trunc { val, .. }
+        | BitCast { val, .. }
+        | PtrToInt { val, .. }
+        | IntToPtr { val, .. }
+        | FPTrunc { val, .. }
+        | FPExt { val, .. }
+        | FPToUI { val, .. }
+        | FPToSI { val, .. }
+        | UIToFP { val, .. }
+        | SIToFP { val, .. }
         | AddrSpaceCast { val, .. } => {
             let dst = new_dst!();
             let src = res!(*val);
@@ -303,7 +401,8 @@ fn lower_instr(
             let dst = new_dst!();
             let src = res!(*val);
             // Select the correct sign-extension opcode based on source bit width.
-            let src_bits = func.type_of_value(*val)
+            let src_bits = func
+                .type_of_value(*val)
                 .map(|tid| match ctx.get_type(tid) {
                     TypeData::Integer(bits) => *bits,
                     _ => 32,
@@ -363,8 +462,11 @@ fn lower_instr(
         }
 
         // ── aggregate / vector ops (not yet supported) ─────────────────────
-        ExtractValue { .. } | InsertValue { .. } | ExtractElement { .. }
-        | InsertElement { .. } | ShuffleVector { .. } => {
+        ExtractValue { .. }
+        | InsertValue { .. }
+        | ExtractElement { .. }
+        | InsertElement { .. }
+        | ShuffleVector { .. } => {
             let dst = new_dst!();
             mf.push(mblock, MInstr::new(MOV_IMM).with_dst(dst).with_imm(0));
         }
@@ -401,7 +503,11 @@ fn lower_terminator(
             mf.push(mblock, MInstr::new(B).with_block(dest.0 as usize));
         }
 
-        CondBr { cond, then_dest, else_dest } => {
+        CondBr {
+            cond,
+            then_dest,
+            else_dest,
+        } => {
             let c = resolve(ctx, mf, mblock, vmap, *cond);
             // Each successor edge gets its own trampoline block so that phi
             // copies for one edge cannot overwrite values needed by the other.
@@ -416,17 +522,29 @@ fn lower_terminator(
             let zv = mf.fresh_vreg();
             mf.push(mblock, MInstr::new(MOV_IMM).with_dst(zv).with_imm(0));
             mf.push(mblock, MInstr::new(CMP_RR).with_vreg(c).with_vreg(zv));
-            mf.push(mblock, MInstr::new(B_COND).with_imm(CC_NE).with_block(then_edge));
+            mf.push(
+                mblock,
+                MInstr::new(B_COND).with_imm(CC_NE).with_block(then_edge),
+            );
             mf.push(mblock, MInstr::new(B).with_block(else_edge));
         }
 
-        Switch { val, default, cases } => {
+        Switch {
+            val,
+            default,
+            cases,
+        } => {
             let v = resolve(ctx, mf, mblock, vmap, *val);
             for (case_val, case_dest) in cases {
                 let cv = resolve(ctx, mf, mblock, vmap, *case_val);
                 emit_phi_copies(ctx, func, mf, mblock, mblock, *case_dest, vmap);
                 mf.push(mblock, MInstr::new(CMP_RR).with_vreg(v).with_vreg(cv));
-                mf.push(mblock, MInstr::new(B_COND).with_imm(CC_EQ).with_block(case_dest.0 as usize));
+                mf.push(
+                    mblock,
+                    MInstr::new(B_COND)
+                        .with_imm(CC_EQ)
+                        .with_block(case_dest.0 as usize),
+                );
             }
             emit_phi_copies(ctx, func, mf, mblock, mblock, *default, vmap);
             mf.push(mblock, MInstr::new(B).with_block(default.0 as usize));
@@ -470,9 +588,10 @@ fn emit_phi_copies(
                     None => continue,
                 };
                 let src_vreg = resolve(ctx, mf, emit_to_mblock, vmap, *incoming_val);
-                mf.push(emit_to_mblock, MInstr::new(MOV_RR)
-                    .with_dst(phi_vreg)
-                    .with_vreg(src_vreg));
+                mf.push(
+                    emit_to_mblock,
+                    MInstr::new(MOV_RR).with_dst(phi_vreg).with_vreg(src_vreg),
+                );
             }
         }
     }
@@ -570,9 +689,15 @@ mod tests {
         let (ctx, module) = make_div_fn(true);
         let mut be = AArch64Backend;
         let mf = be.lower_function(&ctx, &module, &module.functions[0]);
-        let has_udiv = mf.blocks.iter().any(|bl| bl.instrs.iter().any(|i| i.opcode == UDIV_RR));
-        let has_sdiv = mf.blocks.iter().any(|bl| bl.instrs.iter().any(|i| i.opcode == SDIV_RR));
-        assert!(has_udiv,  "UDiv must emit UDIV_RR (unsigned div)");
+        let has_udiv = mf
+            .blocks
+            .iter()
+            .any(|bl| bl.instrs.iter().any(|i| i.opcode == UDIV_RR));
+        let has_sdiv = mf
+            .blocks
+            .iter()
+            .any(|bl| bl.instrs.iter().any(|i| i.opcode == SDIV_RR));
+        assert!(has_udiv, "UDiv must emit UDIV_RR (unsigned div)");
         assert!(!has_sdiv, "UDiv must NOT emit SDIV_RR (signed div)");
     }
 
@@ -581,8 +706,14 @@ mod tests {
         let (ctx, module) = make_div_fn(false);
         let mut be = AArch64Backend;
         let mf = be.lower_function(&ctx, &module, &module.functions[0]);
-        let has_sdiv = mf.blocks.iter().any(|bl| bl.instrs.iter().any(|i| i.opcode == SDIV_RR));
-        let has_udiv = mf.blocks.iter().any(|bl| bl.instrs.iter().any(|i| i.opcode == UDIV_RR));
+        let has_sdiv = mf
+            .blocks
+            .iter()
+            .any(|bl| bl.instrs.iter().any(|i| i.opcode == SDIV_RR));
+        let has_udiv = mf
+            .blocks
+            .iter()
+            .any(|bl| bl.instrs.iter().any(|i| i.opcode == UDIV_RR));
         assert!(has_sdiv, "SDiv must emit SDIV_RR (signed div)");
         assert!(!has_udiv, "SDiv must NOT emit UDIV_RR (unsigned div)");
     }
@@ -613,9 +744,10 @@ mod tests {
         let (ctx, module) = make_sext_fn(8);
         let mut be = AArch64Backend;
         let mf = be.lower_function(&ctx, &module, &module.functions[0]);
-        let has_sxtb = mf.blocks.iter().any(|b| {
-            b.instrs.iter().any(|i| i.opcode == SXTB)
-        });
+        let has_sxtb = mf
+            .blocks
+            .iter()
+            .any(|b| b.instrs.iter().any(|i| i.opcode == SXTB));
         assert!(has_sxtb, "sext from i8 must use SXTB");
     }
 
@@ -624,9 +756,10 @@ mod tests {
         let (ctx, module) = make_sext_fn(32);
         let mut be = AArch64Backend;
         let mf = be.lower_function(&ctx, &module, &module.functions[0]);
-        let has_sxtw = mf.blocks.iter().any(|b| {
-            b.instrs.iter().any(|i| i.opcode == SXTW)
-        });
+        let has_sxtw = mf
+            .blocks
+            .iter()
+            .any(|b| b.instrs.iter().any(|i| i.opcode == SXTW));
         assert!(has_sxtw, "sext from i32 must use SXTW");
     }
 
@@ -643,14 +776,14 @@ mod tests {
             false,
             Linkage::External,
         );
-        let entry    = b.add_block("entry");
-        let then_bb  = b.add_block("then_bb");
-        let else_bb  = b.add_block("else_bb");
+        let entry = b.add_block("entry");
+        let then_bb = b.add_block("then_bb");
+        let else_bb = b.add_block("else_bb");
         let merge_bb = b.add_block("merge");
 
         b.position_at_end(entry);
-        let a    = b.get_arg(0);
-        let bv   = b.get_arg(1);
+        let a = b.get_arg(0);
+        let bv = b.get_arg(1);
         let cond = b.get_arg(2);
         b.build_cond_br(cond, then_bb, else_bb);
 
@@ -683,7 +816,8 @@ mod tests {
             mf.blocks.len() > ir_block_count,
             "CondBr must create trampoline edge blocks for phi copies; \
              expected > {} machine blocks, got {}",
-            ir_block_count, mf.blocks.len()
+            ir_block_count,
+            mf.blocks.len()
         );
     }
 
@@ -706,9 +840,9 @@ mod tests {
         let entry = b.add_block("entry");
         b.position_at_end(entry);
         let cond = b.get_arg(0);
-        let tv   = b.get_arg(1);
-        let fv   = b.get_arg(2);
-        let sel  = b.build_select("sel", cond, tv, fv);
+        let tv = b.get_arg(1);
+        let fv = b.get_arg(2);
+        let sel = b.build_select("sel", cond, tv, fv);
         b.build_ret(sel);
 
         let mut be = AArch64Backend;
@@ -716,12 +850,15 @@ mod tests {
 
         // The Select lowering must emit at least one MOV_WIDE instruction
         // (for the all-ones mask used as ~scratch).
-        let has_mov_wide = mf.blocks.iter().any(|bl| {
-            bl.instrs.iter().any(|i| i.opcode == MOV_WIDE)
-        });
-        assert!(has_mov_wide,
+        let has_mov_wide = mf
+            .blocks
+            .iter()
+            .any(|bl| bl.instrs.iter().any(|i| i.opcode == MOV_WIDE));
+        assert!(
+            has_mov_wide,
             "Select lowering must use MOV_WIDE to materialise the all-ones mask, \
-             not MOV_IMM which only loads 16 bits");
+             not MOV_IMM which only loads 16 bits"
+        );
     }
 
     #[test]
@@ -752,20 +889,27 @@ mod tests {
         // There must be at least one instruction that has a dst VReg that
         // is different from all VRegs used only as sources — a proxy for
         // "the load result is defined somewhere".
-        let total_dsts: usize = mf.blocks.iter()
+        let total_dsts: usize = mf
+            .blocks
+            .iter()
             .flat_map(|bl| bl.instrs.iter())
             .filter(|i| i.dst.is_some())
             .count();
-        assert!(total_dsts > 0,
-            "Load lowering must emit an instruction with a non-None dst VReg");
+        assert!(
+            total_dsts > 0,
+            "Load lowering must emit an instruction with a non-None dst VReg"
+        );
 
         // Confirm no NOP appears as the sole instruction for the load
         // (NOP has no dst, so it cannot define the result VReg).
-        let only_nops = mf.blocks.iter().all(|bl| {
-            bl.instrs.iter().all(|i| i.opcode == NOP)
-        });
-        assert!(!only_nops,
-            "Load lowering must not produce only NOPs — the result must be defined");
+        let only_nops = mf
+            .blocks
+            .iter()
+            .all(|bl| bl.instrs.iter().all(|i| i.opcode == NOP));
+        assert!(
+            !only_nops,
+            "Load lowering must not produce only NOPs — the result must be defined"
+        );
     }
 
     #[test]
@@ -796,6 +940,9 @@ mod tests {
         let mf = be.lower_function(&ctx, &module, &module.functions[0]);
 
         // The function body should compile without panicking.
-        assert!(!mf.blocks.is_empty(), "store function must produce at least one block");
+        assert!(
+            !mf.blocks.is_empty(),
+            "store function must produce at least one block"
+        );
     }
 }

@@ -114,11 +114,13 @@ impl Default for PassManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use llvm_ir::{BasicBlock, Function, Instruction, InstrKind, Linkage, Module};
+    use llvm_ir::{BasicBlock, Function, InstrKind, Instruction, Linkage, Module};
 
     struct NoOpPass;
     impl FunctionPass for NoOpPass {
-        fn name(&self) -> &'static str { "noop" }
+        fn name(&self) -> &'static str {
+            "noop"
+        }
         fn run_on_function(&mut self, _ctx: &mut Context, _func: &mut Function) -> bool {
             false
         }
@@ -129,7 +131,9 @@ mod tests {
         let mut func = Function::new("f", fn_ty, vec![], Linkage::External);
         let mut bb = BasicBlock::new("entry");
         let iid = func.alloc_instr(Instruction {
-            name: None, ty: ctx.void_ty, kind: InstrKind::Unreachable,
+            name: None,
+            ty: ctx.void_ty,
+            kind: InstrKind::Unreachable,
         });
         bb.set_terminator(iid);
         func.add_block(bb);
@@ -166,7 +170,9 @@ mod tests {
 
         struct PanicPass;
         impl FunctionPass for PanicPass {
-            fn name(&self) -> &'static str { "panic" }
+            fn name(&self) -> &'static str {
+                "panic"
+            }
             fn run_on_function(&mut self, _: &mut Context, _: &mut Function) -> bool {
                 panic!("must not run on a declaration");
             }

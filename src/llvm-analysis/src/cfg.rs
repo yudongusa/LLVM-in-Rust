@@ -55,7 +55,9 @@ impl Cfg {
         if n > 0 {
             let mut stack = vec![0usize];
             while let Some(b) = stack.pop() {
-                if reachable[b] { continue; }
+                if reachable[b] {
+                    continue;
+                }
                 reachable[b] = true;
                 reachable_count += 1;
                 for &succ in &succs[b] {
@@ -64,7 +66,13 @@ impl Cfg {
             }
         }
 
-        Cfg { num_blocks: n, succs, preds, reachable, reachable_count }
+        Cfg {
+            num_blocks: n,
+            succs,
+            preds,
+            reachable,
+            reachable_count,
+        }
     }
 
     /// The function entry block (always index 0).
@@ -133,7 +141,9 @@ impl Cfg {
 
     fn dfs_post(&self, bid: BlockId, visited: &mut Vec<bool>, order: &mut Vec<BlockId>) {
         let idx = bid.0 as usize;
-        if visited[idx] { return; }
+        if visited[idx] {
+            return;
+        }
         visited[idx] = true;
         for &succ in &self.succs[idx] {
             self.dfs_post(succ, visited, order);
@@ -145,7 +155,7 @@ impl Cfg {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use llvm_ir::{Context, Function, BasicBlock, Instruction, InstrKind, Linkage, ValueRef};
+    use llvm_ir::{BasicBlock, Context, Function, InstrKind, Instruction, Linkage, ValueRef};
 
     /// Build a test function with `num_blocks` blocks.
     /// `edges`: (src_idx, vec_of_dst_idx) — at most 2 successors per block.
@@ -164,7 +174,9 @@ mod tests {
             has_term[src] = true;
             let kind = match dsts.as_slice() {
                 [] => InstrKind::Unreachable,
-                [dst] => InstrKind::Br { dest: BlockId(*dst as u32) },
+                [dst] => InstrKind::Br {
+                    dest: BlockId(*dst as u32),
+                },
                 [t, f] => {
                     let cond = ValueRef::Constant(ctx.const_int(ctx.i1_ty, 0));
                     InstrKind::CondBr {
@@ -175,12 +187,20 @@ mod tests {
                 }
                 _ => panic!("test only supports 0/1/2 successors"),
             };
-            let iid = func.alloc_instr(Instruction { name: None, ty: ctx.void_ty, kind });
+            let iid = func.alloc_instr(Instruction {
+                name: None,
+                ty: ctx.void_ty,
+                kind,
+            });
             func.blocks[src].set_terminator(iid);
         }
-        for i in 0..num_blocks {
-            if !has_term[i] {
-                let iid = func.alloc_instr(Instruction { name: None, ty: ctx.void_ty, kind: InstrKind::Unreachable });
+        for (i, &needs_term) in has_term.iter().enumerate() {
+            if !needs_term {
+                let iid = func.alloc_instr(Instruction {
+                    name: None,
+                    ty: ctx.void_ty,
+                    kind: InstrKind::Unreachable,
+                });
                 func.blocks[i].set_terminator(iid);
             }
         }
@@ -212,12 +232,10 @@ mod tests {
     #[test]
     fn cfg_diamond() {
         // 0 -> {1, 2} -> 3
-        let (_ctx, func) = build_func(4, &[
-            (0, vec![1, 2]),
-            (1, vec![3]),
-            (2, vec![3]),
-            (3, vec![]),
-        ]);
+        let (_ctx, func) = build_func(
+            4,
+            &[(0, vec![1, 2]), (1, vec![3]), (2, vec![3]), (3, vec![])],
+        );
         let cfg = Cfg::compute(&func);
         assert_eq!(cfg.successors(BlockId(0)).len(), 2);
         assert_eq!(cfg.predecessors(BlockId(3)).len(), 2);
@@ -229,12 +247,10 @@ mod tests {
     #[test]
     fn cfg_loop() {
         // 0 -> 1 -> 2 -> {1, 3}  (back-edge 2→1)
-        let (_ctx, func) = build_func(4, &[
-            (0, vec![1]),
-            (1, vec![2]),
-            (2, vec![1, 3]),
-            (3, vec![]),
-        ]);
+        let (_ctx, func) = build_func(
+            4,
+            &[(0, vec![1]), (1, vec![2]), (2, vec![1, 3]), (3, vec![])],
+        );
         let cfg = Cfg::compute(&func);
         assert!(cfg.predecessors(BlockId(1)).contains(&BlockId(2)));
         assert_eq!(cfg.rpo().len(), 4);

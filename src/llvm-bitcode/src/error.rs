@@ -20,12 +20,12 @@ pub enum BitcodeError {
 impl std::fmt::Display for BitcodeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            BitcodeError::InvalidMagic        => write!(f, "invalid magic bytes (not LRIR format)"),
-            BitcodeError::TruncatedInput      => write!(f, "input is truncated"),
-            BitcodeError::UnexpectedEof       => write!(f, "unexpected end of file"),
+            BitcodeError::InvalidMagic => write!(f, "invalid magic bytes (not LRIR format)"),
+            BitcodeError::TruncatedInput => write!(f, "input is truncated"),
+            BitcodeError::UnexpectedEof => write!(f, "unexpected end of file"),
             BitcodeError::UnsupportedRecord(t) => write!(f, "unsupported record type: {}", t),
-            BitcodeError::InvalidType         => write!(f, "invalid type tag"),
-            BitcodeError::ParseError(msg)     => write!(f, "parse error: {}", msg),
+            BitcodeError::InvalidType => write!(f, "invalid type tag"),
+            BitcodeError::ParseError(msg) => write!(f, "parse error: {}", msg),
         }
     }
 }

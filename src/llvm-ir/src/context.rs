@@ -1,8 +1,8 @@
 //! Context: interning tables for IR types and constants, plus all newtype index types.
 
-use std::collections::HashMap;
-use crate::types::{TypeData, FloatKind, StructType, FunctionType};
+use crate::types::{FloatKind, FunctionType, StructType, TypeData};
 use crate::value::ConstantData;
+use std::collections::HashMap;
 
 // ---------------------------------------------------------------------------
 // Newtype index types — all u32, Copy
@@ -155,15 +155,27 @@ impl Context {
     }
 
     pub fn mk_vector(&mut self, element: TypeId, len: u32, scalable: bool) -> TypeId {
-        self.intern_anon(TypeData::Vector { element, len, scalable })
+        self.intern_anon(TypeData::Vector {
+            element,
+            len,
+            scalable,
+        })
     }
 
     pub fn mk_fn_type(&mut self, ret: TypeId, params: Vec<TypeId>, variadic: bool) -> TypeId {
-        self.intern_anon(TypeData::Function(FunctionType { ret, params, variadic }))
+        self.intern_anon(TypeData::Function(FunctionType {
+            ret,
+            params,
+            variadic,
+        }))
     }
 
     pub fn mk_struct_anon(&mut self, fields: Vec<TypeId>, packed: bool) -> TypeId {
-        self.intern_anon(TypeData::Struct(StructType { name: None, fields, packed }))
+        self.intern_anon(TypeData::Struct(StructType {
+            name: None,
+            fields,
+            packed,
+        }))
     }
 
     /// Create or look up a named struct. If the name is new, an opaque (empty-body)
@@ -214,7 +226,10 @@ impl Context {
 
     /// Iterate over all (TypeId, TypeData) pairs.
     pub fn types(&self) -> impl Iterator<Item = (TypeId, &TypeData)> {
-        self.types.iter().enumerate().map(|(i, td)| (TypeId(i as u32), td))
+        self.types
+            .iter()
+            .enumerate()
+            .map(|(i, td)| (TypeId(i as u32), td))
     }
 
     // -----------------------------------------------------------------------

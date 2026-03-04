@@ -1,7 +1,7 @@
 //! x86_64 calling-convention support (System V AMD64 and Windows x64).
 
+use crate::regs::{R8, R9, RAX, RCX, RDI, RDX, RSI};
 use llvm_codegen::isel::PReg;
-use crate::regs::{RAX, RCX, RDX, RSI, RDI, R8, R9};
 
 // ── System V AMD64 ABI ─────────────────────────────────────────────────────
 
@@ -66,7 +66,7 @@ pub fn classify_win64_args(n_args: usize) -> Vec<ArgLocation> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::regs::{RDI, RSI, RDX, RCX, R8, R9};
+    use crate::regs::{R8, R9, RCX, RDI, RDX, RSI};
 
     #[test]
     fn sysv_first_six_in_registers() {

@@ -42,10 +42,7 @@ impl BasicBlock {
 
     /// Iterate over all instruction ids in order (body + terminator).
     pub fn instrs(&self) -> impl Iterator<Item = InstrId> + '_ {
-        self.body
-            .iter()
-            .copied()
-            .chain(self.terminator.into_iter())
+        self.body.iter().copied().chain(self.terminator.into_iter())
     }
 
     /// Number of instructions (body + optional terminator).

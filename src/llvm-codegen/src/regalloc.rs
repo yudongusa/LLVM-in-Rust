@@ -10,8 +10,8 @@
 //!    - If a free register exists, assign it.
 //!    - Otherwise spill the interval with the largest end point.
 
+use crate::isel::{MOperand, MachineFunction, PReg, VReg};
 use std::collections::HashMap;
-use crate::isel::{MachineFunction, MOperand, PReg, VReg};
 
 // ── live intervals ─────────────────────────────────────────────────────────
 
@@ -47,15 +47,23 @@ pub fn compute_live_intervals(mf: &MachineFunction) -> Vec<LiveInterval> {
             // Definition extends interval to at least [pos, pos+1).
             if let Some(dst) = instr.dst {
                 let e = map.entry(dst).or_insert((pos, pos + 1));
-                if pos < e.0 { e.0 = pos; }
-                if pos + 1 > e.1 { e.1 = pos + 1; }
+                if pos < e.0 {
+                    e.0 = pos;
+                }
+                if pos + 1 > e.1 {
+                    e.1 = pos + 1;
+                }
             }
             // Uses extend the end of the interval.
             for op in &instr.operands {
                 if let MOperand::VReg(vr) = op {
                     let e = map.entry(*vr).or_insert((pos, pos + 1));
-                    if pos < e.0 { e.0 = pos; }
-                    if pos + 1 > e.1 { e.1 = pos + 1; }
+                    if pos < e.0 {
+                        e.0 = pos;
+                    }
+                    if pos + 1 > e.1 {
+                        e.1 = pos + 1;
+                    }
                 }
             }
             pos += 1;
@@ -82,10 +90,7 @@ pub struct RegAllocResult {
 /// Run linear-scan allocation over `intervals` using `allocatable` registers.
 ///
 /// Spilled VRegs are recorded in [`RegAllocResult::spilled`].
-pub fn linear_scan(
-    intervals: &[LiveInterval],
-    allocatable: &[PReg],
-) -> RegAllocResult {
+pub fn linear_scan(intervals: &[LiveInterval], allocatable: &[PReg]) -> RegAllocResult {
     if allocatable.is_empty() {
         return RegAllocResult {
             vreg_to_preg: HashMap::new(),
@@ -118,7 +123,11 @@ pub fn linear_scan(
         if free.is_empty() {
             // Spill: the active set is kept sorted by end, so the interval with
             // the largest end is always at the back — O(1) lookup instead of O(n).
-            let spill_idx = if active.is_empty() { None } else { Some(active.len() - 1) };
+            let spill_idx = if active.is_empty() {
+                None
+            } else {
+                Some(active.len() - 1)
+            };
 
             if let Some(idx) = spill_idx {
                 let (spill_end, spill_vr, spill_pr) = active[idx];
@@ -187,7 +196,11 @@ mod tests {
     use super::*;
 
     fn iv(vreg: u32, start: usize, end: usize) -> LiveInterval {
-        LiveInterval { vreg: VReg(vreg), start, end }
+        LiveInterval {
+            vreg: VReg(vreg),
+            start,
+            end,
+        }
     }
 
     #[test]
@@ -239,7 +252,7 @@ mod tests {
 
     #[test]
     fn apply_allocation_rewrites_operands() {
-        use crate::isel::{MachineFunction, MInstr, MOpcode};
+        use crate::isel::{MInstr, MOpcode, MachineFunction};
         let mut mf = MachineFunction::new("f".into());
         let b = mf.add_block("entry");
         let v0 = mf.fresh_vreg();
@@ -254,7 +267,7 @@ mod tests {
         apply_allocation(&mut mf, &result);
 
         // instr 0: dst=v0→PReg(3), src operand v1→PReg(7)
-        assert_eq!(mf.blocks[0].instrs[0].dst, Some(VReg(3)));  // physical reg 3
+        assert_eq!(mf.blocks[0].instrs[0].dst, Some(VReg(3))); // physical reg 3
         assert_eq!(mf.blocks[0].instrs[0].operands[0], MOperand::PReg(PReg(7)));
         // instr 1: src operand v0→PReg(3)
         assert_eq!(mf.blocks[0].instrs[1].operands[0], MOperand::PReg(PReg(3)));
@@ -262,7 +275,7 @@ mod tests {
 
     #[test]
     fn apply_allocation_rewrites_dst_register() {
-        use crate::isel::{MachineFunction, MInstr, MOpcode};
+        use crate::isel::{MInstr, MOpcode, MachineFunction};
         let mut mf = MachineFunction::new("f".into());
         let b = mf.add_block("entry");
         let v5 = VReg(5); // VReg 5 allocated to PReg 2
@@ -284,17 +297,24 @@ mod tests {
         // partition_point insertion correctly maintains the sorted invariant.
         // 5 intervals all starting at 0 with different ends — need 5 registers.
         let intervals = vec![
-            iv(0, 0, 10), iv(1, 0, 8), iv(2, 0, 6), iv(3, 0, 4), iv(4, 0, 2),
+            iv(0, 0, 10),
+            iv(1, 0, 8),
+            iv(2, 0, 6),
+            iv(3, 0, 4),
+            iv(4, 0, 2),
         ];
         let alloc: Vec<PReg> = (0u8..5).map(PReg).collect();
         let result = linear_scan(&intervals, &alloc);
-        assert!(result.spilled.is_empty(), "no spills: 5 regs for 5 simultaneous live ranges");
+        assert!(
+            result.spilled.is_empty(),
+            "no spills: 5 regs for 5 simultaneous live ranges"
+        );
         assert_eq!(result.vreg_to_preg.len(), 5);
     }
 
     #[test]
     fn compute_intervals_single_block() {
-        use crate::isel::{MachineFunction, MInstr, MOpcode};
+        use crate::isel::{MInstr, MOpcode, MachineFunction};
         let mut mf = MachineFunction::new("f".into());
         let b = mf.add_block("entry");
         let v0 = mf.fresh_vreg();

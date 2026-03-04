@@ -24,10 +24,10 @@
 //! * structurise the CFG before calling `LoopInfo::compute`, or
 //! * use a full SCC-based (Havlak/Sreedhar) algorithm instead.
 
-use std::collections::{HashMap, HashSet, VecDeque};
-use llvm_ir::{BlockId, Function};
 use crate::cfg::Cfg;
 use crate::dominators::DomTree;
+use llvm_ir::{BlockId, Function};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 /// A single natural loop.
 #[derive(Debug)]
@@ -57,7 +57,10 @@ impl LoopInfo {
     /// details and mitigation options.
     pub fn compute(func: &Function, cfg: &Cfg, dom: &DomTree) -> Self {
         if func.num_blocks() == 0 {
-            return LoopInfo { loops: vec![], block_loop: HashMap::new() };
+            return LoopInfo {
+                loops: vec![],
+                block_loop: HashMap::new(),
+            };
         }
 
         // Find back-edges and build one loop per back-edge.
@@ -111,7 +114,9 @@ impl LoopInfo {
         let mut visited = HashSet::new();
         let mut stack = vec![cfg.entry()];
         while let Some(b) = stack.pop() {
-            if !visited.insert(b) { continue; }
+            if !visited.insert(b) {
+                continue;
+            }
             for &succ in cfg.successors(b) {
                 if dom.dominates(succ, b) {
                     back_edges.push((b, succ));
@@ -177,7 +182,7 @@ impl LoopInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use llvm_ir::{Context, Function, BasicBlock, Instruction, InstrKind, Linkage, ValueRef};
+    use llvm_ir::{BasicBlock, Context, Function, InstrKind, Instruction, Linkage, ValueRef};
 
     fn build_func(num_blocks: usize, edges: &[(usize, Vec<usize>)]) -> (Context, Function) {
         let mut ctx = Context::new();
@@ -191,19 +196,33 @@ mod tests {
             has_term[src] = true;
             let kind = match dsts.as_slice() {
                 [] => InstrKind::Unreachable,
-                [dst] => InstrKind::Br { dest: BlockId(*dst as u32) },
+                [dst] => InstrKind::Br {
+                    dest: BlockId(*dst as u32),
+                },
                 [t, f] => {
                     let cond = ValueRef::Constant(ctx.const_int(ctx.i1_ty, 0));
-                    InstrKind::CondBr { cond, then_dest: BlockId(*t as u32), else_dest: BlockId(*f as u32) }
+                    InstrKind::CondBr {
+                        cond,
+                        then_dest: BlockId(*t as u32),
+                        else_dest: BlockId(*f as u32),
+                    }
                 }
                 _ => panic!("max 2 successors"),
             };
-            let iid = func.alloc_instr(Instruction { name: None, ty: ctx.void_ty, kind });
+            let iid = func.alloc_instr(Instruction {
+                name: None,
+                ty: ctx.void_ty,
+                kind,
+            });
             func.blocks[src].set_terminator(iid);
         }
-        for i in 0..num_blocks {
-            if !has_term[i] {
-                let iid = func.alloc_instr(Instruction { name: None, ty: ctx.void_ty, kind: InstrKind::Unreachable });
+        for (i, &needs_term) in has_term.iter().enumerate() {
+            if !needs_term {
+                let iid = func.alloc_instr(Instruction {
+                    name: None,
+                    ty: ctx.void_ty,
+                    kind: InstrKind::Unreachable,
+                });
                 func.blocks[i].set_terminator(iid);
             }
         }
@@ -225,12 +244,10 @@ mod tests {
     #[test]
     fn simple_loop() {
         // 0 -> 1 -> 2 -> {1(back), 3}
-        let (_ctx, func) = build_func(4, &[
-            (0, vec![1]),
-            (1, vec![2]),
-            (2, vec![1, 3]),
-            (3, vec![]),
-        ]);
+        let (_ctx, func) = build_func(
+            4,
+            &[(0, vec![1]), (1, vec![2]), (2, vec![1, 3]), (3, vec![])],
+        );
         let cfg = Cfg::compute(&func);
         let dom = DomTree::compute(&func, &cfg);
         let li = LoopInfo::compute(&func, &cfg, &dom);
@@ -255,13 +272,16 @@ mod tests {
         // Outer loop header=1: body={1,2,3}
         // Inner loop header=2: body={2,3}
         // CFG: 0->1, 1->{2,4}, 2->3, 3->{2(inner back),1(outer back)}, 4 exit
-        let (_ctx, func) = build_func(5, &[
-            (0, vec![1]),
-            (1, vec![2, 4]),
-            (2, vec![3]),
-            (3, vec![2, 1]),
-            (4, vec![]),
-        ]);
+        let (_ctx, func) = build_func(
+            5,
+            &[
+                (0, vec![1]),
+                (1, vec![2, 4]),
+                (2, vec![3]),
+                (3, vec![2, 1]),
+                (4, vec![]),
+            ],
+        );
         let cfg = Cfg::compute(&func);
         let dom = DomTree::compute(&func, &cfg);
         let li = LoopInfo::compute(&func, &cfg, &dom);
@@ -287,11 +307,7 @@ mod tests {
         // back-edge is detected by the dominance-based algorithm.  This test
         // documents the known limitation described in issue #9: natural loop
         // detection silently under-reports loops in irreducible CFGs.
-        let (_ctx, func) = build_func(3, &[
-            (0, vec![1, 2]),
-            (1, vec![2]),
-            (2, vec![1]),
-        ]);
+        let (_ctx, func) = build_func(3, &[(0, vec![1, 2]), (1, vec![2]), (2, vec![1])]);
         let cfg = Cfg::compute(&func);
         let dom = DomTree::compute(&func, &cfg);
         let li = LoopInfo::compute(&func, &cfg, &dom);

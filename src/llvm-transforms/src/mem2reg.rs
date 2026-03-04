@@ -15,27 +15,33 @@
 //! After the pass, all promoted allocas, their loads, and their stores are
 //! removed.  Non-promotable memory operations are left unchanged.
 
-use std::collections::{HashMap, HashSet, VecDeque};
-use llvm_ir::{BlockId, Context, Function, InstrId, InstrKind, Instruction, TypeId, ValueRef};
-use llvm_analysis::{Cfg, DomTree};
-use crate::pass::FunctionPass;
 use crate::const_prop::subst_kind;
+use crate::pass::FunctionPass;
+use llvm_analysis::{Cfg, DomTree};
+use llvm_ir::{BlockId, Context, Function, InstrId, InstrKind, Instruction, TypeId, ValueRef};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 /// mem2reg pass.
 pub struct Mem2Reg;
 
 impl FunctionPass for Mem2Reg {
-    fn name(&self) -> &'static str { "mem2reg" }
+    fn name(&self) -> &'static str {
+        "mem2reg"
+    }
 
     fn run_on_function(&mut self, ctx: &mut Context, func: &mut Function) -> bool {
-        if func.blocks.is_empty() { return false; }
+        if func.blocks.is_empty() {
+            return false;
+        }
 
         let promotable = find_promotable_allocas(func);
-        if promotable.is_empty() { return false; }
+        if promotable.is_empty() {
+            return false;
+        }
 
         let cfg = Cfg::compute(func);
         let dom = DomTree::compute(func, &cfg);
-        let df  = dom.dominance_frontier(&cfg);
+        let df = dom.dominance_frontier(&cfg);
 
         // Step 2 — insert phi nodes at the IDF of each alloca's def sites.
         let phi_map = insert_phis(ctx, func, &promotable, &df, &cfg);
@@ -62,14 +68,24 @@ impl FunctionPass for Mem2Reg {
         }
 
         rename_dfs(
-            BlockId(0), func, &promotable, &phi_map, &cfg,
-            &dom_children, &mut stacks, &mut subst,
-            &mut instrs_to_remove, &mut phi_updates,
+            BlockId(0),
+            func,
+            &promotable,
+            &phi_map,
+            &cfg,
+            &dom_children,
+            &mut stacks,
+            &mut subst,
+            &mut instrs_to_remove,
+            &mut phi_updates,
         );
 
         // Apply phi incoming-value updates collected during the rename.
         for (phi_iid, pred, new_val) in phi_updates {
-            if let InstrKind::Phi { ref mut incoming, .. } = func.instr_mut(phi_iid).kind {
+            if let InstrKind::Phi {
+                ref mut incoming, ..
+            } = func.instr_mut(phi_iid).kind
+            {
                 for (val, blk) in incoming.iter_mut() {
                     if *blk == pred {
                         *val = new_val;
@@ -108,11 +124,24 @@ impl FunctionPass for Mem2Reg {
 ///   `store val, ptr` (address never captured or passed elsewhere).
 fn find_promotable_allocas(func: &Function) -> HashMap<InstrId, TypeId> {
     let mut result = HashMap::new();
-    let entry = match func.blocks.first() { Some(b) => b, None => return result };
+    let entry = match func.blocks.first() {
+        Some(b) => b,
+        None => return result,
+    };
 
-    let alloca_iids: Vec<InstrId> = entry.body.iter()
+    let alloca_iids: Vec<InstrId> = entry
+        .body
+        .iter()
         .copied()
-        .filter(|&iid| matches!(func.instr(iid).kind, InstrKind::Alloca { num_elements: None, .. }))
+        .filter(|&iid| {
+            matches!(
+                func.instr(iid).kind,
+                InstrKind::Alloca {
+                    num_elements: None,
+                    ..
+                }
+            )
+        })
         .collect();
 
     'outer: for &alloca_iid in &alloca_iids {
@@ -125,11 +154,22 @@ fn find_promotable_allocas(func: &Function) -> HashMap<InstrId, TypeId> {
         for instr in &func.instructions {
             match &instr.kind {
                 // Non-volatile load from the alloca address — OK.
-                InstrKind::Load { ptr: p, volatile: false, .. } if *p == ptr => {}
+                InstrKind::Load {
+                    ptr: p,
+                    volatile: false,
+                    ..
+                } if *p == ptr => {}
                 // Non-volatile store of a non-self value to the alloca address — OK.
-                InstrKind::Store { ptr: p, val, volatile: false, .. } if *p == ptr => {
+                InstrKind::Store {
+                    ptr: p,
+                    val,
+                    volatile: false,
+                    ..
+                } if *p == ptr => {
                     // Don't promote if the alloca's address is stored through itself.
-                    if *val == ptr { continue 'outer; }
+                    if *val == ptr {
+                        continue 'outer;
+                    }
                 }
                 // Any other use of the alloca's address → not promotable.
                 kind if kind.operands().contains(&ptr) => continue 'outer,
@@ -174,11 +214,17 @@ fn insert_phis(
             let phi_iid = func.alloc_instr(Instruction {
                 name: Some(phi_name),
                 ty: alloc_ty,
-                kind: InstrKind::Phi { ty: alloc_ty, incoming },
+                kind: InstrKind::Phi {
+                    ty: alloc_ty,
+                    incoming,
+                },
             });
             // Phi nodes go at the front of the block body.
             func.blocks[block_id.0 as usize].body.insert(0, phi_iid);
-            phi_map.entry(block_id).or_default().push((alloca_iid, phi_iid));
+            phi_map
+                .entry(block_id)
+                .or_default()
+                .push((alloca_iid, phi_iid));
         }
     }
 
@@ -191,7 +237,10 @@ fn find_def_blocks(func: &Function, alloca_iid: InstrId) -> Vec<BlockId> {
     for (bi, bb) in func.blocks.iter().enumerate() {
         for iid in bb.instrs() {
             if let InstrKind::Store { ptr: p, .. } = &func.instr(iid).kind {
-                if *p == ptr { result.push(BlockId(bi as u32)); break; }
+                if *p == ptr {
+                    result.push(BlockId(bi as u32));
+                    break;
+                }
             }
         }
     }
@@ -217,6 +266,7 @@ fn iterated_df(def_blocks: &[BlockId], df: &HashMap<BlockId, Vec<BlockId>>) -> V
 
 /// Rename all loads and stores for the promotable allocas in the subtree
 /// rooted at `block` in the dominator tree.
+#[allow(clippy::too_many_arguments)]
 fn rename_dfs(
     block: BlockId,
     func: &mut Function,
@@ -248,29 +298,34 @@ fn rename_dfs(
             InstrKind::Alloca { .. } if promotable.contains_key(&iid) => {
                 // The alloca itself — nothing to push; removal handled later.
             }
-            InstrKind::Load { ptr, volatile: false, .. } => {
-                if let ValueRef::Instruction(alloca_iid) = ptr {
-                    if let Some(stack) = stacks.get(&alloca_iid) {
-                        let def = *stack.last().unwrap();
-                        subst.insert(iid, def);
-                        instrs_to_remove.insert(iid);
-                    }
+            InstrKind::Load {
+                ptr: ValueRef::Instruction(alloca_iid),
+                volatile: false,
+                ..
+            } => {
+                if let Some(stack) = stacks.get(&alloca_iid) {
+                    let def = *stack.last().unwrap();
+                    subst.insert(iid, def);
+                    instrs_to_remove.insert(iid);
                 }
             }
-            InstrKind::Store { val, ptr, volatile: false, .. } => {
-                if let ValueRef::Instruction(alloca_iid) = ptr {
-                    if stacks.contains_key(&alloca_iid) {
-                        // If the stored value is itself a replaced load, resolve it.
-                        let resolved = if let ValueRef::Instruction(vid) = val {
-                            subst.get(&vid).copied().unwrap_or(val)
-                        } else {
-                            val
-                        };
-                        let stack = stacks.get_mut(&alloca_iid).unwrap();
-                        saved.push((alloca_iid, stack.len()));
-                        stack.push(resolved);
-                        instrs_to_remove.insert(iid);
-                    }
+            InstrKind::Store {
+                val,
+                ptr: ValueRef::Instruction(alloca_iid),
+                volatile: false,
+                ..
+            } => {
+                if stacks.contains_key(&alloca_iid) {
+                    // If the stored value is itself a replaced load, resolve it.
+                    let resolved = if let ValueRef::Instruction(vid) = val {
+                        subst.get(&vid).copied().unwrap_or(val)
+                    } else {
+                        val
+                    };
+                    let stack = stacks.get_mut(&alloca_iid).unwrap();
+                    saved.push((alloca_iid, stack.len()));
+                    stack.push(resolved);
+                    instrs_to_remove.insert(iid);
                 }
             }
             _ => {}
@@ -291,8 +346,16 @@ fn rename_dfs(
     let children = dom_children[block.0 as usize].clone();
     for child in children {
         rename_dfs(
-            child, func, promotable, phi_map, cfg, dom_children,
-            stacks, subst, instrs_to_remove, phi_updates,
+            child,
+            func,
+            promotable,
+            phi_map,
+            cfg,
+            dom_children,
+            stacks,
+            subst,
+            instrs_to_remove,
+            phi_updates,
         );
     }
 
@@ -309,8 +372,8 @@ fn rename_dfs(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use llvm_ir::{Builder, Context, Linkage, Module, ValueRef};
     use crate::pass::FunctionPass;
+    use llvm_ir::{Builder, Context, Linkage, Module, ValueRef};
 
     // Build:  f(i32 %x) -> i32 {
     //   entry: %p = alloca i32
@@ -323,8 +386,14 @@ mod tests {
         let mut ctx = Context::new();
         let mut module = Module::new("test");
         let mut b = Builder::new(&mut ctx, &mut module);
-        b.add_function("f", b.ctx.i32_ty, vec![b.ctx.i32_ty],
-            vec!["x".into()], false, Linkage::External);
+        b.add_function(
+            "f",
+            b.ctx.i32_ty,
+            vec![b.ctx.i32_ty],
+            vec!["x".into()],
+            false,
+            Linkage::External,
+        );
         let entry = b.add_block("entry");
         b.position_at_end(entry);
         let x = b.get_arg(0);
@@ -348,14 +417,20 @@ mod tests {
 
         // After: entry body is empty (all three promoted away).
         let func = &module.functions[0];
-        assert_eq!(func.blocks[0].body.len(), 0,
-            "alloca, store, and load should all be removed");
+        assert_eq!(
+            func.blocks[0].body.len(),
+            0,
+            "alloca, store, and load should all be removed"
+        );
 
         // ret should use %x (ArgId 0) directly.
         let tid = func.blocks[0].terminator.unwrap();
         if let InstrKind::Ret { val: Some(v) } = &func.instr(tid).kind {
-            assert_eq!(*v, ValueRef::Argument(llvm_ir::ArgId(0)),
-                "ret should use arg %x directly after mem2reg");
+            assert_eq!(
+                *v,
+                ValueRef::Argument(llvm_ir::ArgId(0)),
+                "ret should use arg %x directly after mem2reg"
+            );
         } else {
             panic!("terminator should be ret with a value");
         }
@@ -373,12 +448,18 @@ mod tests {
         let mut ctx = Context::new();
         let mut module = Module::new("test");
         let mut b = Builder::new(&mut ctx, &mut module);
-        b.add_function("f", b.ctx.i32_ty, vec![b.ctx.i1_ty],
-            vec!["cond".into()], false, Linkage::External);
-        let entry  = b.add_block("entry");
+        b.add_function(
+            "f",
+            b.ctx.i32_ty,
+            vec![b.ctx.i1_ty],
+            vec!["cond".into()],
+            false,
+            Linkage::External,
+        );
+        let entry = b.add_block("entry");
         let then_b = b.add_block("then");
         let else_b = b.add_block("else");
-        let merge  = b.add_block("merge");
+        let merge = b.add_block("merge");
 
         b.position_at_end(entry);
         let cond = b.get_arg(0);
@@ -419,7 +500,10 @@ mod tests {
         );
         // ret should use the phi result.
         let tid = func.blocks[3].terminator.unwrap();
-        if let InstrKind::Ret { val: Some(ValueRef::Instruction(phi_iid)) } = &func.instr(tid).kind {
+        if let InstrKind::Ret {
+            val: Some(ValueRef::Instruction(phi_iid)),
+        } = &func.instr(tid).kind
+        {
             assert!(
                 matches!(func.instr(*phi_iid).kind, InstrKind::Phi { .. }),
                 "ret should reference the inserted phi"
@@ -444,7 +528,13 @@ mod tests {
         b.position_at_end(entry);
         let p = b.build_alloca("p", b.ctx.i32_ty);
         // Call with p as argument — captures address.
-        b.build_call("", b.ctx.void_ty, callee_ty, ValueRef::Global(llvm_ir::GlobalId(0)), vec![p]);
+        b.build_call(
+            "",
+            b.ctx.void_ty,
+            callee_ty,
+            ValueRef::Global(llvm_ir::GlobalId(0)),
+            vec![p],
+        );
         let c0 = b.const_int(b.ctx.i32_ty, 0);
         b.build_ret(c0);
 

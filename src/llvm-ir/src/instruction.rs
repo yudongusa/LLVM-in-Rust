@@ -1,6 +1,6 @@
 //! SSA instructions: arithmetic, memory, control flow, and call instructions.
 
-use crate::context::{TypeId, BlockId, ValueRef};
+use crate::context::{BlockId, TypeId, ValueRef};
 
 // ---------------------------------------------------------------------------
 // Flags
@@ -56,8 +56,8 @@ pub enum IntPredicate {
 impl IntPredicate {
     pub fn as_str(self) -> &'static str {
         match self {
-            IntPredicate::Eq  => "eq",
-            IntPredicate::Ne  => "ne",
+            IntPredicate::Eq => "eq",
+            IntPredicate::Ne => "ne",
             IntPredicate::Ugt => "ugt",
             IntPredicate::Uge => "uge",
             IntPredicate::Ult => "ult",
@@ -94,20 +94,20 @@ impl FloatPredicate {
     pub fn as_str(self) -> &'static str {
         match self {
             FloatPredicate::False => "false",
-            FloatPredicate::Oeq  => "oeq",
-            FloatPredicate::Ogt  => "ogt",
-            FloatPredicate::Oge  => "oge",
-            FloatPredicate::Olt  => "olt",
-            FloatPredicate::Ole  => "ole",
-            FloatPredicate::One  => "one",
-            FloatPredicate::Ord  => "ord",
-            FloatPredicate::Uno  => "uno",
-            FloatPredicate::Ueq  => "ueq",
-            FloatPredicate::Ugt  => "ugt",
-            FloatPredicate::Uge  => "uge",
-            FloatPredicate::Ult  => "ult",
-            FloatPredicate::Ule  => "ule",
-            FloatPredicate::Une  => "une",
+            FloatPredicate::Oeq => "oeq",
+            FloatPredicate::Ogt => "ogt",
+            FloatPredicate::Oge => "oge",
+            FloatPredicate::Olt => "olt",
+            FloatPredicate::Ole => "ole",
+            FloatPredicate::One => "one",
+            FloatPredicate::Ord => "ord",
+            FloatPredicate::Uno => "uno",
+            FloatPredicate::Ueq => "ueq",
+            FloatPredicate::Ugt => "ugt",
+            FloatPredicate::Uge => "uge",
+            FloatPredicate::Ult => "ult",
+            FloatPredicate::Ule => "ule",
+            FloatPredicate::Une => "une",
             FloatPredicate::True => "true",
         }
     }
@@ -129,63 +129,225 @@ pub enum TailCallKind {
 #[derive(Clone, Debug, PartialEq)]
 pub enum InstrKind {
     // --- Integer arithmetic ---
-    Add { flags: IntArithFlags, lhs: ValueRef, rhs: ValueRef },
-    Sub { flags: IntArithFlags, lhs: ValueRef, rhs: ValueRef },
-    Mul { flags: IntArithFlags, lhs: ValueRef, rhs: ValueRef },
-    UDiv { exact: bool, lhs: ValueRef, rhs: ValueRef },
-    SDiv { exact: bool, lhs: ValueRef, rhs: ValueRef },
-    URem { lhs: ValueRef, rhs: ValueRef },
-    SRem { lhs: ValueRef, rhs: ValueRef },
+    Add {
+        flags: IntArithFlags,
+        lhs: ValueRef,
+        rhs: ValueRef,
+    },
+    Sub {
+        flags: IntArithFlags,
+        lhs: ValueRef,
+        rhs: ValueRef,
+    },
+    Mul {
+        flags: IntArithFlags,
+        lhs: ValueRef,
+        rhs: ValueRef,
+    },
+    UDiv {
+        exact: bool,
+        lhs: ValueRef,
+        rhs: ValueRef,
+    },
+    SDiv {
+        exact: bool,
+        lhs: ValueRef,
+        rhs: ValueRef,
+    },
+    URem {
+        lhs: ValueRef,
+        rhs: ValueRef,
+    },
+    SRem {
+        lhs: ValueRef,
+        rhs: ValueRef,
+    },
 
     // --- Bitwise ---
-    And { lhs: ValueRef, rhs: ValueRef },
-    Or  { lhs: ValueRef, rhs: ValueRef },
-    Xor { lhs: ValueRef, rhs: ValueRef },
-    Shl { flags: IntArithFlags, lhs: ValueRef, rhs: ValueRef },
-    LShr { exact: bool, lhs: ValueRef, rhs: ValueRef },
-    AShr { exact: bool, lhs: ValueRef, rhs: ValueRef },
+    And {
+        lhs: ValueRef,
+        rhs: ValueRef,
+    },
+    Or {
+        lhs: ValueRef,
+        rhs: ValueRef,
+    },
+    Xor {
+        lhs: ValueRef,
+        rhs: ValueRef,
+    },
+    Shl {
+        flags: IntArithFlags,
+        lhs: ValueRef,
+        rhs: ValueRef,
+    },
+    LShr {
+        exact: bool,
+        lhs: ValueRef,
+        rhs: ValueRef,
+    },
+    AShr {
+        exact: bool,
+        lhs: ValueRef,
+        rhs: ValueRef,
+    },
 
     // --- Floating-point arithmetic ---
-    FAdd { flags: FastMathFlags, lhs: ValueRef, rhs: ValueRef },
-    FSub { flags: FastMathFlags, lhs: ValueRef, rhs: ValueRef },
-    FMul { flags: FastMathFlags, lhs: ValueRef, rhs: ValueRef },
-    FDiv { flags: FastMathFlags, lhs: ValueRef, rhs: ValueRef },
-    FRem { flags: FastMathFlags, lhs: ValueRef, rhs: ValueRef },
-    FNeg { flags: FastMathFlags, operand: ValueRef },
+    FAdd {
+        flags: FastMathFlags,
+        lhs: ValueRef,
+        rhs: ValueRef,
+    },
+    FSub {
+        flags: FastMathFlags,
+        lhs: ValueRef,
+        rhs: ValueRef,
+    },
+    FMul {
+        flags: FastMathFlags,
+        lhs: ValueRef,
+        rhs: ValueRef,
+    },
+    FDiv {
+        flags: FastMathFlags,
+        lhs: ValueRef,
+        rhs: ValueRef,
+    },
+    FRem {
+        flags: FastMathFlags,
+        lhs: ValueRef,
+        rhs: ValueRef,
+    },
+    FNeg {
+        flags: FastMathFlags,
+        operand: ValueRef,
+    },
 
     // --- Comparisons ---
-    ICmp { pred: IntPredicate, lhs: ValueRef, rhs: ValueRef },
-    FCmp { flags: FastMathFlags, pred: FloatPredicate, lhs: ValueRef, rhs: ValueRef },
+    ICmp {
+        pred: IntPredicate,
+        lhs: ValueRef,
+        rhs: ValueRef,
+    },
+    FCmp {
+        flags: FastMathFlags,
+        pred: FloatPredicate,
+        lhs: ValueRef,
+        rhs: ValueRef,
+    },
 
     // --- Memory ---
-    Alloca { alloc_ty: TypeId, num_elements: Option<ValueRef>, align: Option<u32> },
-    Load { ty: TypeId, ptr: ValueRef, align: Option<u32>, volatile: bool },
-    Store { val: ValueRef, ptr: ValueRef, align: Option<u32>, volatile: bool },
-    GetElementPtr { inbounds: bool, base_ty: TypeId, ptr: ValueRef, indices: Vec<ValueRef> },
+    Alloca {
+        alloc_ty: TypeId,
+        num_elements: Option<ValueRef>,
+        align: Option<u32>,
+    },
+    Load {
+        ty: TypeId,
+        ptr: ValueRef,
+        align: Option<u32>,
+        volatile: bool,
+    },
+    Store {
+        val: ValueRef,
+        ptr: ValueRef,
+        align: Option<u32>,
+        volatile: bool,
+    },
+    GetElementPtr {
+        inbounds: bool,
+        base_ty: TypeId,
+        ptr: ValueRef,
+        indices: Vec<ValueRef>,
+    },
 
     // --- Casts ---
-    Trunc         { val: ValueRef, to: TypeId },
-    ZExt          { val: ValueRef, to: TypeId },
-    SExt          { val: ValueRef, to: TypeId },
-    FPTrunc       { val: ValueRef, to: TypeId },
-    FPExt         { val: ValueRef, to: TypeId },
-    FPToUI        { val: ValueRef, to: TypeId },
-    FPToSI        { val: ValueRef, to: TypeId },
-    UIToFP        { val: ValueRef, to: TypeId },
-    SIToFP        { val: ValueRef, to: TypeId },
-    PtrToInt      { val: ValueRef, to: TypeId },
-    IntToPtr      { val: ValueRef, to: TypeId },
-    BitCast       { val: ValueRef, to: TypeId },
-    AddrSpaceCast { val: ValueRef, to: TypeId },
+    Trunc {
+        val: ValueRef,
+        to: TypeId,
+    },
+    ZExt {
+        val: ValueRef,
+        to: TypeId,
+    },
+    SExt {
+        val: ValueRef,
+        to: TypeId,
+    },
+    FPTrunc {
+        val: ValueRef,
+        to: TypeId,
+    },
+    FPExt {
+        val: ValueRef,
+        to: TypeId,
+    },
+    FPToUI {
+        val: ValueRef,
+        to: TypeId,
+    },
+    FPToSI {
+        val: ValueRef,
+        to: TypeId,
+    },
+    UIToFP {
+        val: ValueRef,
+        to: TypeId,
+    },
+    SIToFP {
+        val: ValueRef,
+        to: TypeId,
+    },
+    PtrToInt {
+        val: ValueRef,
+        to: TypeId,
+    },
+    IntToPtr {
+        val: ValueRef,
+        to: TypeId,
+    },
+    BitCast {
+        val: ValueRef,
+        to: TypeId,
+    },
+    AddrSpaceCast {
+        val: ValueRef,
+        to: TypeId,
+    },
 
     // --- Misc ---
-    Select { cond: ValueRef, then_val: ValueRef, else_val: ValueRef },
-    Phi    { ty: TypeId, incoming: Vec<(ValueRef, BlockId)> },
-    ExtractValue { aggregate: ValueRef, indices: Vec<u32> },
-    InsertValue  { aggregate: ValueRef, val: ValueRef, indices: Vec<u32> },
-    ExtractElement { vec: ValueRef, idx: ValueRef },
-    InsertElement  { vec: ValueRef, val: ValueRef, idx: ValueRef },
-    ShuffleVector  { v1: ValueRef, v2: ValueRef, mask: Vec<i32> },
+    Select {
+        cond: ValueRef,
+        then_val: ValueRef,
+        else_val: ValueRef,
+    },
+    Phi {
+        ty: TypeId,
+        incoming: Vec<(ValueRef, BlockId)>,
+    },
+    ExtractValue {
+        aggregate: ValueRef,
+        indices: Vec<u32>,
+    },
+    InsertValue {
+        aggregate: ValueRef,
+        val: ValueRef,
+        indices: Vec<u32>,
+    },
+    ExtractElement {
+        vec: ValueRef,
+        idx: ValueRef,
+    },
+    InsertElement {
+        vec: ValueRef,
+        val: ValueRef,
+        idx: ValueRef,
+    },
+    ShuffleVector {
+        v1: ValueRef,
+        v2: ValueRef,
+        mask: Vec<i32>,
+    },
 
     // --- Call ---
     Call {
@@ -196,9 +358,17 @@ pub enum InstrKind {
     },
 
     // --- Terminators ---
-    Ret { val: Option<ValueRef> },
-    Br  { dest: BlockId },
-    CondBr { cond: ValueRef, then_dest: BlockId, else_dest: BlockId },
+    Ret {
+        val: Option<ValueRef>,
+    },
+    Br {
+        dest: BlockId,
+    },
+    CondBr {
+        cond: ValueRef,
+        then_dest: BlockId,
+        else_dest: BlockId,
+    },
     Switch {
         val: ValueRef,
         default: BlockId,
@@ -222,57 +392,57 @@ impl InstrKind {
     /// Return the opcode name for printing.
     pub fn opcode(&self) -> &'static str {
         match self {
-            InstrKind::Add { .. }           => "add",
-            InstrKind::Sub { .. }           => "sub",
-            InstrKind::Mul { .. }           => "mul",
-            InstrKind::UDiv { .. }          => "udiv",
-            InstrKind::SDiv { .. }          => "sdiv",
-            InstrKind::URem { .. }          => "urem",
-            InstrKind::SRem { .. }          => "srem",
-            InstrKind::And { .. }           => "and",
-            InstrKind::Or { .. }            => "or",
-            InstrKind::Xor { .. }           => "xor",
-            InstrKind::Shl { .. }           => "shl",
-            InstrKind::LShr { .. }          => "lshr",
-            InstrKind::AShr { .. }          => "ashr",
-            InstrKind::FAdd { .. }          => "fadd",
-            InstrKind::FSub { .. }          => "fsub",
-            InstrKind::FMul { .. }          => "fmul",
-            InstrKind::FDiv { .. }          => "fdiv",
-            InstrKind::FRem { .. }          => "frem",
-            InstrKind::FNeg { .. }          => "fneg",
-            InstrKind::ICmp { .. }          => "icmp",
-            InstrKind::FCmp { .. }          => "fcmp",
-            InstrKind::Alloca { .. }        => "alloca",
-            InstrKind::Load { .. }          => "load",
-            InstrKind::Store { .. }         => "store",
+            InstrKind::Add { .. } => "add",
+            InstrKind::Sub { .. } => "sub",
+            InstrKind::Mul { .. } => "mul",
+            InstrKind::UDiv { .. } => "udiv",
+            InstrKind::SDiv { .. } => "sdiv",
+            InstrKind::URem { .. } => "urem",
+            InstrKind::SRem { .. } => "srem",
+            InstrKind::And { .. } => "and",
+            InstrKind::Or { .. } => "or",
+            InstrKind::Xor { .. } => "xor",
+            InstrKind::Shl { .. } => "shl",
+            InstrKind::LShr { .. } => "lshr",
+            InstrKind::AShr { .. } => "ashr",
+            InstrKind::FAdd { .. } => "fadd",
+            InstrKind::FSub { .. } => "fsub",
+            InstrKind::FMul { .. } => "fmul",
+            InstrKind::FDiv { .. } => "fdiv",
+            InstrKind::FRem { .. } => "frem",
+            InstrKind::FNeg { .. } => "fneg",
+            InstrKind::ICmp { .. } => "icmp",
+            InstrKind::FCmp { .. } => "fcmp",
+            InstrKind::Alloca { .. } => "alloca",
+            InstrKind::Load { .. } => "load",
+            InstrKind::Store { .. } => "store",
             InstrKind::GetElementPtr { .. } => "getelementptr",
-            InstrKind::Trunc { .. }         => "trunc",
-            InstrKind::ZExt { .. }          => "zext",
-            InstrKind::SExt { .. }          => "sext",
-            InstrKind::FPTrunc { .. }       => "fptrunc",
-            InstrKind::FPExt { .. }         => "fpext",
-            InstrKind::FPToUI { .. }        => "fptoui",
-            InstrKind::FPToSI { .. }        => "fptosi",
-            InstrKind::UIToFP { .. }        => "uitofp",
-            InstrKind::SIToFP { .. }        => "sitofp",
-            InstrKind::PtrToInt { .. }      => "ptrtoint",
-            InstrKind::IntToPtr { .. }      => "inttoptr",
-            InstrKind::BitCast { .. }       => "bitcast",
+            InstrKind::Trunc { .. } => "trunc",
+            InstrKind::ZExt { .. } => "zext",
+            InstrKind::SExt { .. } => "sext",
+            InstrKind::FPTrunc { .. } => "fptrunc",
+            InstrKind::FPExt { .. } => "fpext",
+            InstrKind::FPToUI { .. } => "fptoui",
+            InstrKind::FPToSI { .. } => "fptosi",
+            InstrKind::UIToFP { .. } => "uitofp",
+            InstrKind::SIToFP { .. } => "sitofp",
+            InstrKind::PtrToInt { .. } => "ptrtoint",
+            InstrKind::IntToPtr { .. } => "inttoptr",
+            InstrKind::BitCast { .. } => "bitcast",
             InstrKind::AddrSpaceCast { .. } => "addrspacecast",
-            InstrKind::Select { .. }        => "select",
-            InstrKind::Phi { .. }           => "phi",
-            InstrKind::ExtractValue { .. }  => "extractvalue",
-            InstrKind::InsertValue { .. }   => "insertvalue",
+            InstrKind::Select { .. } => "select",
+            InstrKind::Phi { .. } => "phi",
+            InstrKind::ExtractValue { .. } => "extractvalue",
+            InstrKind::InsertValue { .. } => "insertvalue",
             InstrKind::ExtractElement { .. } => "extractelement",
             InstrKind::InsertElement { .. } => "insertelement",
             InstrKind::ShuffleVector { .. } => "shufflevector",
-            InstrKind::Call { .. }          => "call",
-            InstrKind::Ret { .. }           => "ret",
-            InstrKind::Br { .. }            => "br",
-            InstrKind::CondBr { .. }        => "br",
-            InstrKind::Switch { .. }        => "switch",
-            InstrKind::Unreachable          => "unreachable",
+            InstrKind::Call { .. } => "call",
+            InstrKind::Ret { .. } => "ret",
+            InstrKind::Br { .. } => "br",
+            InstrKind::CondBr { .. } => "br",
+            InstrKind::Switch { .. } => "switch",
+            InstrKind::Unreachable => "unreachable",
         }
     }
 
@@ -287,7 +457,7 @@ impl InstrKind {
             | InstrKind::URem { lhs, rhs }
             | InstrKind::SRem { lhs, rhs }
             | InstrKind::And { lhs, rhs }
-            | InstrKind::Or  { lhs, rhs }
+            | InstrKind::Or { lhs, rhs }
             | InstrKind::Xor { lhs, rhs }
             | InstrKind::Shl { lhs, rhs, .. }
             | InstrKind::LShr { lhs, rhs, .. }
@@ -302,9 +472,7 @@ impl InstrKind {
 
             InstrKind::FNeg { operand, .. } => vec![*operand],
 
-            InstrKind::Alloca { num_elements, .. } => {
-                num_elements.into_iter().copied().collect()
-            }
+            InstrKind::Alloca { num_elements, .. } => num_elements.iter().copied().collect(),
             InstrKind::Load { ptr, .. } => vec![*ptr],
             InstrKind::Store { val, ptr, .. } => vec![*val, *ptr],
             InstrKind::GetElementPtr { ptr, indices, .. } => {
@@ -327,12 +495,14 @@ impl InstrKind {
             | InstrKind::BitCast { val, .. }
             | InstrKind::AddrSpaceCast { val, .. } => vec![*val],
 
-            InstrKind::Select { cond, then_val, else_val } => {
+            InstrKind::Select {
+                cond,
+                then_val,
+                else_val,
+            } => {
                 vec![*cond, *then_val, *else_val]
             }
-            InstrKind::Phi { incoming, .. } => {
-                incoming.iter().map(|(v, _)| *v).collect()
-            }
+            InstrKind::Phi { incoming, .. } => incoming.iter().map(|(v, _)| *v).collect(),
             InstrKind::ExtractValue { aggregate, .. } => vec![*aggregate],
             InstrKind::InsertValue { aggregate, val, .. } => vec![*aggregate, *val],
             InstrKind::ExtractElement { vec, idx } => vec![*vec, *idx],
@@ -343,7 +513,7 @@ impl InstrKind {
                 v.extend_from_slice(args);
                 v
             }
-            InstrKind::Ret { val } => val.into_iter().copied().collect(),
+            InstrKind::Ret { val } => val.iter().copied().collect(),
             InstrKind::Br { .. } | InstrKind::Unreachable => vec![],
             InstrKind::CondBr { cond, .. } => vec![*cond],
             InstrKind::Switch { val, cases, .. } => {
@@ -360,7 +530,11 @@ impl InstrKind {
     pub fn successors(&self) -> Vec<BlockId> {
         match self {
             InstrKind::Br { dest } => vec![*dest],
-            InstrKind::CondBr { then_dest, else_dest, .. } => {
+            InstrKind::CondBr {
+                then_dest,
+                else_dest,
+                ..
+            } => {
                 vec![*then_dest, *else_dest]
             }
             InstrKind::Switch { default, cases, .. } => {

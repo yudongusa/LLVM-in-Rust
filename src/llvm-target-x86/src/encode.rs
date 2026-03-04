@@ -8,15 +8,15 @@
 //! opcodes fall through to a single `NOP` (`0x90`) so the output is always
 //! syntactically valid machine code.
 
-use std::collections::HashMap;
-use llvm_codegen::{
-    emit::{Emitter, ObjectFormat, Reloc, Section},
-    isel::{MachineFunction, MInstr, MOperand, PReg},
-};
 use crate::{
     instructions::*,
     regs::{is_extended, reg_enc},
 };
+use llvm_codegen::{
+    emit::{Emitter, ObjectFormat, Reloc, Section},
+    isel::{MInstr, MOperand, MachineFunction, PReg},
+};
+use std::collections::HashMap;
 
 /// x86_64 code emitter.
 pub struct X86Emitter {
@@ -52,7 +52,7 @@ impl Emitter for X86Emitter {
         }
 
         let section_name = match self.format {
-            ObjectFormat::Elf   => ".text",
+            ObjectFormat::Elf => ".text",
             ObjectFormat::MachO => "__text",
         };
 
@@ -80,10 +80,18 @@ struct EncodeCtx {
 }
 
 impl EncodeCtx {
-    fn emit(&mut self, b: u8) { self.code.push(b); }
-    fn emit32(&mut self, v: i32) { self.code.extend_from_slice(&v.to_le_bytes()); }
-    fn emit64(&mut self, v: i64) { self.code.extend_from_slice(&v.to_le_bytes()); }
-    fn pos(&self) -> usize { self.code.len() }
+    fn emit(&mut self, b: u8) {
+        self.code.push(b);
+    }
+    fn emit32(&mut self, v: i32) {
+        self.code.extend_from_slice(&v.to_le_bytes());
+    }
+    fn emit64(&mut self, v: i64) {
+        self.code.extend_from_slice(&v.to_le_bytes());
+    }
+    fn pos(&self) -> usize {
+        self.code.len()
+    }
 }
 
 // ── REX prefix helpers ───────────────────────────────────────────────────
@@ -93,10 +101,11 @@ fn maybe_rex(ctx: &mut EncodeCtx, w: bool, r: PReg, rm: PReg) {
     let r_ext = is_extended(r);
     let b_ext = is_extended(rm);
     if w || r_ext || b_ext {
-        ctx.emit(0x40
-            | (if w     { 0x08 } else { 0 })
-            | (if r_ext { 0x04 } else { 0 })
-            | (if b_ext { 0x01 } else { 0 }));
+        ctx.emit(
+            0x40 | (if w { 0x08 } else { 0 })
+                | (if r_ext { 0x04 } else { 0 })
+                | (if b_ext { 0x01 } else { 0 }),
+        );
     }
 }
 
@@ -110,15 +119,23 @@ fn modrm_rr(r: PReg, rm: PReg) -> u8 {
 fn encode_instr(instr: &MInstr, ctx: &mut EncodeCtx) {
     // Helper to extract PReg from operand.
     let preg = |op: &MOperand| -> Option<PReg> {
-        match op { MOperand::PReg(r) => Some(*r), _ => None }
+        match op {
+            MOperand::PReg(r) => Some(*r),
+            _ => None,
+        }
     };
     let imm = |op: &MOperand| -> Option<i64> {
-        match op { MOperand::Imm(v) => Some(*v), _ => None }
+        match op {
+            MOperand::Imm(v) => Some(*v),
+            _ => None,
+        }
     };
 
     match instr.opcode {
         // ── NOP ────────────────────────────────────────────────────────────
-        NOP => { ctx.emit(0x90); }
+        NOP => {
+            ctx.emit(0x90);
+        }
 
         // ── MOV reg, reg (REX.W 0x89 /r) ─────────────────────────────────
         MOV_RR => {
@@ -224,13 +241,19 @@ fn encode_instr(instr: &MInstr, ctx: &mut EncodeCtx) {
         }
 
         // ── AND reg, reg (REX.W 0x21 /r) ─────────────────────────────────
-        AND_RR => { encode_rrr(ctx, instr, 0x21); }
+        AND_RR => {
+            encode_rrr(ctx, instr, 0x21);
+        }
 
         // ── OR reg, reg (REX.W 0x09 /r) ──────────────────────────────────
-        OR_RR  => { encode_rrr(ctx, instr, 0x09); }
+        OR_RR => {
+            encode_rrr(ctx, instr, 0x09);
+        }
 
         // ── XOR reg, reg (REX.W 0x31 /r) ─────────────────────────────────
-        XOR_RR => { encode_rrr(ctx, instr, 0x31); }
+        XOR_RR => {
+            encode_rrr(ctx, instr, 0x31);
+        }
 
         // ── NOT reg (REX.W 0xF7 /2) ──────────────────────────────────────
         NOT_R => {
@@ -245,13 +268,19 @@ fn encode_instr(instr: &MInstr, ctx: &mut EncodeCtx) {
         }
 
         // ── SHL reg, CL (REX.W 0xD3 /4) ─────────────────────────────────
-        SHL_RR => { encode_shift_cl(ctx, instr, 4); }
+        SHL_RR => {
+            encode_shift_cl(ctx, instr, 4);
+        }
 
         // ── SHR reg, CL (REX.W 0xD3 /5) ─────────────────────────────────
-        SHR_RR => { encode_shift_cl(ctx, instr, 5); }
+        SHR_RR => {
+            encode_shift_cl(ctx, instr, 5);
+        }
 
         // ── SAR reg, CL (REX.W 0xD3 /7) ─────────────────────────────────
-        SAR_RR => { encode_shift_cl(ctx, instr, 7); }
+        SAR_RR => {
+            encode_shift_cl(ctx, instr, 7);
+        }
 
         // ── CMP reg, reg (REX.W 0x39 /r) ─────────────────────────────────
         CMP_RR => {
@@ -293,7 +322,8 @@ fn encode_instr(instr: &MInstr, ctx: &mut EncodeCtx) {
                 ctx.emit(0xC0 | reg_enc(r));
                 // Zero-extend the 8-bit result to 64 bits via MOVZX r64, r8.
                 maybe_rex(ctx, true, r, r);
-                ctx.emit(0x0F); ctx.emit(0xB6);
+                ctx.emit(0x0F);
+                ctx.emit(0xB6);
                 ctx.emit(modrm_rr(r, r));
             } else {
                 ctx.emit(0x90);
@@ -314,18 +344,14 @@ fn encode_instr(instr: &MInstr, ctx: &mut EncodeCtx) {
 
         // ── JCC rel32 (0x0F 0x8x rel32) ──────────────────────────────────
         JCC => {
-            if let (Some(cc_op), Some(MOperand::Block(target))) =
+            if let (Some(MOperand::Imm(cc)), Some(MOperand::Block(target))) =
                 (instr.operands.first(), instr.operands.get(1))
             {
-                if let MOperand::Imm(cc) = cc_op {
-                    ctx.emit(0x0F);
-                    ctx.emit(jcc_opcode(*cc));
-                    let patch_pos = ctx.pos();
-                    ctx.emit32(0);
-                    ctx.branch_patches.push((patch_pos, *target));
-                } else {
-                    ctx.emit(0x90);
-                }
+                ctx.emit(0x0F);
+                ctx.emit(jcc_opcode(*cc));
+                let patch_pos = ctx.pos();
+                ctx.emit32(0);
+                ctx.branch_patches.push((patch_pos, *target));
             } else {
                 ctx.emit(0x90);
             }
@@ -337,7 +363,9 @@ fn encode_instr(instr: &MInstr, ctx: &mut EncodeCtx) {
                 MOperand::PReg(r) => Some(*r),
                 _ => None,
             }) {
-                if is_extended(src) { ctx.emit(0x41); }
+                if is_extended(src) {
+                    ctx.emit(0x41);
+                }
                 ctx.emit(0xFF);
                 ctx.emit(0xC0 | (2 << 3) | reg_enc(src));
             } else {
@@ -346,12 +374,16 @@ fn encode_instr(instr: &MInstr, ctx: &mut EncodeCtx) {
         }
 
         // ── RET (0xC3) ────────────────────────────────────────────────────
-        RET => { ctx.emit(0xC3); }
+        RET => {
+            ctx.emit(0xC3);
+        }
 
         // ── PUSH reg (REX? 0x50+rd) ───────────────────────────────────────
         PUSH_R => {
             if let Some(src) = instr.operands.first().and_then(preg) {
-                if is_extended(src) { ctx.emit(0x41); }
+                if is_extended(src) {
+                    ctx.emit(0x41);
+                }
                 ctx.emit(0x50 | reg_enc(src));
             } else {
                 ctx.emit(0x90);
@@ -362,7 +394,9 @@ fn encode_instr(instr: &MInstr, ctx: &mut EncodeCtx) {
         POP_R => {
             if let Some(dst) = instr.dst {
                 let r = PReg(dst.0 as u8);
-                if is_extended(r) { ctx.emit(0x41); }
+                if is_extended(r) {
+                    ctx.emit(0x41);
+                }
                 ctx.emit(0x58 | reg_enc(r));
             } else {
                 ctx.emit(0x90);
@@ -418,7 +452,9 @@ fn encode_instr(instr: &MInstr, ctx: &mut EncodeCtx) {
         }
 
         // ── unsupported: emit NOP ─────────────────────────────────────────
-        _ => { ctx.emit(0x90); }
+        _ => {
+            ctx.emit(0x90);
+        }
     }
 }
 
@@ -453,7 +489,11 @@ fn encode_shift_cl(ctx: &mut EncodeCtx, instr: &MInstr, ext: u8) {
 fn get_dst_src(instr: &MInstr) -> (Option<PReg>, Option<PReg>) {
     let dst = instr.dst.map(|v| PReg(v.0 as u8));
     let src = instr.operands.iter().find_map(|op| {
-        if let MOperand::PReg(r) = op { Some(*r) } else { None }
+        if let MOperand::PReg(r) = op {
+            Some(*r)
+        } else {
+            None
+        }
     });
     (dst, src)
 }
@@ -461,7 +501,11 @@ fn get_dst_src(instr: &MInstr) -> (Option<PReg>, Option<PReg>) {
 /// Extract two PReg operands from `instr.operands`.
 fn get_two_pregs(instr: &MInstr) -> (Option<PReg>, Option<PReg>) {
     let mut it = instr.operands.iter().filter_map(|op| {
-        if let MOperand::PReg(r) = op { Some(*r) } else { None }
+        if let MOperand::PReg(r) = op {
+            Some(*r)
+        } else {
+            None
+        }
     });
     (it.next(), it.next())
 }
@@ -469,34 +513,34 @@ fn get_two_pregs(instr: &MInstr) -> (Option<PReg>, Option<PReg>) {
 /// Map a CC_* constant to the SETcc opcode byte (second byte of 0x0F 0x9x).
 fn setcc_opcode(cc: i64) -> u8 {
     match cc {
-        CC_EQ  => 0x94, // SETE
-        CC_NE  => 0x95, // SETNE
-        CC_LT  => 0x9C, // SETL
-        CC_LE  => 0x9E, // SETLE
-        CC_GT  => 0x9F, // SETG
-        CC_GE  => 0x9D, // SETGE
+        CC_EQ => 0x94,  // SETE
+        CC_NE => 0x95,  // SETNE
+        CC_LT => 0x9C,  // SETL
+        CC_LE => 0x9E,  // SETLE
+        CC_GT => 0x9F,  // SETG
+        CC_GE => 0x9D,  // SETGE
         CC_ULT => 0x92, // SETB
         CC_ULE => 0x96, // SETBE
         CC_UGT => 0x97, // SETA
         CC_UGE => 0x93, // SETAE
-        _      => 0x94,
+        _ => 0x94,
     }
 }
 
 /// Map a CC_* constant to the Jcc opcode byte (second byte of 0x0F 0x8x).
 fn jcc_opcode(cc: i64) -> u8 {
     match cc {
-        CC_EQ  => 0x84, // JE
-        CC_NE  => 0x85, // JNE
-        CC_LT  => 0x8C, // JL
-        CC_LE  => 0x8E, // JLE
-        CC_GT  => 0x8F, // JG
-        CC_GE  => 0x8D, // JGE
+        CC_EQ => 0x84,  // JE
+        CC_NE => 0x85,  // JNE
+        CC_LT => 0x8C,  // JL
+        CC_LE => 0x8E,  // JLE
+        CC_GT => 0x8F,  // JG
+        CC_GE => 0x8D,  // JGE
         CC_ULT => 0x82, // JB
         CC_ULE => 0x86, // JBE
         CC_UGT => 0x87, // JA
         CC_UGE => 0x83, // JAE
-        _      => 0x84,
+        _ => 0x84,
     }
 }
 
@@ -505,16 +549,18 @@ fn jcc_opcode(cc: i64) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::regs::{RAX, RDI, RSI};
     use llvm_codegen::{
         emit::emit_object,
-        isel::{MachineFunction, MInstr, VReg},
+        isel::{MInstr, MachineFunction, VReg},
     };
-    use crate::regs::{RAX, RDI, RSI};
 
     fn single_block_mf(name: &str, instrs: Vec<MInstr>) -> MachineFunction {
         let mut mf = MachineFunction::new(name.into());
         let b = mf.add_block("entry");
-        for i in instrs { mf.push(b, i); }
+        for i in instrs {
+            mf.push(b, i);
+        }
         mf
     }
 
@@ -583,7 +629,10 @@ mod tests {
         let mut e = X86Emitter::new(ObjectFormat::Elf);
         let sec = e.emit_function(&mf);
         // First 4 bytes: bare REX(0x40), 0x0F, SETE(0x94), ModRM(0xC6 = 11_000_110 for RSI)
-        assert_eq!(sec.data[0], 0x40, "bare REX must be emitted for SETCC into RSI");
+        assert_eq!(
+            sec.data[0], 0x40,
+            "bare REX must be emitted for SETCC into RSI"
+        );
         assert_eq!(sec.data[1], 0x0F, "escape prefix");
         assert_eq!(sec.data[2], 0x94, "SETE opcode byte");
         assert_eq!(sec.data[3], 0xC6, "ModRM(11 000 110) for RSI");
@@ -604,7 +653,10 @@ mod tests {
         let mut e = X86Emitter::new(ObjectFormat::Elf);
         let sec = e.emit_function(&mf);
         // First byte must be 0x0F (no REX prefix for RAX).
-        assert_eq!(sec.data[0], 0x0F, "no REX prefix should be emitted for SETCC into RAX");
+        assert_eq!(
+            sec.data[0], 0x0F,
+            "no REX prefix should be emitted for SETCC into RAX"
+        );
     }
 
     #[test]
@@ -622,8 +674,11 @@ mod tests {
         let mut e = X86Emitter::new(ObjectFormat::Elf);
         let sec = e.emit_function(&mf);
         // REX.W=0x48, F7, ModRM(11 110 001) = 0xF1 (digit /6 = 110b, rcx=001b)
-        assert_eq!(&sec.data[0..3], &[0x48, 0xF7, 0xF1],
-            "div rcx should encode as REX.W + 0xF7 + ModRM(/6)");
+        assert_eq!(
+            &sec.data[0..3],
+            &[0x48, 0xF7, 0xF1],
+            "div rcx should encode as REX.W + 0xF7 + ModRM(/6)"
+        );
     }
 
     #[test]
@@ -641,8 +696,11 @@ mod tests {
         let mut e = X86Emitter::new(ObjectFormat::Elf);
         let sec = e.emit_function(&mf);
         // REX.W=0x48, F7, ModRM(11 111 001) = 0xF9 (digit /7 = 111b, rcx=001b)
-        assert_eq!(&sec.data[0..3], &[0x48, 0xF7, 0xF9],
-            "idiv rcx should encode as REX.W + 0xF7 + ModRM(/7)");
+        assert_eq!(
+            &sec.data[0..3],
+            &[0x48, 0xF7, 0xF9],
+            "idiv rcx should encode as REX.W + 0xF7 + ModRM(/7)"
+        );
     }
 
     #[test]
@@ -661,16 +719,19 @@ mod tests {
         let mf = single_block_mf("mov_pr_fn", vec![mi]);
         let mut e = X86Emitter::new(ObjectFormat::Elf);
         let sec = e.emit_function(&mf);
-        assert_eq!(&sec.data[0..3], &[0x48, 0x89, 0xF0],
-            "mov rax, rsi should be REX.W + 0x89 + ModRM(11 110 000)");
+        assert_eq!(
+            &sec.data[0..3],
+            &[0x48, 0x89, 0xF0],
+            "mov rax, rsi should be REX.W + 0x89 + ModRM(11 110 000)"
+        );
     }
 
     #[test]
     fn mov_pr_emits_non_nop_for_extended_reg() {
         // MOV_PR: mov r8, rdi (R8 is an extended register, needs REX.B)
         // Expected: REX.WB(0x49) + 0x89 + ModRM(11_111_000=0xF8)
-        use llvm_codegen::isel::MOperand;
         use crate::regs::{R8, RDI};
+        use llvm_codegen::isel::MOperand;
         let mi = MInstr {
             opcode: MOV_PR,
             dst: None,
@@ -682,8 +743,11 @@ mod tests {
         let mut e = X86Emitter::new(ObjectFormat::Elf);
         let sec = e.emit_function(&mf);
         // REX.W + REX.B = 0x49, opcode = 0x89, ModRM(11 111 000) = 0xF8
-        assert_eq!(&sec.data[0..3], &[0x49, 0x89, 0xF8],
-            "mov r8, rdi should use REX.WB");
+        assert_eq!(
+            &sec.data[0..3],
+            &[0x49, 0x89, 0xF8],
+            "mov r8, rdi should use REX.WB"
+        );
     }
 
     #[test]
@@ -703,7 +767,10 @@ mod tests {
         assert_eq!(sec.data.len(), 6);
         assert_eq!(sec.data[0], 0xE9, "JMP opcode");
         let rel = i32::from_le_bytes([sec.data[1], sec.data[2], sec.data[3], sec.data[4]]);
-        assert_eq!(rel, 0, "JMP should jump 0 bytes forward (to adjacent block)");
+        assert_eq!(
+            rel, 0,
+            "JMP should jump 0 bytes forward (to adjacent block)"
+        );
         assert_eq!(sec.data[5], 0xC3, "RET opcode");
     }
 

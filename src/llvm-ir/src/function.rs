@@ -1,10 +1,10 @@
 //! Function definition: signature, arguments, basic blocks, and flat instruction pool.
 
-use std::collections::HashMap;
-use crate::context::{TypeId, BlockId, InstrId, ArgId, ValueRef};
 use crate::basic_block::BasicBlock;
+use crate::context::{ArgId, BlockId, InstrId, TypeId, ValueRef};
 use crate::instruction::Instruction;
 use crate::value::{Argument, Linkage};
+use std::collections::HashMap;
 
 /// A function definition or declaration.
 pub struct Function {
@@ -52,7 +52,12 @@ impl Function {
         f
     }
 
-    pub fn new_declaration(name: impl Into<String>, ty: TypeId, args: Vec<Argument>, linkage: Linkage) -> Self {
+    pub fn new_declaration(
+        name: impl Into<String>,
+        ty: TypeId,
+        args: Vec<Argument>,
+        linkage: Linkage,
+    ) -> Self {
         let mut f = Self::new(name, ty, args, linkage);
         f.is_declaration = true;
         f
@@ -156,7 +161,7 @@ impl Function {
     pub fn type_of_value(&self, vref: ValueRef) -> Option<TypeId> {
         match vref {
             ValueRef::Instruction(id) => Some(self.instructions[id.0 as usize].ty),
-            ValueRef::Argument(id)    => Some(self.args[id.0 as usize].ty),
+            ValueRef::Argument(id) => Some(self.args[id.0 as usize].ty),
             ValueRef::Constant(_) | ValueRef::Global(_) => None, // caller must consult Context/Module
         }
     }

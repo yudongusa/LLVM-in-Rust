@@ -1,9 +1,6 @@
 //! Round-trip test: build IR → print → parse → print → assert text equality.
 
-use llvm_ir::{
-    Context, Module,
-    Builder, Printer, Linkage, IntPredicate,
-};
+use llvm_ir::{Builder, Context, IntPredicate, Linkage, Module, Printer};
 
 /// Build a simple add function and check that the printer emits expected text.
 #[test]
@@ -31,8 +28,16 @@ fn roundtrip_add() {
     let p = Printer::new(b.ctx);
     let ir = p.print_module(b.module);
 
-    assert!(ir.contains("define i32 @add("), "missing function header in:\n{}", ir);
-    assert!(ir.contains("%sum = add i32 %a, %b"), "missing add in:\n{}", ir);
+    assert!(
+        ir.contains("define i32 @add("),
+        "missing function header in:\n{}",
+        ir
+    );
+    assert!(
+        ir.contains("%sum = add i32 %a, %b"),
+        "missing add in:\n{}",
+        ir
+    );
     assert!(ir.contains("ret i32 %sum"), "missing ret in:\n{}", ir);
 }
 
@@ -51,7 +56,7 @@ fn roundtrip_cond_br() {
         false,
         Linkage::External,
     );
-    let entry   = b.add_block("entry");
+    let entry = b.add_block("entry");
     let then_bb = b.add_block("ret_x");
     let else_bb = b.add_block("ret_y");
 
@@ -98,8 +103,8 @@ fn roundtrip_memory() {
     let p_ref = b.get_arg(0);
     let q_ref = b.get_arg(1);
     let tmp = b.build_load("tmp", b.ctx.i32_ty, p_ref);
-    let qv  = b.build_load("qv",  b.ctx.i32_ty, q_ref);
-    b.build_store(qv,  p_ref);
+    let qv = b.build_load("qv", b.ctx.i32_ty, q_ref);
+    b.build_store(qv, p_ref);
     b.build_store(tmp, q_ref);
     b.build_ret_void();
 

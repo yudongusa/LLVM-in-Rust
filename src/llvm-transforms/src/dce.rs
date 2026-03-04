@@ -7,16 +7,18 @@
 //! Side-effecting instructions (`Store`, `Call`, `Load`, `Alloca`,
 //! terminators) are never removed even if their results are unused.
 
-use std::collections::HashSet;
-use llvm_ir::{Context, Function, InstrId, InstrKind, ValueRef};
-use llvm_analysis::UseDefInfo;
 use crate::pass::FunctionPass;
+use llvm_analysis::UseDefInfo;
+use llvm_ir::{Context, Function, InstrId, InstrKind, ValueRef};
+use std::collections::HashSet;
 
 /// Dead-code elimination pass.
 pub struct DeadCodeElim;
 
 impl FunctionPass for DeadCodeElim {
-    fn name(&self) -> &'static str { "dce" }
+    fn name(&self) -> &'static str {
+        "dce"
+    }
 
     fn run_on_function(&mut self, _ctx: &mut Context, func: &mut Function) -> bool {
         let info = UseDefInfo::compute(func);
@@ -69,18 +71,22 @@ pub fn is_dce_safe(kind: &InstrKind) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use llvm_ir::{
-        ArgId, Builder, Context, InstrKind, Linkage, Module, ValueRef,
-    };
     use crate::pass::FunctionPass;
+    use llvm_ir::{ArgId, Builder, Context, InstrKind, Linkage, Module, ValueRef};
 
     // Build:  f(i32 %x) -> i32 { dead = add %x, %x; ret %x }
     fn make_dead_fn() -> (Context, Module) {
         let mut ctx = Context::new();
         let mut module = Module::new("test");
         let mut b = Builder::new(&mut ctx, &mut module);
-        b.add_function("f", b.ctx.i32_ty, vec![b.ctx.i32_ty],
-            vec!["x".into()], false, Linkage::External);
+        b.add_function(
+            "f",
+            b.ctx.i32_ty,
+            vec![b.ctx.i32_ty],
+            vec!["x".into()],
+            false,
+            Linkage::External,
+        );
         let entry = b.add_block("entry");
         b.position_at_end(entry);
         let x = b.get_arg(0);
@@ -100,8 +106,11 @@ mod tests {
         let mut pass = DeadCodeElim;
         let changed = pass.run_on_function(&mut ctx, &mut module.functions[0]);
         assert!(changed);
-        assert_eq!(module.functions[0].blocks[0].body.len(), 0,
-            "add removed; body should be empty");
+        assert_eq!(
+            module.functions[0].blocks[0].body.len(),
+            0,
+            "add removed; body should be empty"
+        );
     }
 
     #[test]
@@ -109,8 +118,14 @@ mod tests {
         let mut ctx = Context::new();
         let mut module = Module::new("test");
         let mut b = Builder::new(&mut ctx, &mut module);
-        b.add_function("g", b.ctx.i32_ty, vec![b.ctx.i32_ty, b.ctx.i32_ty],
-            vec!["a".into(), "b".into()], false, Linkage::External);
+        b.add_function(
+            "g",
+            b.ctx.i32_ty,
+            vec![b.ctx.i32_ty, b.ctx.i32_ty],
+            vec!["a".into(), "b".into()],
+            false,
+            Linkage::External,
+        );
         let entry = b.add_block("entry");
         b.position_at_end(entry);
         let a = b.get_arg(0);
@@ -121,7 +136,11 @@ mod tests {
         let mut pass = DeadCodeElim;
         let changed = pass.run_on_function(&mut ctx, &mut module.functions[0]);
         assert!(!changed);
-        assert_eq!(module.functions[0].blocks[0].body.len(), 1, "sum must remain");
+        assert_eq!(
+            module.functions[0].blocks[0].body.len(),
+            1,
+            "sum must remain"
+        );
     }
 
     #[test]

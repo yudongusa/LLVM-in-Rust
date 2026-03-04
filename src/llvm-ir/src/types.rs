@@ -8,8 +8,15 @@ pub enum TypeData {
     Integer(u32),
     Float(FloatKind),
     Pointer,
-    Array { element: TypeId, len: u64 },
-    Vector { element: TypeId, len: u32, scalable: bool },
+    Array {
+        element: TypeId,
+        len: u64,
+    },
+    Vector {
+        element: TypeId,
+        len: u32,
+        scalable: bool,
+    },
     Struct(StructType),
     Function(FunctionType),
     Label,
@@ -57,8 +64,16 @@ mod tests {
     #[test]
     fn struct_type_eq() {
         let ctx = Context::new();
-        let s1 = StructType { name: None, fields: vec![ctx.i32_ty, ctx.i64_ty], packed: false };
-        let s2 = StructType { name: None, fields: vec![ctx.i32_ty, ctx.i64_ty], packed: false };
+        let s1 = StructType {
+            name: None,
+            fields: vec![ctx.i32_ty, ctx.i64_ty],
+            packed: false,
+        };
+        let s2 = StructType {
+            name: None,
+            fields: vec![ctx.i32_ty, ctx.i64_ty],
+            packed: false,
+        };
         assert_eq!(s1, s2);
     }
 }

@@ -20,8 +20,8 @@
 //! | `uses_of` | phi's own block | DCE (`is_dead`), simple def-use traversal |
 //! | `phi_uses_of` | predecessor block | liveness analysis, mem2reg, SSA destruction |
 
+use llvm_ir::{BlockId, Function, InstrId, InstrKind, ValueRef};
 use std::collections::HashMap;
-use llvm_ir::{BlockId, InstrId, InstrKind, ValueRef, Function};
 
 /// Use-def / def-use information for a single function.
 pub struct UseDefInfo {
@@ -74,7 +74,11 @@ impl UseDefInfo {
             }
         }
 
-        UseDefInfo { instr_block, uses, phi_uses }
+        UseDefInfo {
+            instr_block,
+            uses,
+            phi_uses,
+        }
     }
 
     /// The block in which `id` is defined, or `None` if not found.
@@ -114,15 +118,20 @@ impl UseDefInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use llvm_ir::{ArgId, Context, Module, Builder, Linkage};
+    use llvm_ir::{ArgId, Builder, Context, Linkage, Module};
 
     fn make_add_fn() -> (Context, Module) {
         let mut ctx = Context::new();
         let mut module = Module::new("test");
         let mut b = Builder::new(&mut ctx, &mut module);
-        b.add_function("add", b.ctx.i32_ty,
+        b.add_function(
+            "add",
+            b.ctx.i32_ty,
             vec![b.ctx.i32_ty, b.ctx.i32_ty],
-            vec!["a".into(), "b".into()], false, Linkage::External);
+            vec!["a".into(), "b".into()],
+            false,
+            Linkage::External,
+        );
         let entry = b.add_block("entry");
         b.position_at_end(entry);
         let a = b.get_arg(0);
@@ -155,8 +164,14 @@ mod tests {
         let mut ctx = Context::new();
         let mut module = Module::new("test");
         let mut b = Builder::new(&mut ctx, &mut module);
-        b.add_function("f", b.ctx.i32_ty, vec![b.ctx.i32_ty],
-            vec!["x".into()], false, Linkage::External);
+        b.add_function(
+            "f",
+            b.ctx.i32_ty,
+            vec![b.ctx.i32_ty],
+            vec!["x".into()],
+            false,
+            Linkage::External,
+        );
         let entry = b.add_block("entry");
         b.position_at_end(entry);
         let x = b.get_arg(0);
@@ -177,8 +192,14 @@ mod tests {
         let mut ctx = Context::new();
         let mut module = Module::new("test");
         let mut b = Builder::new(&mut ctx, &mut module);
-        b.add_function("f", b.ctx.void_ty, vec![b.ctx.i1_ty],
-            vec!["c".into()], false, Linkage::External);
+        b.add_function(
+            "f",
+            b.ctx.void_ty,
+            vec![b.ctx.i1_ty],
+            vec!["c".into()],
+            false,
+            Linkage::External,
+        );
         let entry = b.add_block("entry");
         let then_bb = b.add_block("then");
         let else_bb = b.add_block("else");
@@ -212,9 +233,14 @@ mod tests {
         let mut ctx = Context::new();
         let mut module = Module::new("test");
         let mut b = Builder::new(&mut ctx, &mut module);
-        b.add_function("phi_fn", b.ctx.i32_ty,
+        b.add_function(
+            "phi_fn",
+            b.ctx.i32_ty,
             vec![b.ctx.i1_ty, b.ctx.i32_ty, b.ctx.i32_ty],
-            vec!["cond".into(), "a".into(), "bv".into()], false, Linkage::External);
+            vec!["cond".into(), "a".into(), "bv".into()],
+            false,
+            Linkage::External,
+        );
         let entry = b.add_block("entry");
         let then_bb = b.add_block("then");
         let else_bb = b.add_block("else");
@@ -251,15 +277,24 @@ mod tests {
         let b_ref = ValueRef::Argument(ArgId(2));
 
         let a_phi_uses = info.phi_uses_of(a_ref);
-        assert_eq!(a_phi_uses.len(), 1,
-            "a should appear in exactly one phi incoming list");
-        assert_eq!(a_phi_uses[0].0, BlockId(1),
-            "a's phi use should be at predecessor then_bb (block 1), not merge");
+        assert_eq!(
+            a_phi_uses.len(),
+            1,
+            "a should appear in exactly one phi incoming list"
+        );
+        assert_eq!(
+            a_phi_uses[0].0,
+            BlockId(1),
+            "a's phi use should be at predecessor then_bb (block 1), not merge"
+        );
 
         let b_phi_uses = info.phi_uses_of(b_ref);
         assert_eq!(b_phi_uses.len(), 1);
-        assert_eq!(b_phi_uses[0].0, BlockId(2),
-            "bv's phi use should be at predecessor else_bb (block 2), not merge");
+        assert_eq!(
+            b_phi_uses[0].0,
+            BlockId(2),
+            "bv's phi use should be at predecessor else_bb (block 2), not merge"
+        );
     }
 
     #[test]
@@ -274,8 +309,11 @@ mod tests {
         let uses = info.uses_of(a_ref);
         // %a is used by the phi in merge (BlockId 3).
         assert_eq!(uses.len(), 1);
-        assert_eq!(uses[0].0, BlockId(3),
-            "uses_of should record phi operands at the phi's own block (merge = block 3)");
+        assert_eq!(
+            uses[0].0,
+            BlockId(3),
+            "uses_of should record phi operands at the phi's own block (merge = block 3)"
+        );
 
         // %a is not dead — it appears in a phi.
         assert!(!info.is_dead(a_ref));

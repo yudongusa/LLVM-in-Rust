@@ -1,6 +1,6 @@
 //! SSA values: constants, instruction results, function arguments, and globals.
 
-use crate::context::{TypeId, ConstId, GlobalId};
+use crate::context::{ConstId, GlobalId, TypeId};
 
 /// Constant value stored in the Context constant pool.
 #[derive(Clone, Debug, PartialEq)]
@@ -27,7 +27,11 @@ pub enum ConstantData {
     Vector { ty: TypeId, elements: Vec<ConstId> },
     /// Reference to a global symbol (global variable or function).
     /// `name` is the LLVM IR name (without `@`), used for printing.
-    GlobalRef { ty: TypeId, id: GlobalId, name: String },
+    GlobalRef {
+        ty: TypeId,
+        id: GlobalId,
+        name: String,
+    },
 }
 
 /// A function argument (SSA value produced by function entry).

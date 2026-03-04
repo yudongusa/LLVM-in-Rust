@@ -1,12 +1,14 @@
 //! IR builder API for programmatic construction of instructions and basic blocks.
 
-use crate::context::{Context, TypeId, FunctionId, BlockId, ConstId, GlobalId, ValueRef};
-use crate::value::{Argument, Linkage, GlobalVariable};
-use crate::function::Function;
-use crate::module::Module;
 use crate::basic_block::BasicBlock;
-use crate::instruction::{Instruction, InstrKind, IntArithFlags, FastMathFlags,
-                         IntPredicate, FloatPredicate, TailCallKind};
+use crate::context::{BlockId, ConstId, Context, FunctionId, GlobalId, TypeId, ValueRef};
+use crate::function::Function;
+use crate::instruction::{
+    FastMathFlags, FloatPredicate, InstrKind, Instruction, IntArithFlags, IntPredicate,
+    TailCallKind,
+};
+use crate::module::Module;
+use crate::value::{Argument, GlobalVariable, Linkage};
 
 /// Programmatic IR builder.
 ///
@@ -21,7 +23,12 @@ pub struct Builder<'a> {
 
 impl<'a> Builder<'a> {
     pub fn new(ctx: &'a mut Context, module: &'a mut Module) -> Self {
-        Builder { ctx, module, current_function: None, current_block: None }
+        Builder {
+            ctx,
+            module,
+            current_function: None,
+            current_block: None,
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -42,7 +49,11 @@ impl<'a> Builder<'a> {
             .iter()
             .zip(param_names.iter().chain(std::iter::repeat(&String::new())))
             .enumerate()
-            .map(|(i, (&ty, name))| Argument { name: name.clone(), ty, index: i as u32 })
+            .map(|(i, (&ty, name))| Argument {
+                name: name.clone(),
+                ty,
+                index: i as u32,
+            })
             .collect();
         let func = Function::new(name, fn_ty, args, linkage);
         let id = self.module.add_function(func);
@@ -62,11 +73,14 @@ impl<'a> Builder<'a> {
         let args: Vec<Argument> = param_tys
             .iter()
             .enumerate()
-            .map(|(i, &ty)| Argument { name: String::new(), ty, index: i as u32 })
+            .map(|(i, &ty)| Argument {
+                name: String::new(),
+                ty,
+                index: i as u32,
+            })
             .collect();
         let func = Function::new_declaration(name, fn_ty, args, Linkage::External);
-        let id = self.module.add_function(func);
-        id
+        self.module.add_function(func)
     }
 
     // -----------------------------------------------------------------------
@@ -160,7 +174,13 @@ impl<'a> Builder<'a> {
         is_constant: bool,
         linkage: Linkage,
     ) -> GlobalId {
-        let gv = GlobalVariable { name: name.into(), ty, initializer, is_constant, linkage };
+        let gv = GlobalVariable {
+            name: name.into(),
+            ty,
+            initializer,
+            is_constant,
+            linkage,
+        };
         self.module.add_global(gv)
     }
 
@@ -175,9 +195,15 @@ impl<'a> Builder<'a> {
         let is_terminator = instr.is_terminator();
         let id = self.module.function_mut(fid).alloc_instr(instr);
         if is_terminator {
-            self.module.function_mut(fid).block_mut(bid).set_terminator(id);
+            self.module
+                .function_mut(fid)
+                .block_mut(bid)
+                .set_terminator(id);
         } else {
-            self.module.function_mut(fid).block_mut(bid).append_instr(id);
+            self.module
+                .function_mut(fid)
+                .block_mut(bid)
+                .append_instr(id);
         }
         ValueRef::Instruction(id)
     }
@@ -188,44 +214,116 @@ impl<'a> Builder<'a> {
 
     pub fn build_add(&mut self, name: impl Into<String>, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
         let ty = self.type_of(lhs);
-        self.append_instr(Some(name.into()), ty,
-            InstrKind::Add { flags: IntArithFlags::default(), lhs, rhs })
+        self.append_instr(
+            Some(name.into()),
+            ty,
+            InstrKind::Add {
+                flags: IntArithFlags::default(),
+                lhs,
+                rhs,
+            },
+        )
     }
 
-    pub fn build_add_nsw(&mut self, name: impl Into<String>, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
+    pub fn build_add_nsw(
+        &mut self,
+        name: impl Into<String>,
+        lhs: ValueRef,
+        rhs: ValueRef,
+    ) -> ValueRef {
         let ty = self.type_of(lhs);
-        self.append_instr(Some(name.into()), ty,
-            InstrKind::Add { flags: IntArithFlags { nsw: true, nuw: false }, lhs, rhs })
+        self.append_instr(
+            Some(name.into()),
+            ty,
+            InstrKind::Add {
+                flags: IntArithFlags {
+                    nsw: true,
+                    nuw: false,
+                },
+                lhs,
+                rhs,
+            },
+        )
     }
 
     pub fn build_sub(&mut self, name: impl Into<String>, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
         let ty = self.type_of(lhs);
-        self.append_instr(Some(name.into()), ty,
-            InstrKind::Sub { flags: IntArithFlags::default(), lhs, rhs })
+        self.append_instr(
+            Some(name.into()),
+            ty,
+            InstrKind::Sub {
+                flags: IntArithFlags::default(),
+                lhs,
+                rhs,
+            },
+        )
     }
 
     pub fn build_mul(&mut self, name: impl Into<String>, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
         let ty = self.type_of(lhs);
-        self.append_instr(Some(name.into()), ty,
-            InstrKind::Mul { flags: IntArithFlags::default(), lhs, rhs })
+        self.append_instr(
+            Some(name.into()),
+            ty,
+            InstrKind::Mul {
+                flags: IntArithFlags::default(),
+                lhs,
+                rhs,
+            },
+        )
     }
 
-    pub fn build_udiv(&mut self, name: impl Into<String>, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
+    pub fn build_udiv(
+        &mut self,
+        name: impl Into<String>,
+        lhs: ValueRef,
+        rhs: ValueRef,
+    ) -> ValueRef {
         let ty = self.type_of(lhs);
-        self.append_instr(Some(name.into()), ty, InstrKind::UDiv { exact: false, lhs, rhs })
+        self.append_instr(
+            Some(name.into()),
+            ty,
+            InstrKind::UDiv {
+                exact: false,
+                lhs,
+                rhs,
+            },
+        )
     }
 
-    pub fn build_sdiv(&mut self, name: impl Into<String>, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
+    pub fn build_sdiv(
+        &mut self,
+        name: impl Into<String>,
+        lhs: ValueRef,
+        rhs: ValueRef,
+    ) -> ValueRef {
         let ty = self.type_of(lhs);
-        self.append_instr(Some(name.into()), ty, InstrKind::SDiv { exact: false, lhs, rhs })
+        self.append_instr(
+            Some(name.into()),
+            ty,
+            InstrKind::SDiv {
+                exact: false,
+                lhs,
+                rhs,
+            },
+        )
     }
 
-    pub fn build_urem(&mut self, name: impl Into<String>, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
+    pub fn build_urem(
+        &mut self,
+        name: impl Into<String>,
+        lhs: ValueRef,
+        rhs: ValueRef,
+    ) -> ValueRef {
         let ty = self.type_of(lhs);
         self.append_instr(Some(name.into()), ty, InstrKind::URem { lhs, rhs })
     }
 
-    pub fn build_srem(&mut self, name: impl Into<String>, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
+    pub fn build_srem(
+        &mut self,
+        name: impl Into<String>,
+        lhs: ValueRef,
+        rhs: ValueRef,
+    ) -> ValueRef {
         let ty = self.type_of(lhs);
         self.append_instr(Some(name.into()), ty, InstrKind::SRem { lhs, rhs })
     }
@@ -249,111 +347,303 @@ impl<'a> Builder<'a> {
 
     pub fn build_shl(&mut self, name: impl Into<String>, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
         let ty = self.type_of(lhs);
-        self.append_instr(Some(name.into()), ty,
-            InstrKind::Shl { flags: IntArithFlags::default(), lhs, rhs })
+        self.append_instr(
+            Some(name.into()),
+            ty,
+            InstrKind::Shl {
+                flags: IntArithFlags::default(),
+                lhs,
+                rhs,
+            },
+        )
     }
 
-    pub fn build_lshr(&mut self, name: impl Into<String>, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
+    pub fn build_lshr(
+        &mut self,
+        name: impl Into<String>,
+        lhs: ValueRef,
+        rhs: ValueRef,
+    ) -> ValueRef {
         let ty = self.type_of(lhs);
-        self.append_instr(Some(name.into()), ty, InstrKind::LShr { exact: false, lhs, rhs })
+        self.append_instr(
+            Some(name.into()),
+            ty,
+            InstrKind::LShr {
+                exact: false,
+                lhs,
+                rhs,
+            },
+        )
     }
 
-    pub fn build_ashr(&mut self, name: impl Into<String>, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
+    pub fn build_ashr(
+        &mut self,
+        name: impl Into<String>,
+        lhs: ValueRef,
+        rhs: ValueRef,
+    ) -> ValueRef {
         let ty = self.type_of(lhs);
-        self.append_instr(Some(name.into()), ty, InstrKind::AShr { exact: false, lhs, rhs })
+        self.append_instr(
+            Some(name.into()),
+            ty,
+            InstrKind::AShr {
+                exact: false,
+                lhs,
+                rhs,
+            },
+        )
     }
 
     // --- FP arithmetic ---
 
-    pub fn build_fadd(&mut self, name: impl Into<String>, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
+    pub fn build_fadd(
+        &mut self,
+        name: impl Into<String>,
+        lhs: ValueRef,
+        rhs: ValueRef,
+    ) -> ValueRef {
         let ty = self.type_of(lhs);
-        self.append_instr(Some(name.into()), ty,
-            InstrKind::FAdd { flags: FastMathFlags::default(), lhs, rhs })
+        self.append_instr(
+            Some(name.into()),
+            ty,
+            InstrKind::FAdd {
+                flags: FastMathFlags::default(),
+                lhs,
+                rhs,
+            },
+        )
     }
 
-    pub fn build_fsub(&mut self, name: impl Into<String>, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
+    pub fn build_fsub(
+        &mut self,
+        name: impl Into<String>,
+        lhs: ValueRef,
+        rhs: ValueRef,
+    ) -> ValueRef {
         let ty = self.type_of(lhs);
-        self.append_instr(Some(name.into()), ty,
-            InstrKind::FSub { flags: FastMathFlags::default(), lhs, rhs })
+        self.append_instr(
+            Some(name.into()),
+            ty,
+            InstrKind::FSub {
+                flags: FastMathFlags::default(),
+                lhs,
+                rhs,
+            },
+        )
     }
 
-    pub fn build_fmul(&mut self, name: impl Into<String>, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
+    pub fn build_fmul(
+        &mut self,
+        name: impl Into<String>,
+        lhs: ValueRef,
+        rhs: ValueRef,
+    ) -> ValueRef {
         let ty = self.type_of(lhs);
-        self.append_instr(Some(name.into()), ty,
-            InstrKind::FMul { flags: FastMathFlags::default(), lhs, rhs })
+        self.append_instr(
+            Some(name.into()),
+            ty,
+            InstrKind::FMul {
+                flags: FastMathFlags::default(),
+                lhs,
+                rhs,
+            },
+        )
     }
 
-    pub fn build_fdiv(&mut self, name: impl Into<String>, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
+    pub fn build_fdiv(
+        &mut self,
+        name: impl Into<String>,
+        lhs: ValueRef,
+        rhs: ValueRef,
+    ) -> ValueRef {
         let ty = self.type_of(lhs);
-        self.append_instr(Some(name.into()), ty,
-            InstrKind::FDiv { flags: FastMathFlags::default(), lhs, rhs })
+        self.append_instr(
+            Some(name.into()),
+            ty,
+            InstrKind::FDiv {
+                flags: FastMathFlags::default(),
+                lhs,
+                rhs,
+            },
+        )
     }
 
     pub fn build_fneg(&mut self, name: impl Into<String>, val: ValueRef) -> ValueRef {
         let ty = self.type_of(val);
-        self.append_instr(Some(name.into()), ty,
-            InstrKind::FNeg { flags: FastMathFlags::default(), operand: val })
+        self.append_instr(
+            Some(name.into()),
+            ty,
+            InstrKind::FNeg {
+                flags: FastMathFlags::default(),
+                operand: val,
+            },
+        )
     }
 
     // --- Comparisons ---
 
-    pub fn build_icmp(&mut self, name: impl Into<String>, pred: IntPredicate, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
+    pub fn build_icmp(
+        &mut self,
+        name: impl Into<String>,
+        pred: IntPredicate,
+        lhs: ValueRef,
+        rhs: ValueRef,
+    ) -> ValueRef {
         let i1 = self.ctx.i1_ty;
         self.append_instr(Some(name.into()), i1, InstrKind::ICmp { pred, lhs, rhs })
     }
 
-    pub fn build_fcmp(&mut self, name: impl Into<String>, pred: FloatPredicate, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
+    pub fn build_fcmp(
+        &mut self,
+        name: impl Into<String>,
+        pred: FloatPredicate,
+        lhs: ValueRef,
+        rhs: ValueRef,
+    ) -> ValueRef {
         let i1 = self.ctx.i1_ty;
-        self.append_instr(Some(name.into()), i1,
-            InstrKind::FCmp { flags: FastMathFlags::default(), pred, lhs, rhs })
+        self.append_instr(
+            Some(name.into()),
+            i1,
+            InstrKind::FCmp {
+                flags: FastMathFlags::default(),
+                pred,
+                lhs,
+                rhs,
+            },
+        )
     }
 
     // --- Memory ---
 
     pub fn build_alloca(&mut self, name: impl Into<String>, alloc_ty: TypeId) -> ValueRef {
         let ptr_ty = self.ctx.ptr_ty;
-        self.append_instr(Some(name.into()), ptr_ty,
-            InstrKind::Alloca { alloc_ty, num_elements: None, align: None })
+        self.append_instr(
+            Some(name.into()),
+            ptr_ty,
+            InstrKind::Alloca {
+                alloc_ty,
+                num_elements: None,
+                align: None,
+            },
+        )
     }
 
-    pub fn build_alloca_aligned(&mut self, name: impl Into<String>, alloc_ty: TypeId, align: u32) -> ValueRef {
+    pub fn build_alloca_aligned(
+        &mut self,
+        name: impl Into<String>,
+        alloc_ty: TypeId,
+        align: u32,
+    ) -> ValueRef {
         let ptr_ty = self.ctx.ptr_ty;
-        self.append_instr(Some(name.into()), ptr_ty,
-            InstrKind::Alloca { alloc_ty, num_elements: None, align: Some(align) })
+        self.append_instr(
+            Some(name.into()),
+            ptr_ty,
+            InstrKind::Alloca {
+                alloc_ty,
+                num_elements: None,
+                align: Some(align),
+            },
+        )
     }
 
     pub fn build_load(&mut self, name: impl Into<String>, ty: TypeId, ptr: ValueRef) -> ValueRef {
-        self.append_instr(Some(name.into()), ty,
-            InstrKind::Load { ty, ptr, align: None, volatile: false })
+        self.append_instr(
+            Some(name.into()),
+            ty,
+            InstrKind::Load {
+                ty,
+                ptr,
+                align: None,
+                volatile: false,
+            },
+        )
     }
 
-    pub fn build_load_aligned(&mut self, name: impl Into<String>, ty: TypeId, ptr: ValueRef, align: u32) -> ValueRef {
-        self.append_instr(Some(name.into()), ty,
-            InstrKind::Load { ty, ptr, align: Some(align), volatile: false })
+    pub fn build_load_aligned(
+        &mut self,
+        name: impl Into<String>,
+        ty: TypeId,
+        ptr: ValueRef,
+        align: u32,
+    ) -> ValueRef {
+        self.append_instr(
+            Some(name.into()),
+            ty,
+            InstrKind::Load {
+                ty,
+                ptr,
+                align: Some(align),
+                volatile: false,
+            },
+        )
     }
 
     pub fn build_store(&mut self, val: ValueRef, ptr: ValueRef) -> ValueRef {
         let void_ty = self.ctx.void_ty;
-        self.append_instr(None, void_ty,
-            InstrKind::Store { val, ptr, align: None, volatile: false })
+        self.append_instr(
+            None,
+            void_ty,
+            InstrKind::Store {
+                val,
+                ptr,
+                align: None,
+                volatile: false,
+            },
+        )
     }
 
     pub fn build_store_aligned(&mut self, val: ValueRef, ptr: ValueRef, align: u32) -> ValueRef {
         let void_ty = self.ctx.void_ty;
-        self.append_instr(None, void_ty,
-            InstrKind::Store { val, ptr, align: Some(align), volatile: false })
+        self.append_instr(
+            None,
+            void_ty,
+            InstrKind::Store {
+                val,
+                ptr,
+                align: Some(align),
+                volatile: false,
+            },
+        )
     }
 
-    pub fn build_gep(&mut self, name: impl Into<String>, base_ty: TypeId, ptr: ValueRef, indices: Vec<ValueRef>) -> ValueRef {
+    pub fn build_gep(
+        &mut self,
+        name: impl Into<String>,
+        base_ty: TypeId,
+        ptr: ValueRef,
+        indices: Vec<ValueRef>,
+    ) -> ValueRef {
         let ptr_ty = self.ctx.ptr_ty;
-        self.append_instr(Some(name.into()), ptr_ty,
-            InstrKind::GetElementPtr { inbounds: false, base_ty, ptr, indices })
+        self.append_instr(
+            Some(name.into()),
+            ptr_ty,
+            InstrKind::GetElementPtr {
+                inbounds: false,
+                base_ty,
+                ptr,
+                indices,
+            },
+        )
     }
 
-    pub fn build_gep_inbounds(&mut self, name: impl Into<String>, base_ty: TypeId, ptr: ValueRef, indices: Vec<ValueRef>) -> ValueRef {
+    pub fn build_gep_inbounds(
+        &mut self,
+        name: impl Into<String>,
+        base_ty: TypeId,
+        ptr: ValueRef,
+        indices: Vec<ValueRef>,
+    ) -> ValueRef {
         let ptr_ty = self.ctx.ptr_ty;
-        self.append_instr(Some(name.into()), ptr_ty,
-            InstrKind::GetElementPtr { inbounds: true, base_ty, ptr, indices })
+        self.append_instr(
+            Some(name.into()),
+            ptr_ty,
+            InstrKind::GetElementPtr {
+                inbounds: true,
+                base_ty,
+                ptr,
+                indices,
+            },
+        )
     }
 
     // --- Casts ---
@@ -367,7 +657,12 @@ impl<'a> Builder<'a> {
     pub fn build_sext(&mut self, name: impl Into<String>, val: ValueRef, to: TypeId) -> ValueRef {
         self.append_instr(Some(name.into()), to, InstrKind::SExt { val, to })
     }
-    pub fn build_fptrunc(&mut self, name: impl Into<String>, val: ValueRef, to: TypeId) -> ValueRef {
+    pub fn build_fptrunc(
+        &mut self,
+        name: impl Into<String>,
+        val: ValueRef,
+        to: TypeId,
+    ) -> ValueRef {
         self.append_instr(Some(name.into()), to, InstrKind::FPTrunc { val, to })
     }
     pub fn build_fpext(&mut self, name: impl Into<String>, val: ValueRef, to: TypeId) -> ValueRef {
@@ -385,34 +680,92 @@ impl<'a> Builder<'a> {
     pub fn build_sitofp(&mut self, name: impl Into<String>, val: ValueRef, to: TypeId) -> ValueRef {
         self.append_instr(Some(name.into()), to, InstrKind::SIToFP { val, to })
     }
-    pub fn build_ptrtoint(&mut self, name: impl Into<String>, val: ValueRef, to: TypeId) -> ValueRef {
+    pub fn build_ptrtoint(
+        &mut self,
+        name: impl Into<String>,
+        val: ValueRef,
+        to: TypeId,
+    ) -> ValueRef {
         self.append_instr(Some(name.into()), to, InstrKind::PtrToInt { val, to })
     }
-    pub fn build_inttoptr(&mut self, name: impl Into<String>, val: ValueRef, to: TypeId) -> ValueRef {
+    pub fn build_inttoptr(
+        &mut self,
+        name: impl Into<String>,
+        val: ValueRef,
+        to: TypeId,
+    ) -> ValueRef {
         self.append_instr(Some(name.into()), to, InstrKind::IntToPtr { val, to })
     }
-    pub fn build_bitcast(&mut self, name: impl Into<String>, val: ValueRef, to: TypeId) -> ValueRef {
+    pub fn build_bitcast(
+        &mut self,
+        name: impl Into<String>,
+        val: ValueRef,
+        to: TypeId,
+    ) -> ValueRef {
         self.append_instr(Some(name.into()), to, InstrKind::BitCast { val, to })
     }
 
     // --- Misc ---
 
-    pub fn build_select(&mut self, name: impl Into<String>, cond: ValueRef, then_val: ValueRef, else_val: ValueRef) -> ValueRef {
+    pub fn build_select(
+        &mut self,
+        name: impl Into<String>,
+        cond: ValueRef,
+        then_val: ValueRef,
+        else_val: ValueRef,
+    ) -> ValueRef {
         let ty = self.type_of(then_val);
-        self.append_instr(Some(name.into()), ty, InstrKind::Select { cond, then_val, else_val })
+        self.append_instr(
+            Some(name.into()),
+            ty,
+            InstrKind::Select {
+                cond,
+                then_val,
+                else_val,
+            },
+        )
     }
 
-    pub fn build_phi(&mut self, name: impl Into<String>, ty: TypeId, incoming: Vec<(ValueRef, BlockId)>) -> ValueRef {
+    pub fn build_phi(
+        &mut self,
+        name: impl Into<String>,
+        ty: TypeId,
+        incoming: Vec<(ValueRef, BlockId)>,
+    ) -> ValueRef {
         self.append_instr(Some(name.into()), ty, InstrKind::Phi { ty, incoming })
     }
 
-    pub fn build_extractvalue(&mut self, name: impl Into<String>, aggregate: ValueRef, result_ty: TypeId, indices: Vec<u32>) -> ValueRef {
-        self.append_instr(Some(name.into()), result_ty, InstrKind::ExtractValue { aggregate, indices })
+    pub fn build_extractvalue(
+        &mut self,
+        name: impl Into<String>,
+        aggregate: ValueRef,
+        result_ty: TypeId,
+        indices: Vec<u32>,
+    ) -> ValueRef {
+        self.append_instr(
+            Some(name.into()),
+            result_ty,
+            InstrKind::ExtractValue { aggregate, indices },
+        )
     }
 
-    pub fn build_insertvalue(&mut self, name: impl Into<String>, aggregate: ValueRef, val: ValueRef, indices: Vec<u32>) -> ValueRef {
+    pub fn build_insertvalue(
+        &mut self,
+        name: impl Into<String>,
+        aggregate: ValueRef,
+        val: ValueRef,
+        indices: Vec<u32>,
+    ) -> ValueRef {
         let ty = self.type_of(aggregate);
-        self.append_instr(Some(name.into()), ty, InstrKind::InsertValue { aggregate, val, indices })
+        self.append_instr(
+            Some(name.into()),
+            ty,
+            InstrKind::InsertValue {
+                aggregate,
+                val,
+                indices,
+            },
+        )
     }
 
     // --- Call ---
@@ -426,13 +779,21 @@ impl<'a> Builder<'a> {
         args: Vec<ValueRef>,
     ) -> ValueRef {
         let n = name.into();
-        let result_name = if ret_ty == self.ctx.void_ty { None } else { Some(n) };
-        self.append_instr(result_name, ret_ty, InstrKind::Call {
-            tail: TailCallKind::None,
-            callee_ty,
-            callee,
-            args,
-        })
+        let result_name = if ret_ty == self.ctx.void_ty {
+            None
+        } else {
+            Some(n)
+        };
+        self.append_instr(
+            result_name,
+            ret_ty,
+            InstrKind::Call {
+                tail: TailCallKind::None,
+                callee_ty,
+                callee,
+                args,
+            },
+        )
     }
 
     // --- Terminators ---
@@ -452,14 +813,40 @@ impl<'a> Builder<'a> {
         self.append_instr(None, void_ty, InstrKind::Br { dest })
     }
 
-    pub fn build_cond_br(&mut self, cond: ValueRef, then_dest: BlockId, else_dest: BlockId) -> ValueRef {
+    pub fn build_cond_br(
+        &mut self,
+        cond: ValueRef,
+        then_dest: BlockId,
+        else_dest: BlockId,
+    ) -> ValueRef {
         let void_ty = self.ctx.void_ty;
-        self.append_instr(None, void_ty, InstrKind::CondBr { cond, then_dest, else_dest })
+        self.append_instr(
+            None,
+            void_ty,
+            InstrKind::CondBr {
+                cond,
+                then_dest,
+                else_dest,
+            },
+        )
     }
 
-    pub fn build_switch(&mut self, val: ValueRef, default: BlockId, cases: Vec<(ValueRef, BlockId)>) -> ValueRef {
+    pub fn build_switch(
+        &mut self,
+        val: ValueRef,
+        default: BlockId,
+        cases: Vec<(ValueRef, BlockId)>,
+    ) -> ValueRef {
         let void_ty = self.ctx.void_ty;
-        self.append_instr(None, void_ty, InstrKind::Switch { val, default, cases })
+        self.append_instr(
+            None,
+            void_ty,
+            InstrKind::Switch {
+                val,
+                default,
+                cases,
+            },
+        )
     }
 
     pub fn build_unreachable(&mut self) -> ValueRef {
@@ -476,9 +863,9 @@ impl<'a> Builder<'a> {
         let func = self.module.function(fid);
         match vref {
             ValueRef::Instruction(id) => func.instr(id).ty,
-            ValueRef::Argument(id)    => func.arg(id).ty,
-            ValueRef::Constant(id)    => self.ctx.type_of_const(id),
-            ValueRef::Global(_)       => self.ctx.ptr_ty,
+            ValueRef::Argument(id) => func.arg(id).ty,
+            ValueRef::Constant(id) => self.ctx.type_of_const(id),
+            ValueRef::Global(_) => self.ctx.ptr_ty,
         }
     }
 }

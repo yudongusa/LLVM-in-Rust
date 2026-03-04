@@ -29,13 +29,13 @@
 //! - The call is not recursive (callee ≠ caller by name).
 //! - The callee body has at most `size_limit` non-terminator instructions.
 
-use std::collections::HashMap;
-use llvm_ir::{
-    ArgId, BasicBlock, BlockId, Context, FunctionId, InstrId,
-    InstrKind, Instruction, Module, ValueRef,
-};
-use crate::pass::ModulePass;
 use crate::const_prop::subst_kind;
+use crate::pass::ModulePass;
+use llvm_ir::{
+    ArgId, BasicBlock, BlockId, Context, FunctionId, InstrId, InstrKind, Instruction, Module,
+    ValueRef,
+};
+use std::collections::HashMap;
 
 /// Function inlining pass.
 ///
@@ -46,22 +46,22 @@ pub struct Inliner {
 }
 
 impl Default for Inliner {
-    fn default() -> Self { Inliner { size_limit: 50 } }
+    fn default() -> Self {
+        Inliner { size_limit: 50 }
+    }
 }
 
 impl ModulePass for Inliner {
-    fn name(&self) -> &'static str { "inline" }
+    fn name(&self) -> &'static str {
+        "inline"
+    }
 
     fn run_on_module(&mut self, ctx: &mut Context, module: &mut Module) -> bool {
         let mut changed = false;
         // Inline one call site at a time to keep indices stable.
-        loop {
-            if let Some(site) = find_inline_site(ctx, module, self.size_limit) {
-                do_inline(ctx, module, site);
-                changed = true;
-            } else {
-                break;
-            }
+        while let Some(site) = find_inline_site(ctx, module, self.size_limit) {
+            do_inline(ctx, module, site);
+            changed = true;
         }
         changed
     }
@@ -73,26 +73,33 @@ impl ModulePass for Inliner {
 
 struct CallSite {
     caller_id: FunctionId,
-    block_idx: usize,   // index into caller.blocks
-    instr_pos: usize,   // position in block.body
+    block_idx: usize, // index into caller.blocks
+    instr_pos: usize, // position in block.body
     callee_id: FunctionId,
 }
 
 fn find_inline_site(ctx: &Context, module: &Module, size_limit: usize) -> Option<CallSite> {
     for (caller_idx, caller) in module.functions.iter().enumerate() {
-        if caller.is_declaration { continue; }
+        if caller.is_declaration {
+            continue;
+        }
         let caller_id = FunctionId(caller_idx as u32);
 
         for (bi, bb) in caller.blocks.iter().enumerate() {
             for (pos, &iid) in bb.body.iter().enumerate() {
-                if let InstrKind::Call { callee, callee_ty, .. } = &caller.instr(iid).kind {
+                if let InstrKind::Call {
+                    callee, callee_ty, ..
+                } = &caller.instr(iid).kind
+                {
                     // Callee must be a direct call via GlobalId.  In this IR,
                     // direct function calls use ValueRef::Global(GlobalId(i))
                     // where i is the function's index in module.functions.
                     let callee_fid = match callee {
                         ValueRef::Global(gid) => {
                             let fid = FunctionId(gid.0);
-                            if fid.0 as usize >= module.functions.len() { continue; }
+                            if fid.0 as usize >= module.functions.len() {
+                                continue;
+                            }
                             fid
                         }
                         _ => continue,
@@ -100,15 +107,23 @@ fn find_inline_site(ctx: &Context, module: &Module, size_limit: usize) -> Option
                     let callee_fn = &module.functions[callee_fid.0 as usize];
 
                     // Eligibility checks.
-                    if callee_fn.is_declaration { continue; }
-                    if callee_fid == caller_id   { continue; } // no self-recursion
-                    // Skip variadic callees.
+                    if callee_fn.is_declaration {
+                        continue;
+                    }
+                    if callee_fid == caller_id {
+                        continue;
+                    } // no self-recursion
+                      // Skip variadic callees.
                     if let llvm_ir::TypeData::Function(ft) = ctx.get_type(*callee_ty) {
-                        if ft.variadic { continue; }
+                        if ft.variadic {
+                            continue;
+                        }
                     }
                     // Size limit.
                     let body_instrs: usize = callee_fn.blocks.iter().map(|b| b.body.len()).sum();
-                    if body_instrs > size_limit { continue; }
+                    if body_instrs > size_limit {
+                        continue;
+                    }
 
                     return Some(CallSite {
                         caller_id,
@@ -128,7 +143,12 @@ fn find_inline_site(ctx: &Context, module: &Module, size_limit: usize) -> Option
 // ---------------------------------------------------------------------------
 
 fn do_inline(ctx: &mut Context, module: &mut Module, site: CallSite) {
-    let CallSite { caller_id, block_idx, instr_pos, callee_id } = site;
+    let CallSite {
+        caller_id,
+        block_idx,
+        instr_pos,
+        callee_id,
+    } = site;
 
     // Extract call arguments and result type before borrowing mutably.
     let (call_args, call_result_ty, call_iid) = {
@@ -152,8 +172,14 @@ fn do_inline(ctx: &mut Context, module: &mut Module, site: CallSite) {
     };
 
     // Clone callee blocks/instructions into the caller using correct offsets.
-    let callee_clone = clone_callee(ctx, module, callee_id, &call_args,
-                                    instr_offset, block_offset);
+    let callee_clone = clone_callee(
+        ctx,
+        module,
+        callee_id,
+        &call_args,
+        instr_offset,
+        block_offset,
+    );
 
     let caller = &mut module.functions[caller_id.0 as usize];
 
@@ -162,7 +188,7 @@ fn do_inline(ctx: &mut Context, module: &mut Module, site: CallSite) {
     // post_block gets instructions instr_pos+1..end plus the original terminator.
     let orig_block = &caller.blocks[block_idx];
     let post_body: Vec<InstrId> = orig_block.body[instr_pos + 1..].to_vec();
-    let orig_term  = orig_block.terminator;
+    let orig_term = orig_block.terminator;
 
     // Truncate original block to pre-call body; remove terminator.
     caller.blocks[block_idx].body.truncate(instr_pos);
@@ -193,7 +219,9 @@ fn do_inline(ctx: &mut Context, module: &mut Module, site: CallSite) {
     let br_to_callee = caller.alloc_instr(Instruction {
         name: None,
         ty: ctx.void_ty,
-        kind: InstrKind::Br { dest: callee_entry_bid },
+        kind: InstrKind::Br {
+            dest: callee_entry_bid,
+        },
     });
     caller.blocks[block_idx].set_terminator(br_to_callee);
 
@@ -205,7 +233,9 @@ fn do_inline(ctx: &mut Context, module: &mut Module, site: CallSite) {
         let br_iid = caller.alloc_instr(Instruction {
             name: None,
             ty: ctx.void_ty,
-            kind: InstrKind::Br { dest: post_bid_actual },
+            kind: InstrKind::Br {
+                dest: post_bid_actual,
+            },
         });
         caller.blocks[callee_blk_id.0 as usize].terminator = Some(br_iid);
         if let Some(rv) = ret_val {
@@ -219,17 +249,20 @@ fn do_inline(ctx: &mut Context, module: &mut Module, site: CallSite) {
             return_values[0].1
         } else {
             // Multiple return sites: insert phi at post-block head.
-            let incoming: Vec<(ValueRef, BlockId)> = return_values
-                .iter()
-                .map(|&(b, v)| (v, b))
-                .collect();
+            let incoming: Vec<(ValueRef, BlockId)> =
+                return_values.iter().map(|&(b, v)| (v, b)).collect();
             let phi_name = caller.fresh_name();
             let phi_iid = caller.alloc_instr(Instruction {
                 name: Some(phi_name),
                 ty: call_result_ty,
-                kind: InstrKind::Phi { ty: call_result_ty, incoming },
+                kind: InstrKind::Phi {
+                    ty: call_result_ty,
+                    incoming,
+                },
             });
-            caller.blocks[post_bid_actual.0 as usize].body.insert(0, phi_iid);
+            caller.blocks[post_bid_actual.0 as usize]
+                .body
+                .insert(0, phi_iid);
             ValueRef::Instruction(phi_iid)
         };
 
@@ -344,13 +377,21 @@ fn clone_callee(
         }
     }
 
-    ClonedCallee { blocks: new_blocks, instrs: new_instrs, return_sites }
+    ClonedCallee {
+        blocks: new_blocks,
+        instrs: new_instrs,
+        return_sites,
+    }
 }
 
-fn remap_val(v: ValueRef, instr_map: &HashMap<InstrId, InstrId>, call_args: &[ValueRef]) -> ValueRef {
+fn remap_val(
+    v: ValueRef,
+    instr_map: &HashMap<InstrId, InstrId>,
+    call_args: &[ValueRef],
+) -> ValueRef {
     match v {
         ValueRef::Argument(ArgId(i)) => call_args.get(i as usize).copied().unwrap_or(v),
-        ValueRef::Instruction(iid)   => ValueRef::Instruction(*instr_map.get(&iid).unwrap_or(&iid)),
+        ValueRef::Instruction(iid) => ValueRef::Instruction(*instr_map.get(&iid).unwrap_or(&iid)),
         other => other,
     }
 }
@@ -365,63 +406,240 @@ fn remap_kind(
     let b = |bid: BlockId| *block_map.get(&bid).unwrap_or(&bid);
 
     match kind {
-        InstrKind::Add  { flags, lhs, rhs } => InstrKind::Add  { flags, lhs: s(lhs), rhs: s(rhs) },
-        InstrKind::Sub  { flags, lhs, rhs } => InstrKind::Sub  { flags, lhs: s(lhs), rhs: s(rhs) },
-        InstrKind::Mul  { flags, lhs, rhs } => InstrKind::Mul  { flags, lhs: s(lhs), rhs: s(rhs) },
-        InstrKind::UDiv { exact, lhs, rhs } => InstrKind::UDiv { exact, lhs: s(lhs), rhs: s(rhs) },
-        InstrKind::SDiv { exact, lhs, rhs } => InstrKind::SDiv { exact, lhs: s(lhs), rhs: s(rhs) },
-        InstrKind::URem { lhs, rhs }        => InstrKind::URem { lhs: s(lhs), rhs: s(rhs) },
-        InstrKind::SRem { lhs, rhs }        => InstrKind::SRem { lhs: s(lhs), rhs: s(rhs) },
-        InstrKind::And  { lhs, rhs }        => InstrKind::And  { lhs: s(lhs), rhs: s(rhs) },
-        InstrKind::Or   { lhs, rhs }        => InstrKind::Or   { lhs: s(lhs), rhs: s(rhs) },
-        InstrKind::Xor  { lhs, rhs }        => InstrKind::Xor  { lhs: s(lhs), rhs: s(rhs) },
-        InstrKind::Shl  { flags, lhs, rhs } => InstrKind::Shl  { flags, lhs: s(lhs), rhs: s(rhs) },
-        InstrKind::LShr { exact, lhs, rhs } => InstrKind::LShr { exact, lhs: s(lhs), rhs: s(rhs) },
-        InstrKind::AShr { exact, lhs, rhs } => InstrKind::AShr { exact, lhs: s(lhs), rhs: s(rhs) },
-        InstrKind::FAdd { flags, lhs, rhs } => InstrKind::FAdd { flags, lhs: s(lhs), rhs: s(rhs) },
-        InstrKind::FSub { flags, lhs, rhs } => InstrKind::FSub { flags, lhs: s(lhs), rhs: s(rhs) },
-        InstrKind::FMul { flags, lhs, rhs } => InstrKind::FMul { flags, lhs: s(lhs), rhs: s(rhs) },
-        InstrKind::FDiv { flags, lhs, rhs } => InstrKind::FDiv { flags, lhs: s(lhs), rhs: s(rhs) },
-        InstrKind::FRem { flags, lhs, rhs } => InstrKind::FRem { flags, lhs: s(lhs), rhs: s(rhs) },
-        InstrKind::FNeg { flags, operand }  => InstrKind::FNeg { flags, operand: s(operand) },
-        InstrKind::ICmp { pred, lhs, rhs }  => InstrKind::ICmp { pred, lhs: s(lhs), rhs: s(rhs) },
-        InstrKind::FCmp { flags, pred, lhs, rhs } => InstrKind::FCmp { flags, pred, lhs: s(lhs), rhs: s(rhs) },
-        InstrKind::Alloca { alloc_ty, num_elements, align } =>
-            InstrKind::Alloca { alloc_ty, num_elements: num_elements.map(s), align },
-        InstrKind::Load  { ty, ptr, align, volatile } => InstrKind::Load  { ty, ptr: s(ptr), align, volatile },
-        InstrKind::Store { val, ptr, align, volatile } => InstrKind::Store { val: s(val), ptr: s(ptr), align, volatile },
-        InstrKind::GetElementPtr { inbounds, base_ty, ptr, indices } =>
-            InstrKind::GetElementPtr { inbounds, base_ty, ptr: s(ptr), indices: indices.into_iter().map(s).collect() },
-        InstrKind::Trunc         { val, to } => InstrKind::Trunc         { val: s(val), to },
-        InstrKind::ZExt          { val, to } => InstrKind::ZExt          { val: s(val), to },
-        InstrKind::SExt          { val, to } => InstrKind::SExt          { val: s(val), to },
-        InstrKind::FPTrunc       { val, to } => InstrKind::FPTrunc       { val: s(val), to },
-        InstrKind::FPExt         { val, to } => InstrKind::FPExt         { val: s(val), to },
-        InstrKind::FPToUI        { val, to } => InstrKind::FPToUI        { val: s(val), to },
-        InstrKind::FPToSI        { val, to } => InstrKind::FPToSI        { val: s(val), to },
-        InstrKind::UIToFP        { val, to } => InstrKind::UIToFP        { val: s(val), to },
-        InstrKind::SIToFP        { val, to } => InstrKind::SIToFP        { val: s(val), to },
-        InstrKind::PtrToInt      { val, to } => InstrKind::PtrToInt      { val: s(val), to },
-        InstrKind::IntToPtr      { val, to } => InstrKind::IntToPtr      { val: s(val), to },
-        InstrKind::BitCast       { val, to } => InstrKind::BitCast       { val: s(val), to },
+        InstrKind::Add { flags, lhs, rhs } => InstrKind::Add {
+            flags,
+            lhs: s(lhs),
+            rhs: s(rhs),
+        },
+        InstrKind::Sub { flags, lhs, rhs } => InstrKind::Sub {
+            flags,
+            lhs: s(lhs),
+            rhs: s(rhs),
+        },
+        InstrKind::Mul { flags, lhs, rhs } => InstrKind::Mul {
+            flags,
+            lhs: s(lhs),
+            rhs: s(rhs),
+        },
+        InstrKind::UDiv { exact, lhs, rhs } => InstrKind::UDiv {
+            exact,
+            lhs: s(lhs),
+            rhs: s(rhs),
+        },
+        InstrKind::SDiv { exact, lhs, rhs } => InstrKind::SDiv {
+            exact,
+            lhs: s(lhs),
+            rhs: s(rhs),
+        },
+        InstrKind::URem { lhs, rhs } => InstrKind::URem {
+            lhs: s(lhs),
+            rhs: s(rhs),
+        },
+        InstrKind::SRem { lhs, rhs } => InstrKind::SRem {
+            lhs: s(lhs),
+            rhs: s(rhs),
+        },
+        InstrKind::And { lhs, rhs } => InstrKind::And {
+            lhs: s(lhs),
+            rhs: s(rhs),
+        },
+        InstrKind::Or { lhs, rhs } => InstrKind::Or {
+            lhs: s(lhs),
+            rhs: s(rhs),
+        },
+        InstrKind::Xor { lhs, rhs } => InstrKind::Xor {
+            lhs: s(lhs),
+            rhs: s(rhs),
+        },
+        InstrKind::Shl { flags, lhs, rhs } => InstrKind::Shl {
+            flags,
+            lhs: s(lhs),
+            rhs: s(rhs),
+        },
+        InstrKind::LShr { exact, lhs, rhs } => InstrKind::LShr {
+            exact,
+            lhs: s(lhs),
+            rhs: s(rhs),
+        },
+        InstrKind::AShr { exact, lhs, rhs } => InstrKind::AShr {
+            exact,
+            lhs: s(lhs),
+            rhs: s(rhs),
+        },
+        InstrKind::FAdd { flags, lhs, rhs } => InstrKind::FAdd {
+            flags,
+            lhs: s(lhs),
+            rhs: s(rhs),
+        },
+        InstrKind::FSub { flags, lhs, rhs } => InstrKind::FSub {
+            flags,
+            lhs: s(lhs),
+            rhs: s(rhs),
+        },
+        InstrKind::FMul { flags, lhs, rhs } => InstrKind::FMul {
+            flags,
+            lhs: s(lhs),
+            rhs: s(rhs),
+        },
+        InstrKind::FDiv { flags, lhs, rhs } => InstrKind::FDiv {
+            flags,
+            lhs: s(lhs),
+            rhs: s(rhs),
+        },
+        InstrKind::FRem { flags, lhs, rhs } => InstrKind::FRem {
+            flags,
+            lhs: s(lhs),
+            rhs: s(rhs),
+        },
+        InstrKind::FNeg { flags, operand } => InstrKind::FNeg {
+            flags,
+            operand: s(operand),
+        },
+        InstrKind::ICmp { pred, lhs, rhs } => InstrKind::ICmp {
+            pred,
+            lhs: s(lhs),
+            rhs: s(rhs),
+        },
+        InstrKind::FCmp {
+            flags,
+            pred,
+            lhs,
+            rhs,
+        } => InstrKind::FCmp {
+            flags,
+            pred,
+            lhs: s(lhs),
+            rhs: s(rhs),
+        },
+        InstrKind::Alloca {
+            alloc_ty,
+            num_elements,
+            align,
+        } => InstrKind::Alloca {
+            alloc_ty,
+            num_elements: num_elements.map(s),
+            align,
+        },
+        InstrKind::Load {
+            ty,
+            ptr,
+            align,
+            volatile,
+        } => InstrKind::Load {
+            ty,
+            ptr: s(ptr),
+            align,
+            volatile,
+        },
+        InstrKind::Store {
+            val,
+            ptr,
+            align,
+            volatile,
+        } => InstrKind::Store {
+            val: s(val),
+            ptr: s(ptr),
+            align,
+            volatile,
+        },
+        InstrKind::GetElementPtr {
+            inbounds,
+            base_ty,
+            ptr,
+            indices,
+        } => InstrKind::GetElementPtr {
+            inbounds,
+            base_ty,
+            ptr: s(ptr),
+            indices: indices.into_iter().map(s).collect(),
+        },
+        InstrKind::Trunc { val, to } => InstrKind::Trunc { val: s(val), to },
+        InstrKind::ZExt { val, to } => InstrKind::ZExt { val: s(val), to },
+        InstrKind::SExt { val, to } => InstrKind::SExt { val: s(val), to },
+        InstrKind::FPTrunc { val, to } => InstrKind::FPTrunc { val: s(val), to },
+        InstrKind::FPExt { val, to } => InstrKind::FPExt { val: s(val), to },
+        InstrKind::FPToUI { val, to } => InstrKind::FPToUI { val: s(val), to },
+        InstrKind::FPToSI { val, to } => InstrKind::FPToSI { val: s(val), to },
+        InstrKind::UIToFP { val, to } => InstrKind::UIToFP { val: s(val), to },
+        InstrKind::SIToFP { val, to } => InstrKind::SIToFP { val: s(val), to },
+        InstrKind::PtrToInt { val, to } => InstrKind::PtrToInt { val: s(val), to },
+        InstrKind::IntToPtr { val, to } => InstrKind::IntToPtr { val: s(val), to },
+        InstrKind::BitCast { val, to } => InstrKind::BitCast { val: s(val), to },
         InstrKind::AddrSpaceCast { val, to } => InstrKind::AddrSpaceCast { val: s(val), to },
-        InstrKind::Select { cond, then_val, else_val } =>
-            InstrKind::Select { cond: s(cond), then_val: s(then_val), else_val: s(else_val) },
-        InstrKind::Phi { ty, incoming } =>
-            InstrKind::Phi { ty, incoming: incoming.into_iter().map(|(v, blk)| (s(v), b(blk))).collect() },
-        InstrKind::ExtractValue { aggregate, indices } => InstrKind::ExtractValue { aggregate: s(aggregate), indices },
-        InstrKind::InsertValue  { aggregate, val, indices } => InstrKind::InsertValue { aggregate: s(aggregate), val: s(val), indices },
-        InstrKind::ExtractElement { vec, idx }       => InstrKind::ExtractElement { vec: s(vec), idx: s(idx) },
-        InstrKind::InsertElement  { vec, val, idx }  => InstrKind::InsertElement  { vec: s(vec), val: s(val), idx: s(idx) },
-        InstrKind::ShuffleVector  { v1, v2, mask }   => InstrKind::ShuffleVector  { v1: s(v1), v2: s(v2), mask },
-        InstrKind::Call { tail, callee_ty, callee, args } =>
-            InstrKind::Call { tail, callee_ty, callee: s(callee), args: args.into_iter().map(s).collect() },
-        InstrKind::Ret { val }                           => InstrKind::Ret { val: val.map(s) },
-        InstrKind::Br  { dest }                          => InstrKind::Br  { dest: b(dest) },
-        InstrKind::CondBr { cond, then_dest, else_dest } =>
-            InstrKind::CondBr { cond: s(cond), then_dest: b(then_dest), else_dest: b(else_dest) },
-        InstrKind::Switch { val, default, cases } =>
-            InstrKind::Switch { val: s(val), default: b(default), cases: cases.into_iter().map(|(v, blk)| (s(v), b(blk))).collect() },
+        InstrKind::Select {
+            cond,
+            then_val,
+            else_val,
+        } => InstrKind::Select {
+            cond: s(cond),
+            then_val: s(then_val),
+            else_val: s(else_val),
+        },
+        InstrKind::Phi { ty, incoming } => InstrKind::Phi {
+            ty,
+            incoming: incoming
+                .into_iter()
+                .map(|(v, blk)| (s(v), b(blk)))
+                .collect(),
+        },
+        InstrKind::ExtractValue { aggregate, indices } => InstrKind::ExtractValue {
+            aggregate: s(aggregate),
+            indices,
+        },
+        InstrKind::InsertValue {
+            aggregate,
+            val,
+            indices,
+        } => InstrKind::InsertValue {
+            aggregate: s(aggregate),
+            val: s(val),
+            indices,
+        },
+        InstrKind::ExtractElement { vec, idx } => InstrKind::ExtractElement {
+            vec: s(vec),
+            idx: s(idx),
+        },
+        InstrKind::InsertElement { vec, val, idx } => InstrKind::InsertElement {
+            vec: s(vec),
+            val: s(val),
+            idx: s(idx),
+        },
+        InstrKind::ShuffleVector { v1, v2, mask } => InstrKind::ShuffleVector {
+            v1: s(v1),
+            v2: s(v2),
+            mask,
+        },
+        InstrKind::Call {
+            tail,
+            callee_ty,
+            callee,
+            args,
+        } => InstrKind::Call {
+            tail,
+            callee_ty,
+            callee: s(callee),
+            args: args.into_iter().map(s).collect(),
+        },
+        InstrKind::Ret { val } => InstrKind::Ret { val: val.map(s) },
+        InstrKind::Br { dest } => InstrKind::Br { dest: b(dest) },
+        InstrKind::CondBr {
+            cond,
+            then_dest,
+            else_dest,
+        } => InstrKind::CondBr {
+            cond: s(cond),
+            then_dest: b(then_dest),
+            else_dest: b(else_dest),
+        },
+        InstrKind::Switch {
+            val,
+            default,
+            cases,
+        } => InstrKind::Switch {
+            val: s(val),
+            default: b(default),
+            cases: cases.into_iter().map(|(v, blk)| (s(v), b(blk))).collect(),
+        },
         InstrKind::Unreachable => InstrKind::Unreachable,
     }
 }
@@ -433,8 +651,8 @@ fn remap_kind(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use llvm_ir::{Builder, Context, Function, GlobalId, InstrKind, Linkage, Module, ValueRef};
     use crate::pass::ModulePass;
+    use llvm_ir::{Builder, Context, Function, GlobalId, InstrKind, Linkage, Module, ValueRef};
 
     // Build:
     //   define i32 @add(i32 %a, i32 %b) { ret (a + b) }
@@ -448,8 +666,14 @@ mod tests {
         // Define @add.
         {
             let mut b = Builder::new(&mut ctx, &mut module);
-            b.add_function("add", b.ctx.i32_ty, vec![b.ctx.i32_ty, b.ctx.i32_ty],
-                vec!["a".into(), "b".into()], false, Linkage::External);
+            b.add_function(
+                "add",
+                b.ctx.i32_ty,
+                vec![b.ctx.i32_ty, b.ctx.i32_ty],
+                vec!["a".into(), "b".into()],
+                false,
+                Linkage::External,
+            );
             let entry = b.add_block("entry");
             b.position_at_end(entry);
             let a = b.get_arg(0);
@@ -466,14 +690,26 @@ mod tests {
         {
             let mut b = Builder::new(&mut ctx, &mut module);
             let i32_ty = b.ctx.i32_ty;
-            b.add_function("caller", i32_ty, vec![i32_ty, i32_ty],
-                vec!["x".into(), "y".into()], false, Linkage::External);
+            b.add_function(
+                "caller",
+                i32_ty,
+                vec![i32_ty, i32_ty],
+                vec!["x".into(), "y".into()],
+                false,
+                Linkage::External,
+            );
             let entry = b.add_block("entry");
             b.position_at_end(entry);
             let x = b.get_arg(0);
             let y = b.get_arg(1);
             // @add is at index 0 → ValueRef::Global(GlobalId(0)) references FunctionId(0).
-            let r = b.build_call("r", i32_ty, add_callee_ty, ValueRef::Global(GlobalId(0)), vec![x, y]);
+            let r = b.build_call(
+                "r",
+                i32_ty,
+                add_callee_ty,
+                ValueRef::Global(GlobalId(0)),
+                vec![x, y],
+            );
             b.build_ret(r);
         }
 
@@ -526,19 +762,29 @@ mod tests {
 
         let caller = &module.functions[1];
         // After inlining a 1-block callee, @caller has: pre-block + 1 callee block + post-block = 3.
-        assert_eq!(caller.blocks.len(), 3,
-            "expected pre + callee_entry + post = 3 blocks after inlining");
+        assert_eq!(
+            caller.blocks.len(),
+            3,
+            "expected pre + callee_entry + post = 3 blocks after inlining"
+        );
 
         // The pre-block (block 0) should end with a Br to the callee entry.
         let pre_term = caller.blocks[0].terminator.unwrap();
-        assert!(matches!(caller.instr(pre_term).kind, InstrKind::Br { .. }),
-            "pre-block should end with unconditional Br");
+        assert!(
+            matches!(caller.instr(pre_term).kind, InstrKind::Br { .. }),
+            "pre-block should end with unconditional Br"
+        );
 
         // No Call instructions should remain in the caller body.
         let has_call = caller.blocks.iter().any(|bb| {
-            bb.body.iter().any(|&iid| matches!(caller.instr(iid).kind, InstrKind::Call { .. }))
+            bb.body
+                .iter()
+                .any(|&iid| matches!(caller.instr(iid).kind, InstrKind::Call { .. }))
         });
-        assert!(!has_call, "call instruction should have been removed after inlining");
+        assert!(
+            !has_call,
+            "call instruction should have been removed after inlining"
+        );
     }
 
     #[test]

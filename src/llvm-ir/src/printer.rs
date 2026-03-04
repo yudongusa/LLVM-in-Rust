@@ -1,13 +1,13 @@
 //! LLVM IR text format printer (`.ll` file emitter).
 
-use std::fmt::Write as FmtWrite;
-use crate::context::{Context, TypeId, ConstId, InstrId, BlockId, ValueRef};
-use crate::types::{TypeData, FloatKind, StructType};
-use crate::value::ConstantData;
-use crate::instruction::{InstrKind, FastMathFlags};
 use crate::basic_block::BasicBlock;
+use crate::context::{BlockId, ConstId, Context, InstrId, TypeId, ValueRef};
 use crate::function::Function;
+use crate::instruction::{FastMathFlags, InstrKind};
 use crate::module::Module;
+use crate::types::{FloatKind, StructType, TypeData};
+use crate::value::ConstantData;
+use std::fmt::Write as FmtWrite;
 
 pub struct Printer<'a> {
     ctx: &'a Context,
@@ -87,11 +87,13 @@ impl<'a> Printer<'a> {
 
     fn write_type(&self, out: &mut String, ty: TypeId) {
         match self.ctx.get_type(ty) {
-            TypeData::Void     => out.push_str("void"),
-            TypeData::Integer(bits) => { write!(out, "i{}", bits).unwrap(); }
-            TypeData::Float(kind)   => out.push_str(float_kind_str(*kind)),
-            TypeData::Pointer  => out.push_str("ptr"),
-            TypeData::Label    => out.push_str("label"),
+            TypeData::Void => out.push_str("void"),
+            TypeData::Integer(bits) => {
+                write!(out, "i{}", bits).unwrap();
+            }
+            TypeData::Float(kind) => out.push_str(float_kind_str(*kind)),
+            TypeData::Pointer => out.push_str("ptr"),
+            TypeData::Label => out.push_str("label"),
             TypeData::Metadata => out.push_str("metadata"),
             TypeData::Array { element, len } => {
                 let elem = *element;
@@ -100,7 +102,11 @@ impl<'a> Printer<'a> {
                 self.write_type(out, elem);
                 out.push(']');
             }
-            TypeData::Vector { element, len, scalable } => {
+            TypeData::Vector {
+                element,
+                len,
+                scalable,
+            } => {
                 let elem = *element;
                 let l = *len;
                 let sc = *scalable;
@@ -125,11 +131,15 @@ impl<'a> Printer<'a> {
                 self.write_type(out, ft.ret);
                 out.push_str(" (");
                 for (i, &p) in ft.params.iter().enumerate() {
-                    if i > 0 { out.push_str(", "); }
+                    if i > 0 {
+                        out.push_str(", ");
+                    }
                     self.write_type(out, p);
                 }
                 if ft.variadic {
-                    if !ft.params.is_empty() { out.push_str(", "); }
+                    if !ft.params.is_empty() {
+                        out.push_str(", ");
+                    }
                     out.push_str("...");
                 }
                 out.push(')');
@@ -138,14 +148,20 @@ impl<'a> Printer<'a> {
     }
 
     fn write_struct_body(&self, out: &mut String, st: &StructType) {
-        if st.packed { out.push('<'); }
+        if st.packed {
+            out.push('<');
+        }
         out.push_str("{ ");
         for (i, &f) in st.fields.iter().enumerate() {
-            if i > 0 { out.push_str(", "); }
+            if i > 0 {
+                out.push_str(", ");
+            }
             self.write_type(out, f);
         }
         out.push_str(" }");
-        if st.packed { out.push('>'); }
+        if st.packed {
+            out.push('>');
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -162,7 +178,9 @@ impl<'a> Printer<'a> {
 
     fn write_const_value(&self, out: &mut String, id: ConstId) {
         match self.ctx.get_const(id) {
-            ConstantData::Int { val, .. } => { write!(out, "{}", *val as i64).unwrap(); }
+            ConstantData::Int { val, .. } => {
+                write!(out, "{}", *val as i64).unwrap();
+            }
             ConstantData::IntWide { words, .. } => {
                 // Emit as hex for simplicity.
                 out.push_str("0x");
@@ -184,14 +202,16 @@ impl<'a> Printer<'a> {
                     }
                 }
             }
-            ConstantData::Null(_)            => out.push_str("null"),
-            ConstantData::Undef(_)           => out.push_str("undef"),
-            ConstantData::Poison(_)          => out.push_str("poison"),
+            ConstantData::Null(_) => out.push_str("null"),
+            ConstantData::Undef(_) => out.push_str("undef"),
+            ConstantData::Poison(_) => out.push_str("poison"),
             ConstantData::ZeroInitializer(_) => out.push_str("zeroinitializer"),
             ConstantData::Array { elements, .. } => {
                 out.push('[');
                 for (i, &e) in elements.iter().enumerate() {
-                    if i > 0 { out.push_str(", "); }
+                    if i > 0 {
+                        out.push_str(", ");
+                    }
                     self.write_const_with_type(out, e);
                 }
                 out.push(']');
@@ -199,7 +219,9 @@ impl<'a> Printer<'a> {
             ConstantData::Struct { fields, .. } => {
                 out.push_str("{ ");
                 for (i, &f) in fields.iter().enumerate() {
-                    if i > 0 { out.push_str(", "); }
+                    if i > 0 {
+                        out.push_str(", ");
+                    }
                     self.write_const_with_type(out, f);
                 }
                 out.push_str(" }");
@@ -207,7 +229,9 @@ impl<'a> Printer<'a> {
             ConstantData::Vector { elements, .. } => {
                 out.push('<');
                 for (i, &e) in elements.iter().enumerate() {
-                    if i > 0 { out.push_str(", "); }
+                    if i > 0 {
+                        out.push_str(", ");
+                    }
                     self.write_const_with_type(out, e);
                 }
                 out.push('>');
@@ -248,16 +272,18 @@ impl<'a> Printer<'a> {
                 }
             }
             ValueRef::Constant(id) => self.write_const_value(out, id),
-            ValueRef::Global(id) => { write!(out, "@g{}", id.0).unwrap(); }
+            ValueRef::Global(id) => {
+                write!(out, "@g{}", id.0).unwrap();
+            }
         }
     }
 
     fn type_of_vref(&self, vref: ValueRef, func: &Function) -> TypeId {
         match vref {
             ValueRef::Instruction(id) => func.instr(id).ty,
-            ValueRef::Argument(id)    => func.arg(id).ty,
-            ValueRef::Constant(id)    => self.ctx.type_of_const(id),
-            ValueRef::Global(_)       => self.ctx.ptr_ty,
+            ValueRef::Argument(id) => func.arg(id).ty,
+            ValueRef::Constant(id) => self.ctx.type_of_const(id),
+            ValueRef::Global(_) => self.ctx.ptr_ty,
         }
     }
 
@@ -285,7 +311,9 @@ impl<'a> Printer<'a> {
             self.write_type(out, ret);
             write!(out, " @{}(", func.name).unwrap();
             for (i, arg) in func.args.iter().enumerate() {
-                if i > 0 { out.push_str(", "); }
+                if i > 0 {
+                    out.push_str(", ");
+                }
                 self.write_type(out, arg.ty);
                 if !arg.name.is_empty() {
                     write!(out, " %{}", arg.name).unwrap();
@@ -294,13 +322,17 @@ impl<'a> Printer<'a> {
             // If there are fewer args than param types (anonymous decl args), fill in.
             let n_printed = func.args.len();
             if n_printed < params.len() {
-                for i in n_printed..params.len() {
-                    if i > 0 { out.push_str(", "); }
-                    self.write_type(out, params[i]);
+                for (i, &param_ty) in params.iter().enumerate().skip(n_printed) {
+                    if i > 0 {
+                        out.push_str(", ");
+                    }
+                    self.write_type(out, param_ty);
                 }
             }
             if variadic {
-                if !func.args.is_empty() || !params.is_empty() { out.push_str(", "); }
+                if !func.args.is_empty() || !params.is_empty() {
+                    out.push_str(", ");
+                }
                 out.push_str("...");
             }
         } else {
@@ -347,52 +379,85 @@ impl<'a> Printer<'a> {
         // Emit fast-math flags helper.
         fn fmf_str(f: &FastMathFlags) -> String {
             let mut s = String::new();
-            if f.fast    { s.push_str("fast "); return s; }
-            if f.nnan    { s.push_str("nnan "); }
-            if f.ninf    { s.push_str("ninf "); }
-            if f.nsz     { s.push_str("nsz "); }
-            if f.arcp    { s.push_str("arcp "); }
-            if f.contract{ s.push_str("contract "); }
-            if f.afn     { s.push_str("afn "); }
-            if f.reassoc { s.push_str("reassoc "); }
+            if f.fast {
+                s.push_str("fast ");
+                return s;
+            }
+            if f.nnan {
+                s.push_str("nnan ");
+            }
+            if f.ninf {
+                s.push_str("ninf ");
+            }
+            if f.nsz {
+                s.push_str("nsz ");
+            }
+            if f.arcp {
+                s.push_str("arcp ");
+            }
+            if f.contract {
+                s.push_str("contract ");
+            }
+            if f.afn {
+                s.push_str("afn ");
+            }
+            if f.reassoc {
+                s.push_str("reassoc ");
+            }
             s
         }
 
         match &instr.kind {
             InstrKind::Add { flags, lhs, rhs } => {
                 out.push_str("add ");
-                if flags.nuw { out.push_str("nuw "); }
-                if flags.nsw { out.push_str("nsw "); }
+                if flags.nuw {
+                    out.push_str("nuw ");
+                }
+                if flags.nsw {
+                    out.push_str("nsw ");
+                }
                 self.write_typed_value(out, *lhs, func);
                 out.push_str(", ");
                 self.write_value(out, *rhs, func);
             }
             InstrKind::Sub { flags, lhs, rhs } => {
                 out.push_str("sub ");
-                if flags.nuw { out.push_str("nuw "); }
-                if flags.nsw { out.push_str("nsw "); }
+                if flags.nuw {
+                    out.push_str("nuw ");
+                }
+                if flags.nsw {
+                    out.push_str("nsw ");
+                }
                 self.write_typed_value(out, *lhs, func);
                 out.push_str(", ");
                 self.write_value(out, *rhs, func);
             }
             InstrKind::Mul { flags, lhs, rhs } => {
                 out.push_str("mul ");
-                if flags.nuw { out.push_str("nuw "); }
-                if flags.nsw { out.push_str("nsw "); }
+                if flags.nuw {
+                    out.push_str("nuw ");
+                }
+                if flags.nsw {
+                    out.push_str("nsw ");
+                }
                 self.write_typed_value(out, *lhs, func);
                 out.push_str(", ");
                 self.write_value(out, *rhs, func);
             }
             InstrKind::UDiv { exact, lhs, rhs } => {
                 out.push_str("udiv ");
-                if *exact { out.push_str("exact "); }
+                if *exact {
+                    out.push_str("exact ");
+                }
                 self.write_typed_value(out, *lhs, func);
                 out.push_str(", ");
                 self.write_value(out, *rhs, func);
             }
             InstrKind::SDiv { exact, lhs, rhs } => {
                 out.push_str("sdiv ");
-                if *exact { out.push_str("exact "); }
+                if *exact {
+                    out.push_str("exact ");
+                }
                 self.write_typed_value(out, *lhs, func);
                 out.push_str(", ");
                 self.write_value(out, *rhs, func);
@@ -429,22 +494,30 @@ impl<'a> Printer<'a> {
             }
             InstrKind::Shl { flags, lhs, rhs } => {
                 out.push_str("shl ");
-                if flags.nuw { out.push_str("nuw "); }
-                if flags.nsw { out.push_str("nsw "); }
+                if flags.nuw {
+                    out.push_str("nuw ");
+                }
+                if flags.nsw {
+                    out.push_str("nsw ");
+                }
                 self.write_typed_value(out, *lhs, func);
                 out.push_str(", ");
                 self.write_value(out, *rhs, func);
             }
             InstrKind::LShr { exact, lhs, rhs } => {
                 out.push_str("lshr ");
-                if *exact { out.push_str("exact "); }
+                if *exact {
+                    out.push_str("exact ");
+                }
                 self.write_typed_value(out, *lhs, func);
                 out.push_str(", ");
                 self.write_value(out, *rhs, func);
             }
             InstrKind::AShr { exact, lhs, rhs } => {
                 out.push_str("ashr ");
-                if *exact { out.push_str("exact "); }
+                if *exact {
+                    out.push_str("exact ");
+                }
                 self.write_typed_value(out, *lhs, func);
                 out.push_str(", ");
                 self.write_value(out, *rhs, func);
@@ -489,13 +562,22 @@ impl<'a> Printer<'a> {
                 out.push_str(", ");
                 self.write_value(out, *rhs, func);
             }
-            InstrKind::FCmp { flags, pred, lhs, rhs } => {
+            InstrKind::FCmp {
+                flags,
+                pred,
+                lhs,
+                rhs,
+            } => {
                 write!(out, "fcmp {}{} ", fmf_str(flags), pred.as_str()).unwrap();
                 self.write_typed_value(out, *lhs, func);
                 out.push_str(", ");
                 self.write_value(out, *rhs, func);
             }
-            InstrKind::Alloca { alloc_ty, num_elements, align } => {
+            InstrKind::Alloca {
+                alloc_ty,
+                num_elements,
+                align,
+            } => {
                 out.push_str("alloca ");
                 self.write_type(out, *alloc_ty);
                 if let Some(ne) = num_elements {
@@ -506,8 +588,15 @@ impl<'a> Printer<'a> {
                     write!(out, ", align {}", a).unwrap();
                 }
             }
-            InstrKind::Load { ty, ptr, align, volatile } => {
-                if *volatile { out.push_str("volatile "); }
+            InstrKind::Load {
+                ty,
+                ptr,
+                align,
+                volatile,
+            } => {
+                if *volatile {
+                    out.push_str("volatile ");
+                }
                 out.push_str("load ");
                 self.write_type(out, *ty);
                 out.push_str(", ");
@@ -516,8 +605,15 @@ impl<'a> Printer<'a> {
                     write!(out, ", align {}", a).unwrap();
                 }
             }
-            InstrKind::Store { val, ptr, align, volatile } => {
-                if *volatile { out.push_str("volatile "); }
+            InstrKind::Store {
+                val,
+                ptr,
+                align,
+                volatile,
+            } => {
+                if *volatile {
+                    out.push_str("volatile ");
+                }
                 out.push_str("store ");
                 self.write_typed_value(out, *val, func);
                 out.push_str(", ");
@@ -526,9 +622,16 @@ impl<'a> Printer<'a> {
                     write!(out, ", align {}", a).unwrap();
                 }
             }
-            InstrKind::GetElementPtr { inbounds, base_ty, ptr, indices } => {
+            InstrKind::GetElementPtr {
+                inbounds,
+                base_ty,
+                ptr,
+                indices,
+            } => {
                 out.push_str("getelementptr ");
-                if *inbounds { out.push_str("inbounds "); }
+                if *inbounds {
+                    out.push_str("inbounds ");
+                }
                 self.write_type(out, *base_ty);
                 out.push_str(", ");
                 self.write_typed_value(out, *ptr, func);
@@ -556,7 +659,11 @@ impl<'a> Printer<'a> {
                 out.push_str(" to ");
                 self.write_type(out, *to);
             }
-            InstrKind::Select { cond, then_val, else_val } => {
+            InstrKind::Select {
+                cond,
+                then_val,
+                else_val,
+            } => {
                 out.push_str("select ");
                 self.write_typed_value(out, *cond, func);
                 out.push_str(", ");
@@ -569,7 +676,11 @@ impl<'a> Printer<'a> {
                 self.write_type(out, *ty);
                 let inc = incoming.clone();
                 for (i, (val, block)) in inc.iter().enumerate() {
-                    if i > 0 { out.push_str(", "); } else { out.push(' '); }
+                    if i > 0 {
+                        out.push_str(", ");
+                    } else {
+                        out.push(' ');
+                    }
                     out.push_str("[ ");
                     self.write_value(out, *val, func);
                     out.push_str(", %");
@@ -584,7 +695,11 @@ impl<'a> Printer<'a> {
                     write!(out, ", {}", i).unwrap();
                 }
             }
-            InstrKind::InsertValue { aggregate, val, indices } => {
+            InstrKind::InsertValue {
+                aggregate,
+                val,
+                indices,
+            } => {
                 out.push_str("insertvalue ");
                 self.write_typed_value(out, *aggregate, func);
                 out.push_str(", ");
@@ -614,17 +729,24 @@ impl<'a> Printer<'a> {
                 self.write_typed_value(out, *v2, func);
                 out.push_str(", <");
                 for (i, &m) in mask.iter().enumerate() {
-                    if i > 0 { out.push_str(", "); }
+                    if i > 0 {
+                        out.push_str(", ");
+                    }
                     write!(out, "i32 {}", m).unwrap();
                 }
                 out.push('>');
             }
-            InstrKind::Call { tail, callee_ty, callee, args } => {
+            InstrKind::Call {
+                tail,
+                callee_ty,
+                callee,
+                args,
+            } => {
                 match tail {
-                    crate::instruction::TailCallKind::Tail    => out.push_str("tail "),
+                    crate::instruction::TailCallKind::Tail => out.push_str("tail "),
                     crate::instruction::TailCallKind::MustTail => out.push_str("musttail "),
-                    crate::instruction::TailCallKind::NoTail  => out.push_str("notail "),
-                    crate::instruction::TailCallKind::None    => {}
+                    crate::instruction::TailCallKind::NoTail => out.push_str("notail "),
+                    crate::instruction::TailCallKind::None => {}
                 }
                 out.push_str("call ");
                 // Print return type from callee_ty.
@@ -637,7 +759,9 @@ impl<'a> Printer<'a> {
                 out.push('(');
                 let call_args = args.clone();
                 for (i, &arg) in call_args.iter().enumerate() {
-                    if i > 0 { out.push_str(", "); }
+                    if i > 0 {
+                        out.push_str(", ");
+                    }
                     self.write_typed_value(out, arg, func);
                 }
                 out.push(')');
@@ -652,7 +776,11 @@ impl<'a> Printer<'a> {
             InstrKind::Br { dest } => {
                 write!(out, "br label %{}", func.block(*dest).name).unwrap();
             }
-            InstrKind::CondBr { cond, then_dest, else_dest } => {
+            InstrKind::CondBr {
+                cond,
+                then_dest,
+                else_dest,
+            } => {
                 out.push_str("br ");
                 self.write_typed_value(out, *cond, func);
                 write!(
@@ -660,17 +788,22 @@ impl<'a> Printer<'a> {
                     ", label %{}, label %{}",
                     func.block(*then_dest).name,
                     func.block(*else_dest).name
-                ).unwrap();
+                )
+                .unwrap();
             }
-            InstrKind::Switch { val, default, cases } => {
+            InstrKind::Switch {
+                val,
+                default,
+                cases,
+            } => {
                 out.push_str("switch ");
                 self.write_typed_value(out, *val, func);
-                write!(out, ", label %{} [\n", func.block(*default).name).unwrap();
+                writeln!(out, ", label %{} [", func.block(*default).name).unwrap();
                 let sw_cases = cases.clone();
                 for (case_val, dest) in &sw_cases {
                     out.push_str("    ");
                     self.write_typed_value(out, *case_val, func);
-                    write!(out, ", label %{}\n", func.block(*dest).name).unwrap();
+                    writeln!(out, ", label %{}", func.block(*dest).name).unwrap();
                 }
                 out.push_str("  ]");
             }
@@ -684,11 +817,11 @@ impl<'a> Printer<'a> {
 
 fn float_kind_str(kind: FloatKind) -> &'static str {
     match kind {
-        FloatKind::Half   => "half",
+        FloatKind::Half => "half",
         FloatKind::BFloat => "bfloat",
         FloatKind::Single => "float",
         FloatKind::Double => "double",
-        FloatKind::Fp128  => "fp128",
+        FloatKind::Fp128 => "fp128",
         FloatKind::X86Fp80 => "x86_fp80",
     }
 }
@@ -696,11 +829,11 @@ fn float_kind_str(kind: FloatKind) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::context::Context;
-    use crate::module::Module;
-    use crate::function::Function;
     use crate::basic_block::BasicBlock;
-    use crate::instruction::{Instruction, InstrKind, IntArithFlags};
+    use crate::context::Context;
+    use crate::function::Function;
+    use crate::instruction::{InstrKind, Instruction, IntArithFlags};
+    use crate::module::Module;
     use crate::value::Linkage;
 
     #[test]
@@ -708,8 +841,16 @@ mod tests {
         let mut ctx = Context::new();
         let fn_ty = ctx.mk_fn_type(ctx.i32_ty, vec![ctx.i32_ty, ctx.i32_ty], false);
         let args = vec![
-            crate::value::Argument { name: "a".into(), ty: ctx.i32_ty, index: 0 },
-            crate::value::Argument { name: "b".into(), ty: ctx.i32_ty, index: 1 },
+            crate::value::Argument {
+                name: "a".into(),
+                ty: ctx.i32_ty,
+                index: 0,
+            },
+            crate::value::Argument {
+                name: "b".into(),
+                ty: ctx.i32_ty,
+                index: 1,
+            },
         ];
         let mut func = Function::new("add", fn_ty, args, Linkage::External);
 
@@ -720,7 +861,11 @@ mod tests {
         let add_instr = Instruction::new(
             Some("result".into()),
             ctx.i32_ty,
-            InstrKind::Add { flags: IntArithFlags::default(), lhs: a_ref, rhs: b_ref },
+            InstrKind::Add {
+                flags: IntArithFlags::default(),
+                lhs: a_ref,
+                rhs: b_ref,
+            },
         );
         let iid = func.alloc_instr(add_instr);
         bb.append_instr(iid);
@@ -728,7 +873,9 @@ mod tests {
         let ret_instr = Instruction::new(
             None,
             ctx.void_ty,
-            InstrKind::Ret { val: Some(ValueRef::Instruction(iid)) },
+            InstrKind::Ret {
+                val: Some(ValueRef::Instruction(iid)),
+            },
         );
         let rid = func.alloc_instr(ret_instr);
         bb.set_terminator(rid);

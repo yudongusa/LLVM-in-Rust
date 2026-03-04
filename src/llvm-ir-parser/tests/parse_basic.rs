@@ -64,7 +64,10 @@ target datalayout = "e-m:o-i64:64-i128:128-n32:64-S128"
 "#;
     let (_ctx, module) = parse(src).expect("parse failed");
     assert_eq!(module.source_filename.as_deref(), Some("hello.c"));
-    assert_eq!(module.target_triple.as_deref(), Some("aarch64-apple-darwin"));
+    assert_eq!(
+        module.target_triple.as_deref(),
+        Some("aarch64-apple-darwin")
+    );
     assert!(module.data_layout.is_some());
 }
 
