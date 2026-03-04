@@ -425,33 +425,39 @@ fn lower_terminator(
         }
 
         Br { dest } => {
-            emit_phi_copies(ctx, func, mf, mblock, *dest, vmap);
+            emit_phi_copies(ctx, func, mf, mblock, mblock, *dest, vmap);
             mf.push(mblock, MInstr::new(JMP).with_block(dest.0 as usize));
         }
 
         CondBr { cond, then_dest, else_dest } => {
             let c = resolve(ctx, mf, mblock, vmap, *cond);
-            // Phi-destruction copies must come before the branch.
-            emit_phi_copies(ctx, func, mf, mblock, *then_dest, vmap);
-            emit_phi_copies(ctx, func, mf, mblock, *else_dest, vmap);
+            // Each successor edge gets its own trampoline block so that phi
+            // copies for one edge cannot overwrite values needed by the other.
+            let pred_label = mf.blocks[mblock].label.clone();
+            let then_edge = mf.add_block(format!("{}.then_edge", pred_label));
+            let else_edge = mf.add_block(format!("{}.else_edge", pred_label));
+            emit_phi_copies(ctx, func, mf, mblock, then_edge, *then_dest, vmap);
+            mf.push(then_edge, MInstr::new(JMP).with_block(then_dest.0 as usize));
+            emit_phi_copies(ctx, func, mf, mblock, else_edge, *else_dest, vmap);
+            mf.push(else_edge, MInstr::new(JMP).with_block(else_dest.0 as usize));
             mf.push(mblock, MInstr::new(TEST_RR).with_vreg(c).with_vreg(c));
             mf.push(mblock, MInstr::new(JCC)
                 .with_imm(CC_NE)
-                .with_block(then_dest.0 as usize));
-            mf.push(mblock, MInstr::new(JMP).with_block(else_dest.0 as usize));
+                .with_block(then_edge));
+            mf.push(mblock, MInstr::new(JMP).with_block(else_edge));
         }
 
         Switch { val, default, cases } => {
             let v = resolve(ctx, mf, mblock, vmap, *val);
             for (case_val, case_dest) in cases {
                 let cv = resolve(ctx, mf, mblock, vmap, *case_val);
-                emit_phi_copies(ctx, func, mf, mblock, *case_dest, vmap);
+                emit_phi_copies(ctx, func, mf, mblock, mblock, *case_dest, vmap);
                 mf.push(mblock, MInstr::new(CMP_RR).with_vreg(v).with_vreg(cv));
                 mf.push(mblock, MInstr::new(JCC)
                     .with_imm(CC_EQ)
                     .with_block(case_dest.0 as usize));
             }
-            emit_phi_copies(ctx, func, mf, mblock, *default, vmap);
+            emit_phi_copies(ctx, func, mf, mblock, mblock, *default, vmap);
             mf.push(mblock, MInstr::new(JMP).with_block(default.0 as usize));
         }
 
@@ -465,18 +471,24 @@ fn lower_terminator(
 
 // ── phi destruction ───────────────────────────────────────────────────────
 
-/// For each phi in `dest`, emit a copy from the incoming value (for the
-/// edge from `src_mblock`) into the phi's pre-allocated VReg.
+/// For each phi in `dest`, emit a copy from the incoming value into the
+/// phi's pre-allocated VReg.
+///
+/// * `ir_src_block` — IR `BlockId` index of the predecessor block, used to
+///   match `phi.incoming` entries.
+/// * `emit_to_mblock` — machine block where the copy instructions are placed;
+///   for a `CondBr` this is a trampoline block, not the predecessor itself.
 fn emit_phi_copies(
     ctx: &Context,
     func: &Function,
     mf: &mut MachineFunction,
-    src_mblock: usize,
+    ir_src_block: usize,
+    emit_to_mblock: usize,
     dest: BlockId,
     vmap: &mut HashMap<ValueRef, VReg>,
 ) {
     let dest_bb = &func.blocks[dest.0 as usize];
-    let src_bid = BlockId(src_mblock as u32);
+    let src_bid = BlockId(ir_src_block as u32);
 
     for &iid in &dest_bb.body {
         if let InstrKind::Phi { incoming, .. } = &func.instr(iid).kind {
@@ -486,8 +498,8 @@ fn emit_phi_copies(
                     Some(&v) => v,
                     None => continue,
                 };
-                let src_vreg = resolve(ctx, mf, src_mblock, vmap, *incoming_val);
-                mf.push(src_mblock, MInstr::new(MOV_RR)
+                let src_vreg = resolve(ctx, mf, emit_to_mblock, vmap, *incoming_val);
+                mf.push(emit_to_mblock, MInstr::new(MOV_RR)
                     .with_dst(phi_vreg)
                     .with_vreg(src_vreg));
             }
@@ -516,6 +528,7 @@ fn emit_mov_from_preg(mf: &mut MachineFunction, mblock: usize, dst: VReg, preg: 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use llvm_codegen::isel::MOperand;
     use llvm_ir::{Builder, Context, Linkage, Module};
 
     fn make_add_fn() -> (Context, Module) {
@@ -802,5 +815,122 @@ mod tests {
             b.instrs.iter().any(|i| i.opcode == MOVSX_32)
         });
         assert!(has_movsx32, "sext from i32 must use MOVSX_32 (movsxd, 63)");
+    }
+
+    /// Build a function with a CondBr where each successor has a phi:
+    ///
+    /// ```llvm
+    /// define i64 @phi_test(i64 %a, i64 %b, i1 %cond) {
+    /// entry:
+    ///   br i1 %cond, label %then_bb, label %else_bb
+    /// then_bb:
+    ///   %px = phi i64 [ %a, %entry ]
+    ///   br label %merge
+    /// else_bb:
+    ///   %py = phi i64 [ %b, %entry ]
+    ///   br label %merge
+    /// merge:
+    ///   %r = phi i64 [ %px, %then_bb ], [ %py, %else_bb ]
+    ///   ret i64 %r
+    /// }
+    /// ```
+    fn make_condbr_phi_fn() -> (Context, Module) {
+        let mut ctx = Context::new();
+        let mut module = Module::new("test");
+        let mut b = Builder::new(&mut ctx, &mut module);
+        b.add_function(
+            "phi_test",
+            b.ctx.i64_ty,
+            vec![b.ctx.i64_ty, b.ctx.i64_ty, b.ctx.i1_ty],
+            vec!["a".into(), "b".into(), "cond".into()],
+            false,
+            Linkage::External,
+        );
+        // entry: br i1 %cond, label %then_bb, label %else_bb
+        let entry    = b.add_block("entry");
+        let then_bb  = b.add_block("then_bb");
+        let else_bb  = b.add_block("else_bb");
+        let merge_bb = b.add_block("merge");
+
+        b.position_at_end(entry);
+        let a    = b.get_arg(0);
+        let bv   = b.get_arg(1);
+        let cond = b.get_arg(2);
+        b.build_cond_br(cond, then_bb, else_bb);
+
+        // then_bb: phi from %a (entry)
+        b.position_at_end(then_bb);
+        let px = b.build_phi("px", b.ctx.i64_ty, vec![(a, entry)]);
+        b.build_br(merge_bb);
+
+        // else_bb: phi from %b (entry)
+        b.position_at_end(else_bb);
+        let py = b.build_phi("py", b.ctx.i64_ty, vec![(bv, entry)]);
+        b.build_br(merge_bb);
+
+        // merge: phi from both paths, then ret
+        b.position_at_end(merge_bb);
+        let r = b.build_phi("r", b.ctx.i64_ty, vec![(px, then_bb), (py, else_bb)]);
+        b.build_ret(r);
+
+        (ctx, module)
+    }
+
+    #[test]
+    fn condbr_phi_copies_use_edge_split_blocks() {
+        // After the fix, each CondBr edge gets its own trampoline machine block
+        // for phi copies.  The machine function must have more blocks than the
+        // IR function (one trampoline per conditional edge).
+        let (ctx, module) = make_condbr_phi_fn();
+        let func = &module.functions[0];
+        let ir_block_count = func.blocks.len(); // entry, then_bb, else_bb, merge = 4
+
+        let mut be = X86Backend;
+        let mf = be.lower_function(&ctx, &module, func);
+
+        assert!(
+            mf.blocks.len() > ir_block_count,
+            "CondBr must create trampoline edge blocks for phi copies; \
+             expected > {} machine blocks, got {}",
+            ir_block_count, mf.blocks.len()
+        );
+    }
+
+    #[test]
+    fn condbr_predecessor_jumps_to_trampolines_not_successors() {
+        // The CondBr predecessor block must branch to the trampoline blocks
+        // (indices ≥ ir_block_count), not directly to the IR successor blocks.
+        let (ctx, module) = make_condbr_phi_fn();
+        let func = &module.functions[0];
+        let ir_block_count = func.blocks.len(); // 4
+
+        let mut be = X86Backend;
+        let mf = be.lower_function(&ctx, &module, func);
+
+        // entry is machine block 0; find its JCC and JMP targets.
+        let entry_block = &mf.blocks[0];
+        let branch_targets: Vec<usize> = entry_block.instrs.iter()
+            .filter_map(|i| {
+                if i.opcode == JCC || i.opcode == JMP {
+                    i.operands.iter().find_map(|op| {
+                        if let MOperand::Block(b) = op { Some(*b) } else { None }
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        assert!(
+            !branch_targets.is_empty(),
+            "entry block should have JCC/JMP branch instructions"
+        );
+        for &target in &branch_targets {
+            assert!(
+                target >= ir_block_count,
+                "CondBr must branch to trampoline blocks (index >= {}), got target {}",
+                ir_block_count, target
+            );
+        }
     }
 }
