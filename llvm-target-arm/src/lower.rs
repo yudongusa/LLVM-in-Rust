@@ -271,7 +271,10 @@ fn lower_instr(
             // We compute NOT scratch as XOR with -1.
             let notmask = mf.fresh_vreg();
             let allones = mf.fresh_vreg();
-            mf.push(mblock, MInstr::new(MOV_IMM).with_dst(allones).with_imm(-1));
+            // MOV_WIDE is required for -1 (0xFFFF_FFFF_FFFF_FFFF) because
+            // MOV_IMM (MOVZ) only loads a 16-bit zero-extended immediate and
+            // would produce 0xFFFF instead of all-ones.
+            mf.push(mblock, MInstr::new(MOV_WIDE).with_dst(allones).with_imm(-1));
             mf.push(mblock, MInstr::new(EOR_RR).with_dst(notmask).with_vreg(scratch).with_vreg(allones));
             mf.push(mblock, MInstr::new(AND_RR).with_dst(tmp1).with_vreg(fv).with_vreg(notmask));
             mf.push(mblock, MInstr::new(AND_RR).with_dst(tmp2).with_vreg(tv).with_vreg(scratch));
@@ -677,5 +680,42 @@ mod tests {
              expected > {} machine blocks, got {}",
             ir_block_count, mf.blocks.len()
         );
+    }
+
+    #[test]
+    fn select_lowering_uses_mov_wide_for_allones_mask() {
+        // The Select lowering must use MOV_WIDE (not MOV_IMM) to materialise
+        // the all-ones mask (-1), so that all 64 bits are set.
+        // MOV_IMM truncates to 16 bits (gives 0xFFFF, not 0xFFFF_FFFF_FFFF_FFFF).
+        let mut ctx = Context::new();
+        let mut module = Module::new("test");
+        let mut b = Builder::new(&mut ctx, &mut module);
+        b.add_function(
+            "sel_fn",
+            b.ctx.i64_ty,
+            vec![b.ctx.i1_ty, b.ctx.i64_ty, b.ctx.i64_ty],
+            vec!["cond".into(), "tv".into(), "fv".into()],
+            false,
+            Linkage::External,
+        );
+        let entry = b.add_block("entry");
+        b.position_at_end(entry);
+        let cond = b.get_arg(0);
+        let tv   = b.get_arg(1);
+        let fv   = b.get_arg(2);
+        let sel  = b.build_select("sel", cond, tv, fv);
+        b.build_ret(sel);
+
+        let mut be = AArch64Backend;
+        let mf = be.lower_function(&ctx, &module, &module.functions[0]);
+
+        // The Select lowering must emit at least one MOV_WIDE instruction
+        // (for the all-ones mask used as ~scratch).
+        let has_mov_wide = mf.blocks.iter().any(|bl| {
+            bl.instrs.iter().any(|i| i.opcode == MOV_WIDE)
+        });
+        assert!(has_mov_wide,
+            "Select lowering must use MOV_WIDE to materialise the all-ones mask, \
+             not MOV_IMM which only loads 16 bits");
     }
 }
