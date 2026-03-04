@@ -433,6 +433,116 @@ IR  →  legalize  →  instruction selection (DAG lowering)
 
 ---
 
+## Usage example: embedding as a JIT backend
+
+The [`examples/tikv_jit`](examples/tikv_jit) crate shows how a project like
+[TiKV](https://github.com/tikv/tikv) could embed LLVM-in-Rust to JIT-compile
+coprocessor filter predicates — with **no dependency on the LLVM C++ library**.
+
+### What it compiles
+
+```c
+// Clipped-difference range filter: return (value - threshold) when value > threshold, else 0.
+i64 eval_predicate(i64 value, i64 threshold) {
+    if (value > threshold) return value - threshold;
+    return 0;
+}
+```
+
+### Full pipeline in ~60 lines of Rust
+
+```rust
+use llvm_codegen::{
+    emit_object, isel::IselBackend, ObjectFormat,
+    regalloc::{apply_allocation, compute_live_intervals, insert_spill_reloads, linear_scan},
+};
+use llvm_ir::{Builder, Context, IntPredicate, Linkage, Module, Printer};
+use llvm_target_x86::{instructions::{MOV_LOAD_MR, MOV_STORE_RM}, X86Backend, X86Emitter};
+use llvm_transforms::{pass::PassManager, ConstProp, DeadCodeElim, Mem2Reg};
+
+// 1. Build IR
+let mut ctx = Context::new();
+let mut module = Module::new("tikv_coprocessor");
+let i64_ty = ctx.i64_ty;
+{
+    let mut bldr = Builder::new(&mut ctx, &mut module);
+    bldr.add_function("eval_predicate", i64_ty,
+        vec![i64_ty, i64_ty], vec!["value".into(), "threshold".into()],
+        false, Linkage::External);
+
+    let entry = bldr.add_block("entry");
+    bldr.position_at_end(entry);
+    let value = bldr.get_arg(0);
+    let threshold = bldr.get_arg(1);
+    let cond = bldr.build_icmp("cond", IntPredicate::Sgt, value, threshold);
+    let then_bb = bldr.add_block("then");
+    let else_bb = bldr.add_block("else");
+    bldr.build_cond_br(cond, then_bb, else_bb);
+
+    let merge_bb = bldr.add_block("merge");
+    bldr.position_at_end(then_bb);
+    let diff = bldr.build_sub("diff", value, threshold);
+    bldr.build_br(merge_bb);
+
+    bldr.position_at_end(else_bb);
+    bldr.build_br(merge_bb);
+
+    bldr.position_at_end(merge_bb);
+    let zero = bldr.const_i64(0);
+    let result = bldr.build_phi("result", i64_ty, vec![(diff, then_bb), (zero, else_bb)]);
+    bldr.build_ret(result);
+}
+
+// 2. Print IR (optional — for logging / debugging)
+let ir_text = Printer::new(&ctx).print_module(&module);
+
+// 3. Optimise
+let mut pm = PassManager::new();
+pm.add_function_pass(Mem2Reg);
+pm.add_function_pass(ConstProp);
+pm.add_function_pass(DeadCodeElim);
+pm.run(&mut ctx, &mut module);
+
+// 4. x86-64 codegen
+let func = module.functions.iter().find(|f| !f.is_declaration).unwrap();
+let mut mf = X86Backend.lower_function(&ctx, &module, func);
+let intervals = compute_live_intervals(&mf);
+let mut result = linear_scan(&intervals, &mf.allocatable_pregs);
+insert_spill_reloads(&mut mf, &mut result, MOV_LOAD_MR, MOV_STORE_RM);
+apply_allocation(&mut mf, &result);
+
+// 5. Emit ELF object file
+let mut emitter = X86Emitter::new(ObjectFormat::Elf);
+let obj = emit_object(&mf, &mut emitter);
+std::fs::write("/tmp/eval_predicate.o", obj.to_bytes()).unwrap();
+// Link with: cc /tmp/eval_predicate.o your_main.o -o binary
+```
+
+### Running the example
+
+```bash
+cargo run -p tikv_jit
+# Prints the IR before/after optimisation, then writes /tmp/eval_predicate.o
+objdump -d /tmp/eval_predicate.o   # inspect generated x86-64 assembly
+```
+
+### Adding to your own project
+
+Add the crates you need to your `Cargo.toml`. For a local checkout use path dependencies:
+
+```toml
+[dependencies]
+llvm-ir         = { path = "path/to/LLVM-in-Rust/src/llvm-ir" }
+llvm-transforms = { path = "path/to/LLVM-in-Rust/src/llvm-transforms" }
+llvm-codegen    = { path = "path/to/LLVM-in-Rust/src/llvm-codegen" }
+llvm-target-x86 = { path = "path/to/LLVM-in-Rust/src/llvm-target-x86" }
+# optional: llvm-target-arm  for AArch64 output
+# optional: llvm-ir-parser   to accept .ll text files as input
+# optional: llvm-bitcode     to read/write the LRIR binary format
+```
+
+---
+
 ## Contributing
 
 1. Fork the repository and create a feature branch.

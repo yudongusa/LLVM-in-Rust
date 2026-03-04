@@ -1,0 +1,13 @@
+[package]
+name = "tikv_jit"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+description = "Example: using LLVM-in-Rust as a JIT backend for expression evaluation (TiKV-style coprocessor predicates)"
+
+[dependencies]
+llvm-ir         = { path = "../../src/llvm-ir" }
+llvm-transforms = { path = "../../src/llvm-transforms" }
+llvm-codegen    = { path = "../../src/llvm-codegen" }
+llvm-target-x86 = { path = "../../src/llvm-target-x86" }
