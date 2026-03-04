@@ -64,7 +64,7 @@ impl<'a> Printer<'a> {
                 self.write_type(&mut out, gv.ty);
                 if let Some(init) = gv.initializer {
                     write!(out, " ").unwrap();
-                    self.write_const_with_type(&mut out, init);
+                    self.write_const_value(&mut out, init);
                 } else {
                     write!(out, " undef").unwrap();
                 }

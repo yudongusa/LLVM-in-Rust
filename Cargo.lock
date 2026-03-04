@@ -58,7 +58,10 @@ version = "0.1.0"
 name = "llvm-ir-parser"
 version = "0.1.0"
 dependencies = [
+ "llvm-codegen",
  "llvm-ir",
+ "llvm-target-x86",
+ "llvm-transforms",
 ]
 
 [[package]]
@@ -83,4 +86,14 @@ version = "0.1.0"
 dependencies = [
  "llvm-analysis",
  "llvm-ir",
+]
+
+[[package]]
+name = "tikv_jit"
+version = "0.1.0"
+dependencies = [
+ "llvm-codegen",
+ "llvm-ir",
+ "llvm-target-x86",
+ "llvm-transforms",
 ]
