@@ -8,7 +8,7 @@
 //! The function is pure: it only reads `ctx` and `kind`; new constants are
 //! allocated with `ctx.const_int`.
 
-use llvm_ir::{ConstId, ConstantData, Context, IntPredicate, InstrKind, ValueRef};
+use llvm_ir::{ConstId, ConstantData, Context, InstrKind, IntPredicate, ValueRef};
 
 /// Try to constant-fold `kind`.
 ///
@@ -21,86 +21,100 @@ pub fn try_fold(ctx: &mut Context, kind: &InstrKind) -> Option<ConstId> {
         // --- Binary integer arithmetic ---
         InstrKind::Add { lhs, rhs, .. } => {
             let (ty, l) = const_int(ctx, *lhs)?;
-            let (_, r)  = const_int(ctx, *rhs)?;
+            let (_, r) = const_int(ctx, *rhs)?;
             Some(ctx.const_int(ty, l.wrapping_add(r)))
         }
         InstrKind::Sub { lhs, rhs, .. } => {
             let (ty, l) = const_int(ctx, *lhs)?;
-            let (_, r)  = const_int(ctx, *rhs)?;
+            let (_, r) = const_int(ctx, *rhs)?;
             Some(ctx.const_int(ty, l.wrapping_sub(r)))
         }
         InstrKind::Mul { lhs, rhs, .. } => {
             let (ty, l) = const_int(ctx, *lhs)?;
-            let (_, r)  = const_int(ctx, *rhs)?;
+            let (_, r) = const_int(ctx, *rhs)?;
             Some(ctx.const_int(ty, l.wrapping_mul(r)))
         }
         InstrKind::UDiv { lhs, rhs, .. } => {
             let (ty, l) = const_int(ctx, *lhs)?;
-            let (_, r)  = const_int(ctx, *rhs)?;
-            if r == 0 { return None; }
+            let (_, r) = const_int(ctx, *rhs)?;
+            if r == 0 {
+                return None;
+            }
             Some(ctx.const_int(ty, l / r))
         }
         InstrKind::SDiv { lhs, rhs, .. } => {
             let (ty, l) = const_int(ctx, *lhs)?;
-            let (_, r)  = const_int(ctx, *rhs)?;
+            let (_, r) = const_int(ctx, *rhs)?;
             let bits = int_bit_width(ctx, ty)?;
             let sl = sign_extend(l, bits);
             let sr = sign_extend(r, bits);
-            if sr == 0 { return None; }
+            if sr == 0 {
+                return None;
+            }
             // MIN_INT / -1 overflows → poison; return None.
-            let type_min: i64 = if bits >= 64 { i64::MIN } else { -(1i64 << (bits - 1)) };
-            if sl == type_min && sr == -1 { return None; }
+            let type_min: i64 = if bits >= 64 {
+                i64::MIN
+            } else {
+                -(1i64 << (bits - 1))
+            };
+            if sl == type_min && sr == -1 {
+                return None;
+            }
             Some(ctx.const_int(ty, trunc_bits(sl.wrapping_div(sr) as u64, bits)))
         }
         InstrKind::URem { lhs, rhs } => {
             let (ty, l) = const_int(ctx, *lhs)?;
-            let (_, r)  = const_int(ctx, *rhs)?;
-            if r == 0 { return None; }
+            let (_, r) = const_int(ctx, *rhs)?;
+            if r == 0 {
+                return None;
+            }
             Some(ctx.const_int(ty, l % r))
         }
         InstrKind::SRem { lhs, rhs } => {
             let (ty, l) = const_int(ctx, *lhs)?;
-            let (_, r)  = const_int(ctx, *rhs)?;
+            let (_, r) = const_int(ctx, *rhs)?;
             let bits = int_bit_width(ctx, ty)?;
             let sl = sign_extend(l, bits);
             let sr = sign_extend(r, bits);
-            if sr == 0 { return None; }
+            if sr == 0 {
+                return None;
+            }
             Some(ctx.const_int(ty, trunc_bits(sl.wrapping_rem(sr) as u64, bits)))
         }
 
         // --- Bitwise ---
         InstrKind::And { lhs, rhs } => {
             let (ty, l) = const_int(ctx, *lhs)?;
-            let (_, r)  = const_int(ctx, *rhs)?;
+            let (_, r) = const_int(ctx, *rhs)?;
             Some(ctx.const_int(ty, l & r))
         }
         InstrKind::Or { lhs, rhs } => {
             let (ty, l) = const_int(ctx, *lhs)?;
-            let (_, r)  = const_int(ctx, *rhs)?;
+            let (_, r) = const_int(ctx, *rhs)?;
             Some(ctx.const_int(ty, l | r))
         }
         InstrKind::Xor { lhs, rhs } => {
             let (ty, l) = const_int(ctx, *lhs)?;
-            let (_, r)  = const_int(ctx, *rhs)?;
+            let (_, r) = const_int(ctx, *rhs)?;
             Some(ctx.const_int(ty, l ^ r))
         }
 
         // --- Shifts (mask shift amount to bit_width - 1, per LLVM semantics) ---
         InstrKind::Shl { lhs, rhs, .. } => {
             let (ty, l) = const_int(ctx, *lhs)?;
-            let (_, r)  = const_int(ctx, *rhs)?;
+            let (_, r) = const_int(ctx, *rhs)?;
             let mask = shift_mask(ctx, ty)?;
             Some(ctx.const_int(ty, l << (r & mask)))
         }
         InstrKind::LShr { lhs, rhs, .. } => {
             let (ty, l) = const_int(ctx, *lhs)?;
-            let (_, r)  = const_int(ctx, *rhs)?;
+            let (_, r) = const_int(ctx, *rhs)?;
             let mask = shift_mask(ctx, ty)?;
             Some(ctx.const_int(ty, l >> (r & mask)))
         }
         InstrKind::AShr { lhs, rhs, .. } => {
             let (ty, l) = const_int(ctx, *lhs)?;
-            let (_, r)  = const_int(ctx, *rhs)?;
+            let (_, r) = const_int(ctx, *rhs)?;
             let mask = shift_mask(ctx, ty)?;
             let bits = int_bit_width(ctx, ty)?;
             let sl = sign_extend(l, bits);
@@ -110,14 +124,18 @@ pub fn try_fold(ctx: &mut Context, kind: &InstrKind) -> Option<ConstId> {
         // --- Integer comparison → i1 result ---
         InstrKind::ICmp { pred, lhs, rhs } => {
             let (ty, l) = const_int(ctx, *lhs)?;
-            let (_, r)  = const_int(ctx, *rhs)?;
+            let (_, r) = const_int(ctx, *rhs)?;
             let bits = int_bit_width(ctx, ty)?;
             let result = icmp_eval(*pred, l, r, bits) as u64;
             Some(ctx.const_int(ctx.i1_ty, result))
         }
 
         // --- Select with constant condition ---
-        InstrKind::Select { cond, then_val, else_val } => {
+        InstrKind::Select {
+            cond,
+            then_val,
+            else_val,
+        } => {
             let (_, c) = const_int(ctx, *cond)?;
             let chosen = if c != 0 { then_val } else { else_val };
             match chosen {
@@ -163,7 +181,11 @@ fn sign_extend(val: u64, bits: u32) -> i64 {
 /// Used to bring signed-operation results back to the canonical `u64`
 /// storage format (no bits above position `bits-1` set).
 fn trunc_bits(val: u64, bits: u32) -> u64 {
-    if bits >= 64 { val } else { val & ((1u64 << bits).wrapping_sub(1)) }
+    if bits >= 64 {
+        val
+    } else {
+        val & ((1u64 << bits).wrapping_sub(1))
+    }
 }
 
 /// Extract the integer bit width from a `TypeId`.  Returns `None` for
@@ -191,15 +213,15 @@ fn shift_mask(ctx: &Context, ty: llvm_ir::TypeId) -> Option<u64> {
 
 fn icmp_eval(pred: IntPredicate, l: u64, r: u64, bits: u32) -> bool {
     match pred {
-        IntPredicate::Eq  => l == r,
-        IntPredicate::Ne  => l != r,
-        IntPredicate::Ugt => l >  r,
+        IntPredicate::Eq => l == r,
+        IntPredicate::Ne => l != r,
+        IntPredicate::Ugt => l > r,
         IntPredicate::Uge => l >= r,
-        IntPredicate::Ult => l <  r,
+        IntPredicate::Ult => l < r,
         IntPredicate::Ule => l <= r,
-        IntPredicate::Sgt => sign_extend(l, bits) >  sign_extend(r, bits),
+        IntPredicate::Sgt => sign_extend(l, bits) > sign_extend(r, bits),
         IntPredicate::Sge => sign_extend(l, bits) >= sign_extend(r, bits),
-        IntPredicate::Slt => sign_extend(l, bits) <  sign_extend(r, bits),
+        IntPredicate::Slt => sign_extend(l, bits) < sign_extend(r, bits),
         IntPredicate::Sle => sign_extend(l, bits) <= sign_extend(r, bits),
     }
 }
@@ -207,7 +229,7 @@ fn icmp_eval(pred: IntPredicate, l: u64, r: u64, bits: u32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use llvm_ir::{Context, IntArithFlags, InstrKind};
+    use llvm_ir::{Context, InstrKind, IntArithFlags};
 
     fn c(ctx: &mut Context, v: u64) -> ValueRef {
         ValueRef::Constant(ctx.const_int(ctx.i32_ty, v))
@@ -222,7 +244,13 @@ mod tests {
             rhs: c(&mut ctx, 4),
         };
         let result = try_fold(&mut ctx, &kind).unwrap();
-        assert_eq!(ctx.get_const(result), &ConstantData::Int { ty: ctx.i32_ty, val: 7 });
+        assert_eq!(
+            ctx.get_const(result),
+            &ConstantData::Int {
+                ty: ctx.i32_ty,
+                val: 7
+            }
+        );
     }
 
     #[test]
@@ -262,7 +290,13 @@ mod tests {
             rhs: c(&mut ctx, 7),
         };
         let result = try_fold(&mut ctx, &kind).unwrap();
-        assert_eq!(ctx.get_const(result), &ConstantData::Int { ty: ctx.i1_ty, val: 1 });
+        assert_eq!(
+            ctx.get_const(result),
+            &ConstantData::Int {
+                ty: ctx.i1_ty,
+                val: 1
+            }
+        );
     }
 
     #[test]
@@ -271,26 +305,56 @@ mod tests {
         // -1 <s 0  →  true
         let neg1 = c(&mut ctx, u64::MAX);
         let zero = c(&mut ctx, 0);
-        let kind = InstrKind::ICmp { pred: IntPredicate::Slt, lhs: neg1, rhs: zero };
+        let kind = InstrKind::ICmp {
+            pred: IntPredicate::Slt,
+            lhs: neg1,
+            rhs: zero,
+        };
         let result = try_fold(&mut ctx, &kind).unwrap();
-        assert_eq!(ctx.get_const(result), &ConstantData::Int { ty: ctx.i1_ty, val: 1 });
+        assert_eq!(
+            ctx.get_const(result),
+            &ConstantData::Int {
+                ty: ctx.i1_ty,
+                val: 1
+            }
+        );
     }
 
     #[test]
     fn fold_select_constant_cond() {
         let mut ctx = Context::new();
-        let cond_true  = ValueRef::Constant(ctx.const_int(ctx.i1_ty, 1));
+        let cond_true = ValueRef::Constant(ctx.const_int(ctx.i1_ty, 1));
         let cond_false = ValueRef::Constant(ctx.const_int(ctx.i1_ty, 0));
         let then_c = c(&mut ctx, 42);
         let else_c = c(&mut ctx, 99);
 
-        let k1 = InstrKind::Select { cond: cond_true,  then_val: then_c, else_val: else_c };
-        let k2 = InstrKind::Select { cond: cond_false, then_val: then_c, else_val: else_c };
+        let k1 = InstrKind::Select {
+            cond: cond_true,
+            then_val: then_c,
+            else_val: else_c,
+        };
+        let k2 = InstrKind::Select {
+            cond: cond_false,
+            then_val: then_c,
+            else_val: else_c,
+        };
 
         let r1 = try_fold(&mut ctx, &k1).unwrap();
         let r2 = try_fold(&mut ctx, &k2).unwrap();
-        assert_eq!(ctx.get_const(r1), &ConstantData::Int { ty: ctx.i32_ty, val: 42 });
-        assert_eq!(ctx.get_const(r2), &ConstantData::Int { ty: ctx.i32_ty, val: 99 });
+        assert_eq!(
+            ctx.get_const(r1),
+            &ConstantData::Int {
+                ty: ctx.i32_ty,
+                val: 42
+            }
+        );
+        assert_eq!(
+            ctx.get_const(r2),
+            &ConstantData::Int {
+                ty: ctx.i32_ty,
+                val: 99
+            }
+        );
     }
 
     #[test]
@@ -322,8 +386,13 @@ mod tests {
             rhs: c(&mut ctx, 32), // 32 & 31 == 0
         };
         let result = try_fold(&mut ctx, &kind).unwrap();
-        assert_eq!(ctx.get_const(result),
-            &ConstantData::Int { ty: ctx.i32_ty, val: 1 }); // 1 << 0 = 1
+        assert_eq!(
+            ctx.get_const(result),
+            &ConstantData::Int {
+                ty: ctx.i32_ty,
+                val: 1
+            }
+        ); // 1 << 0 = 1
     }
 
     #[test]
@@ -336,8 +405,13 @@ mod tests {
             rhs: c(&mut ctx, 4),
         };
         let result = try_fold(&mut ctx, &kind).unwrap();
-        assert_eq!(ctx.get_const(result),
-            &ConstantData::Int { ty: ctx.i32_ty, val: 16 });
+        assert_eq!(
+            ctx.get_const(result),
+            &ConstantData::Int {
+                ty: ctx.i32_ty,
+                val: 16
+            }
+        );
     }
 
     #[test]
@@ -350,8 +424,13 @@ mod tests {
             rhs: c8(&mut ctx, 8), // 8 & 7 == 0
         };
         let result = try_fold(&mut ctx, &kind).unwrap();
-        assert_eq!(ctx.get_const(result),
-            &ConstantData::Int { ty: ctx.i8_ty, val: 1 }); // 1 << 0 = 1
+        assert_eq!(
+            ctx.get_const(result),
+            &ConstantData::Int {
+                ty: ctx.i8_ty,
+                val: 1
+            }
+        ); // 1 << 0 = 1
     }
 
     #[test]
@@ -364,8 +443,13 @@ mod tests {
             rhs: c(&mut ctx, 31),
         };
         let result = try_fold(&mut ctx, &kind).unwrap();
-        assert_eq!(ctx.get_const(result),
-            &ConstantData::Int { ty: ctx.i32_ty, val: 1 });
+        assert_eq!(
+            ctx.get_const(result),
+            &ConstantData::Int {
+                ty: ctx.i32_ty,
+                val: 1
+            }
+        );
     }
 
     #[test]
@@ -378,8 +462,13 @@ mod tests {
             rhs: c8(&mut ctx, 7),
         };
         let result = try_fold(&mut ctx, &kind).unwrap();
-        assert_eq!(ctx.get_const(result),
-            &ConstantData::Int { ty: ctx.i8_ty, val: 0xFF }); // -1 as i8
+        assert_eq!(
+            ctx.get_const(result),
+            &ConstantData::Int {
+                ty: ctx.i8_ty,
+                val: 0xFF
+            }
+        ); // -1 as i8
     }
 
     #[test]
@@ -393,8 +482,13 @@ mod tests {
             rhs: c8(&mut ctx, 2),
         };
         let result = try_fold(&mut ctx, &kind).unwrap();
-        assert_eq!(ctx.get_const(result),
-            &ConstantData::Int { ty: ctx.i8_ty, val: 0 }); // -1 / 2 = 0
+        assert_eq!(
+            ctx.get_const(result),
+            &ConstantData::Int {
+                ty: ctx.i8_ty,
+                val: 0
+            }
+        ); // -1 / 2 = 0
     }
 
     #[test]
@@ -407,8 +501,13 @@ mod tests {
             rhs: c8(&mut ctx, 0xFE), // -2
         };
         let result = try_fold(&mut ctx, &kind).unwrap();
-        assert_eq!(ctx.get_const(result),
-            &ConstantData::Int { ty: ctx.i8_ty, val: 2 });
+        assert_eq!(
+            ctx.get_const(result),
+            &ConstantData::Int {
+                ty: ctx.i8_ty,
+                val: 2
+            }
+        );
     }
 
     #[test]
@@ -432,8 +531,13 @@ mod tests {
             rhs: c8(&mut ctx, 3),
         };
         let result = try_fold(&mut ctx, &kind).unwrap();
-        assert_eq!(ctx.get_const(result),
-            &ConstantData::Int { ty: ctx.i8_ty, val: 0xFF }); // -1
+        assert_eq!(
+            ctx.get_const(result),
+            &ConstantData::Int {
+                ty: ctx.i8_ty,
+                val: 0xFF
+            }
+        ); // -1
     }
 
     #[test]
@@ -447,8 +551,13 @@ mod tests {
             rhs: c8(&mut ctx, 0),
         };
         let result = try_fold(&mut ctx, &kind).unwrap();
-        assert_eq!(ctx.get_const(result),
-            &ConstantData::Int { ty: ctx.i1_ty, val: 1 }); // true
+        assert_eq!(
+            ctx.get_const(result),
+            &ConstantData::Int {
+                ty: ctx.i1_ty,
+                val: 1
+            }
+        ); // true
     }
 
     #[test]
@@ -462,7 +571,12 @@ mod tests {
             rhs: c(&mut ctx, 0xFFFF_FFFF), // -1 as i32
         };
         let result = try_fold(&mut ctx, &kind).unwrap();
-        assert_eq!(ctx.get_const(result),
-            &ConstantData::Int { ty: ctx.i1_ty, val: 1 }); // true
+        assert_eq!(
+            ctx.get_const(result),
+            &ConstantData::Int {
+                ty: ctx.i1_ty,
+                val: 1
+            }
+        ); // true
     }
 }

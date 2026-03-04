@@ -6,15 +6,12 @@ use std::collections::HashMap;
 use std::fmt;
 
 use llvm_ir::{
-    Context, Module, Function, BasicBlock, Instruction, InstrKind,
-    TypeId, BlockId, ArgId, ConstId, GlobalId, ValueRef,
-    FloatKind,
-    ConstantData,
-    Argument, GlobalVariable, Linkage,
-    IntArithFlags, FastMathFlags, IntPredicate, FloatPredicate, TailCallKind,
+    ArgId, Argument, BasicBlock, BlockId, ConstId, ConstantData, Context, FastMathFlags, FloatKind,
+    FloatPredicate, Function, GlobalId, GlobalVariable, InstrKind, Instruction, IntArithFlags,
+    IntPredicate, Linkage, Module, TailCallKind, TypeId, ValueRef,
 };
 
-use crate::lexer::{Lexer, Token, Keyword, LexError};
+use crate::lexer::{Keyword, LexError, Lexer, Token};
 
 // ---------------------------------------------------------------------------
 // ParseError
@@ -29,19 +26,31 @@ pub struct ParseError {
 
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "parse error at {}:{}: {}", self.line, self.col, self.message)
+        write!(
+            f,
+            "parse error at {}:{}: {}",
+            self.line, self.col, self.message
+        )
     }
 }
 
 impl From<LexError> for ParseError {
     fn from(e: LexError) -> Self {
-        ParseError { line: e.line, col: e.col, message: e.message }
+        ParseError {
+            line: e.line,
+            col: e.col,
+            message: e.message,
+        }
     }
 }
 
 impl From<&LexError> for ParseError {
     fn from(e: &LexError) -> Self {
-        ParseError { line: e.line, col: e.col, message: e.message.clone() }
+        ParseError {
+            line: e.line,
+            col: e.col,
+            message: e.message.clone(),
+        }
     }
 }
 
@@ -77,7 +86,11 @@ impl<'src> Parser<'src> {
     }
 
     fn err(&self, msg: impl Into<String>) -> ParseError {
-        ParseError { line: self.lex.current_line(), col: self.lex.current_col(), message: msg.into() }
+        ParseError {
+            line: self.lex.current_line(),
+            col: self.lex.current_col(),
+            message: msg.into(),
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -88,13 +101,27 @@ impl<'src> Parser<'src> {
         loop {
             match self.lex.peek()? {
                 Token::Eof => break,
-                Token::Kw(Keyword::Source) => { self.parse_source_filename()?; }
-                Token::Kw(Keyword::Target) => { self.parse_target()?; }
-                Token::LocalIdent(_) => { self.parse_named_type_def()?; }
-                Token::GlobalIdent(_) => { self.parse_global_or_function()?; }
-                Token::Kw(Keyword::Define) => { self.parse_function(false)?; }
-                Token::Kw(Keyword::Declare) => { self.parse_function(true)?; }
-                Token::Bang => { self.skip_metadata_line()?; }
+                Token::Kw(Keyword::Source) => {
+                    self.parse_source_filename()?;
+                }
+                Token::Kw(Keyword::Target) => {
+                    self.parse_target()?;
+                }
+                Token::LocalIdent(_) => {
+                    self.parse_named_type_def()?;
+                }
+                Token::GlobalIdent(_) => {
+                    self.parse_global_or_function()?;
+                }
+                Token::Kw(Keyword::Define) => {
+                    self.parse_function(false)?;
+                }
+                Token::Kw(Keyword::Declare) => {
+                    self.parse_function(true)?;
+                }
+                Token::Bang => {
+                    self.skip_metadata_line()?;
+                }
                 _ => {
                     let t = self.lex.next()?;
                     return Err(self.err(format!("unexpected top-level token {:?}", t)));
@@ -168,7 +195,13 @@ impl<'src> Parser<'src> {
                 } else {
                     None
                 };
-                let gv = GlobalVariable { name, ty, initializer: init, is_constant: is_const, linkage };
+                let gv = GlobalVariable {
+                    name,
+                    ty,
+                    initializer: init,
+                    is_constant: is_const,
+                    linkage,
+                };
                 self.module.add_global(gv);
             }
             _ => {
@@ -179,7 +212,17 @@ impl<'src> Parser<'src> {
     }
 
     fn at_statement_end(&mut self) -> bool {
-        matches!(self.lex.peek(), Ok(Token::Eof) | Ok(Token::Kw(Keyword::Define)) | Ok(Token::Kw(Keyword::Declare)) | Ok(Token::GlobalIdent(_)) | Ok(Token::LocalIdent(_)) | Ok(Token::Kw(Keyword::Target)) | Ok(Token::Kw(Keyword::Source)) | Ok(Token::Bang))
+        matches!(
+            self.lex.peek(),
+            Ok(Token::Eof)
+                | Ok(Token::Kw(Keyword::Define))
+                | Ok(Token::Kw(Keyword::Declare))
+                | Ok(Token::GlobalIdent(_))
+                | Ok(Token::LocalIdent(_))
+                | Ok(Token::Kw(Keyword::Target))
+                | Ok(Token::Kw(Keyword::Source))
+                | Ok(Token::Bang)
+        )
     }
 
     // -----------------------------------------------------------------------
@@ -188,15 +231,42 @@ impl<'src> Parser<'src> {
 
     fn parse_optional_linkage(&mut self) -> Linkage {
         match self.lex.peek() {
-            Ok(Token::Kw(Keyword::Private))              => { let _ = self.lex.next(); Linkage::Private }
-            Ok(Token::Kw(Keyword::Internal))             => { let _ = self.lex.next(); Linkage::Internal }
-            Ok(Token::Kw(Keyword::External))             => { let _ = self.lex.next(); Linkage::External }
-            Ok(Token::Kw(Keyword::Weak))                 => { let _ = self.lex.next(); Linkage::Weak }
-            Ok(Token::Kw(Keyword::WeakOdr))              => { let _ = self.lex.next(); Linkage::WeakOdr }
-            Ok(Token::Kw(Keyword::Linkonce))             => { let _ = self.lex.next(); Linkage::LinkOnce }
-            Ok(Token::Kw(Keyword::LinkonceOdr))          => { let _ = self.lex.next(); Linkage::LinkOnceOdr }
-            Ok(Token::Kw(Keyword::Common))               => { let _ = self.lex.next(); Linkage::Common }
-            Ok(Token::Kw(Keyword::AvailableExternally))  => { let _ = self.lex.next(); Linkage::AvailableExternally }
+            Ok(Token::Kw(Keyword::Private)) => {
+                let _ = self.lex.next();
+                Linkage::Private
+            }
+            Ok(Token::Kw(Keyword::Internal)) => {
+                let _ = self.lex.next();
+                Linkage::Internal
+            }
+            Ok(Token::Kw(Keyword::External)) => {
+                let _ = self.lex.next();
+                Linkage::External
+            }
+            Ok(Token::Kw(Keyword::Weak)) => {
+                let _ = self.lex.next();
+                Linkage::Weak
+            }
+            Ok(Token::Kw(Keyword::WeakOdr)) => {
+                let _ = self.lex.next();
+                Linkage::WeakOdr
+            }
+            Ok(Token::Kw(Keyword::Linkonce)) => {
+                let _ = self.lex.next();
+                Linkage::LinkOnce
+            }
+            Ok(Token::Kw(Keyword::LinkonceOdr)) => {
+                let _ = self.lex.next();
+                Linkage::LinkOnceOdr
+            }
+            Ok(Token::Kw(Keyword::Common)) => {
+                let _ = self.lex.next();
+                Linkage::Common
+            }
+            Ok(Token::Kw(Keyword::AvailableExternally)) => {
+                let _ = self.lex.next();
+                Linkage::AvailableExternally
+            }
             _ => Linkage::External,
         }
     }
@@ -207,23 +277,50 @@ impl<'src> Parser<'src> {
 
     fn parse_type(&mut self) -> Result<TypeId, ParseError> {
         let base = match self.lex.peek()? {
-            Token::Kw(Keyword::Void)   => { self.lex.next()?; self.ctx.void_ty }
-            Token::Kw(Keyword::Half)   => { self.lex.next()?; self.ctx.mk_float(FloatKind::Half) }
-            Token::Kw(Keyword::Bfloat) => { self.lex.next()?; self.ctx.mk_float(FloatKind::BFloat) }
-            Token::Kw(Keyword::Float)  => { self.lex.next()?; self.ctx.f32_ty }
-            Token::Kw(Keyword::Double) => { self.lex.next()?; self.ctx.f64_ty }
-            Token::Kw(Keyword::Fp128)  => { self.lex.next()?; self.ctx.mk_float(FloatKind::Fp128) }
-            Token::Kw(Keyword::X86Fp80)=> { self.lex.next()?; self.ctx.mk_float(FloatKind::X86Fp80) }
-            Token::Kw(Keyword::Label)  => { self.lex.next()?; self.ctx.label_ty }
-            Token::Kw(Keyword::Ptr)    => { self.lex.next()?; self.ctx.ptr_ty }
+            Token::Kw(Keyword::Void) => {
+                self.lex.next()?;
+                self.ctx.void_ty
+            }
+            Token::Kw(Keyword::Half) => {
+                self.lex.next()?;
+                self.ctx.mk_float(FloatKind::Half)
+            }
+            Token::Kw(Keyword::Bfloat) => {
+                self.lex.next()?;
+                self.ctx.mk_float(FloatKind::BFloat)
+            }
+            Token::Kw(Keyword::Float) => {
+                self.lex.next()?;
+                self.ctx.f32_ty
+            }
+            Token::Kw(Keyword::Double) => {
+                self.lex.next()?;
+                self.ctx.f64_ty
+            }
+            Token::Kw(Keyword::Fp128) => {
+                self.lex.next()?;
+                self.ctx.mk_float(FloatKind::Fp128)
+            }
+            Token::Kw(Keyword::X86Fp80) => {
+                self.lex.next()?;
+                self.ctx.mk_float(FloatKind::X86Fp80)
+            }
+            Token::Kw(Keyword::Label) => {
+                self.lex.next()?;
+                self.ctx.label_ty
+            }
+            Token::Kw(Keyword::Ptr) => {
+                self.lex.next()?;
+                self.ctx.ptr_ty
+            }
             Token::IntType(bits) => {
                 let b = *bits;
                 self.lex.next()?;
                 self.ctx.mk_int(b)
             }
-            Token::LBracket => { self.parse_array_type()? }
-            Token::LAngle   => { self.parse_vector_type()? }
-            Token::LBrace   => {
+            Token::LBracket => self.parse_array_type()?,
+            Token::LAngle => self.parse_vector_type()?,
+            Token::LBrace => {
                 let (fields, packed) = self.parse_struct_body()?;
                 self.ctx.mk_struct_anon(fields, packed)
             }
@@ -239,7 +336,7 @@ impl<'src> Parser<'src> {
         };
 
         // Handle pointer suffix `*` (old-style IR) — consume but return ptr.
-        while self.lex.eat(&Token::Star) {
+        if self.lex.eat(&Token::Star) {
             return Ok(self.ctx.ptr_ty);
         }
 
@@ -281,7 +378,9 @@ impl<'src> Parser<'src> {
             }
         }
         self.lex.expect(&Token::RBrace)?;
-        if packed { self.lex.expect(&Token::RAngle)?; }
+        if packed {
+            self.lex.expect(&Token::RAngle)?;
+        }
         Ok((fields, packed))
     }
 
@@ -296,7 +395,10 @@ impl<'src> Parser<'src> {
             } else {
                 params.push(self.parse_type()?);
                 while self.lex.eat(&Token::Comma) {
-                    if self.lex.eat(&Token::Ellipsis) { variadic = true; break; }
+                    if self.lex.eat(&Token::Ellipsis) {
+                        variadic = true;
+                        break;
+                    }
                     params.push(self.parse_type()?);
                 }
             }
@@ -336,7 +438,10 @@ impl<'src> Parser<'src> {
                 let (ty, pname) = self.parse_param()?;
                 params.push((ty, pname));
                 while self.lex.eat(&Token::Comma) {
-                    if self.lex.eat(&Token::Ellipsis) { variadic = true; break; }
+                    if self.lex.eat(&Token::Ellipsis) {
+                        variadic = true;
+                        break;
+                    }
                     let (ty, pname) = self.parse_param()?;
                     params.push((ty, pname));
                 }
@@ -347,15 +452,17 @@ impl<'src> Parser<'src> {
         // Skip trailing function attributes (e.g. #0, nounwind, ...).
         self.skip_trailing_fn_attrs()?;
 
-        let fn_ty = self.ctx.mk_fn_type(
-            ret_ty,
-            params.iter().map(|(ty, _)| *ty).collect(),
-            variadic,
-        );
+        let fn_ty =
+            self.ctx
+                .mk_fn_type(ret_ty, params.iter().map(|(ty, _)| *ty).collect(), variadic);
         let args: Vec<Argument> = params
             .into_iter()
             .enumerate()
-            .map(|(i, (ty, nm))| Argument { name: nm, ty, index: i as u32 })
+            .map(|(i, (ty, nm))| Argument {
+                name: nm,
+                ty,
+                index: i as u32,
+            })
             .collect();
 
         // Reset local state for this function.
@@ -386,8 +493,13 @@ impl<'src> Parser<'src> {
         self.lex.expect(&Token::LBrace)?;
         loop {
             match self.lex.peek()? {
-                Token::RBrace => { self.lex.next()?; break; }
-                _ => { self.parse_block()?; }
+                Token::RBrace => {
+                    self.lex.next()?;
+                    break;
+                }
+                _ => {
+                    self.parse_block()?;
+                }
             }
         }
 
@@ -429,7 +541,9 @@ impl<'src> Parser<'src> {
             _ => "entry".to_string(),
         };
 
-        let fid = self.current_func.ok_or_else(|| self.err("block outside function"))?;
+        let fid = self
+            .current_func
+            .ok_or_else(|| self.err("block outside function"))?;
         let func = &mut self.module.functions[fid];
 
         // Reuse pre-allocated BlockId if this block was forward-referenced.
@@ -460,7 +574,9 @@ impl<'src> Parser<'src> {
                     }
                     self.parse_instruction(bid)?;
                 }
-                _ => { self.parse_instruction(bid)?; }
+                _ => {
+                    self.parse_instruction(bid)?;
+                }
             }
         }
 
@@ -468,7 +584,10 @@ impl<'src> Parser<'src> {
     }
 
     fn block_is_complete(&self, bid: BlockId) -> bool {
-        let fid = match self.current_func { Some(f) => f, None => return false };
+        let fid = match self.current_func {
+            Some(f) => f,
+            None => return false,
+        };
         self.module.functions[fid].block(bid).is_complete()
     }
 
@@ -477,7 +596,8 @@ impl<'src> Parser<'src> {
     // -----------------------------------------------------------------------
 
     fn parse_instruction(&mut self, bid: BlockId) -> Result<(), ParseError> {
-        let fid = self.current_func
+        let fid = self
+            .current_func
             .ok_or_else(|| self.err("instruction outside function"))?;
 
         // Parse optional result assignment: `%name = ` or `%N = `.
@@ -514,7 +634,9 @@ impl<'src> Parser<'src> {
         let iid = self.module.functions[fid].alloc_instr(instr);
 
         if is_term {
-            self.module.functions[fid].block_mut(bid).set_terminator(iid);
+            self.module.functions[fid]
+                .block_mut(bid)
+                .set_terminator(iid);
         } else {
             self.module.functions[fid].block_mut(bid).append_instr(iid);
         }
@@ -697,7 +819,15 @@ impl<'src> Parser<'src> {
                 self.lex.expect(&Token::Comma)?;
                 let rhs = self.parse_value(_ty)?;
                 let i1 = self.ctx.i1_ty;
-                Ok((InstrKind::FCmp { flags, pred, lhs, rhs }, i1))
+                Ok((
+                    InstrKind::FCmp {
+                        flags,
+                        pred,
+                        lhs,
+                        rhs,
+                    },
+                    i1,
+                ))
             }
             // --- Memory ---
             Token::Kw(Keyword::Alloca) => {
@@ -711,10 +841,19 @@ impl<'src> Parser<'src> {
                             Some(ne)
                         }
                     }
-                } else { None };
+                } else {
+                    None
+                };
                 let align = self.parse_optional_align()?;
                 let ptr_ty = self.ctx.ptr_ty;
-                Ok((InstrKind::Alloca { alloc_ty, num_elements, align }, ptr_ty))
+                Ok((
+                    InstrKind::Alloca {
+                        alloc_ty,
+                        num_elements,
+                        align,
+                    },
+                    ptr_ty,
+                ))
             }
             Token::Kw(Keyword::Load) => {
                 self.lex.next()?;
@@ -726,7 +865,15 @@ impl<'src> Parser<'src> {
                     (ptype, self.parse_value(ptype)?)
                 };
                 let align = self.parse_optional_align()?;
-                Ok((InstrKind::Load { ty, ptr, align, volatile }, ty))
+                Ok((
+                    InstrKind::Load {
+                        ty,
+                        ptr,
+                        align,
+                        volatile,
+                    },
+                    ty,
+                ))
             }
             Token::Kw(Keyword::Store) => {
                 self.lex.next()?;
@@ -737,7 +884,15 @@ impl<'src> Parser<'src> {
                 let ptr = self.parse_value(ptr_ty2)?;
                 let align = self.parse_optional_align()?;
                 let void_ty = self.ctx.void_ty;
-                Ok((InstrKind::Store { val, ptr, align, volatile }, void_ty))
+                Ok((
+                    InstrKind::Store {
+                        val,
+                        ptr,
+                        align,
+                        volatile,
+                    },
+                    void_ty,
+                ))
             }
             Token::Kw(Keyword::Getelementptr) => {
                 self.lex.next()?;
@@ -752,7 +907,15 @@ impl<'src> Parser<'src> {
                     indices.push(idx);
                 }
                 let ptr_ty = self.ctx.ptr_ty;
-                Ok((InstrKind::GetElementPtr { inbounds, base_ty, ptr, indices }, ptr_ty))
+                Ok((
+                    InstrKind::GetElementPtr {
+                        inbounds,
+                        base_ty,
+                        ptr,
+                        indices,
+                    },
+                    ptr_ty,
+                ))
             }
             // --- Casts ---
             Token::Kw(Keyword::Trunc) => {
@@ -854,7 +1017,14 @@ impl<'src> Parser<'src> {
                 let (then_val, ty) = self.parse_typed_value()?;
                 self.lex.expect(&Token::Comma)?;
                 let else_val = self.parse_value(ty)?;
-                Ok((InstrKind::Select { cond, then_val, else_val }, ty))
+                Ok((
+                    InstrKind::Select {
+                        cond,
+                        then_val,
+                        else_val,
+                    },
+                    ty,
+                ))
             }
             Token::Kw(Keyword::Phi) => {
                 self.lex.next()?;
@@ -869,7 +1039,9 @@ impl<'src> Parser<'src> {
                     let bid = self.get_or_create_block(&block_name)?;
                     self.lex.expect(&Token::RBracket)?;
                     incoming.push((val, bid));
-                    if !self.lex.eat(&Token::Comma) { break; }
+                    if !self.lex.eat(&Token::Comma) {
+                        break;
+                    }
                 }
                 Ok((InstrKind::Phi { ty, incoming }, ty))
             }
@@ -894,7 +1066,14 @@ impl<'src> Parser<'src> {
                     let idx = self.lex.expect_uint_lit()? as u32;
                     indices.push(idx);
                 }
-                Ok((InstrKind::InsertValue { aggregate, val, indices }, agg_ty))
+                Ok((
+                    InstrKind::InsertValue {
+                        aggregate,
+                        val,
+                        indices,
+                    },
+                    agg_ty,
+                ))
             }
             Token::Kw(Keyword::Extractelement) => {
                 self.lex.next()?;
@@ -924,12 +1103,23 @@ impl<'src> Parser<'src> {
                 Ok((InstrKind::ShuffleVector { v1, v2, mask }, vec_ty))
             }
             // --- Call ---
-            Token::Kw(Keyword::Call) | Token::Kw(Keyword::Tail)
-            | Token::Kw(Keyword::Musttail) | Token::Kw(Keyword::Notail) => {
+            Token::Kw(Keyword::Call)
+            | Token::Kw(Keyword::Tail)
+            | Token::Kw(Keyword::Musttail)
+            | Token::Kw(Keyword::Notail) => {
                 let tail = match self.lex.peek()? {
-                    Token::Kw(Keyword::Tail)     => { self.lex.next()?; TailCallKind::Tail }
-                    Token::Kw(Keyword::Musttail) => { self.lex.next()?; TailCallKind::MustTail }
-                    Token::Kw(Keyword::Notail)   => { self.lex.next()?; TailCallKind::NoTail }
+                    Token::Kw(Keyword::Tail) => {
+                        self.lex.next()?;
+                        TailCallKind::Tail
+                    }
+                    Token::Kw(Keyword::Musttail) => {
+                        self.lex.next()?;
+                        TailCallKind::MustTail
+                    }
+                    Token::Kw(Keyword::Notail) => {
+                        self.lex.next()?;
+                        TailCallKind::NoTail
+                    }
                     _ => TailCallKind::None,
                 };
                 self.lex.expect_kw(&Keyword::Call)?;
@@ -956,7 +1146,9 @@ impl<'src> Parser<'src> {
                     let (a, _) = self.parse_typed_value()?;
                     args.push(a);
                     while self.lex.eat(&Token::Comma) {
-                        if self.lex.eat(&Token::Ellipsis) { break; }
+                        if self.lex.eat(&Token::Ellipsis) {
+                            break;
+                        }
                         let (a, _) = self.parse_typed_value()?;
                         args.push(a);
                     }
@@ -965,7 +1157,15 @@ impl<'src> Parser<'src> {
                 // Build a function type from what we know.
                 let param_tys: Vec<TypeId> = args.iter().map(|a| self.type_of_vref(*a)).collect();
                 let callee_ty = self.ctx.mk_fn_type(ret_ty, param_tys, false);
-                Ok((InstrKind::Call { tail, callee_ty, callee, args }, ret_ty))
+                Ok((
+                    InstrKind::Call {
+                        tail,
+                        callee_ty,
+                        callee,
+                        args,
+                    },
+                    ret_ty,
+                ))
             }
             // --- Terminators ---
             Token::Kw(Keyword::Ret) => {
@@ -999,7 +1199,14 @@ impl<'src> Parser<'src> {
                         self.lex.expect_kw(&Keyword::Label)?;
                         let else_name = self.lex.expect_local_ident()?;
                         let else_dest = self.get_or_create_block(&else_name)?;
-                        Ok((InstrKind::CondBr { cond, then_dest, else_dest }, void_ty))
+                        Ok((
+                            InstrKind::CondBr {
+                                cond,
+                                then_dest,
+                                else_dest,
+                            },
+                            void_ty,
+                        ))
                     }
                 }
             }
@@ -1022,7 +1229,14 @@ impl<'src> Parser<'src> {
                     cases.push((case_val, dest));
                 }
                 self.lex.expect(&Token::RBracket)?;
-                Ok((InstrKind::Switch { val, default, cases }, void_ty))
+                Ok((
+                    InstrKind::Switch {
+                        val,
+                        default,
+                        cases,
+                    },
+                    void_ty,
+                ))
             }
             Token::Kw(Keyword::Unreachable) => {
                 self.lex.next()?;
@@ -1066,7 +1280,9 @@ impl<'src> Parser<'src> {
                     let bits = f.to_bits();
                     let c = self.ctx.const_float(ty, bits);
                     Ok(ValueRef::Constant(c))
-                } else { unreachable!() }
+                } else {
+                    unreachable!()
+                }
             }
             Token::Kw(Keyword::Undef) => {
                 self.lex.next()?;
@@ -1121,7 +1337,7 @@ impl<'src> Parser<'src> {
         }
         Err(ParseError {
             line: self.lex.current_line(),
-            col:  self.lex.current_col(),
+            col: self.lex.current_col(),
             message: format!("undefined local value '%{}'", name),
         })
     }
@@ -1178,7 +1394,9 @@ impl<'src> Parser<'src> {
     }
 
     fn get_or_create_block(&mut self, name: &str) -> Result<BlockId, ParseError> {
-        let fid = self.current_func.ok_or_else(|| self.err("block reference outside function"))?;
+        let fid = self
+            .current_func
+            .ok_or_else(|| self.err("block reference outside function"))?;
         if let Some(&bid) = self.pending_blocks.get(name) {
             return Ok(bid);
         }
@@ -1195,9 +1413,13 @@ impl<'src> Parser<'src> {
     fn parse_int_arith_flags(&mut self) -> IntArithFlags {
         let mut flags = IntArithFlags::default();
         loop {
-            if self.lex.eat_kw(Keyword::Nuw) { flags.nuw = true; }
-            else if self.lex.eat_kw(Keyword::Nsw) { flags.nsw = true; }
-            else { break; }
+            if self.lex.eat_kw(Keyword::Nuw) {
+                flags.nuw = true;
+            } else if self.lex.eat_kw(Keyword::Nsw) {
+                flags.nsw = true;
+            } else {
+                break;
+            }
         }
         flags
     }
@@ -1205,23 +1427,34 @@ impl<'src> Parser<'src> {
     fn parse_fast_math_flags(&mut self) -> FastMathFlags {
         let mut f = FastMathFlags::default();
         loop {
-            if      self.lex.eat_kw(Keyword::Fast)     { f.fast = true; break; }
-            else if self.lex.eat_kw(Keyword::Nnan)     { f.nnan = true; }
-            else if self.lex.eat_kw(Keyword::Ninf)     { f.ninf = true; }
-            else if self.lex.eat_kw(Keyword::Nsz)      { f.nsz = true; }
-            else if self.lex.eat_kw(Keyword::Arcp)     { f.arcp = true; }
-            else if self.lex.eat_kw(Keyword::Contract) { f.contract = true; }
-            else if self.lex.eat_kw(Keyword::Afn)      { f.afn = true; }
-            else if self.lex.eat_kw(Keyword::Reassoc)  { f.reassoc = true; }
-            else { break; }
+            if self.lex.eat_kw(Keyword::Fast) {
+                f.fast = true;
+                break;
+            } else if self.lex.eat_kw(Keyword::Nnan) {
+                f.nnan = true;
+            } else if self.lex.eat_kw(Keyword::Ninf) {
+                f.ninf = true;
+            } else if self.lex.eat_kw(Keyword::Nsz) {
+                f.nsz = true;
+            } else if self.lex.eat_kw(Keyword::Arcp) {
+                f.arcp = true;
+            } else if self.lex.eat_kw(Keyword::Contract) {
+                f.contract = true;
+            } else if self.lex.eat_kw(Keyword::Afn) {
+                f.afn = true;
+            } else if self.lex.eat_kw(Keyword::Reassoc) {
+                f.reassoc = true;
+            } else {
+                break;
+            }
         }
         f
     }
 
     fn parse_int_pred(&mut self) -> Result<IntPredicate, ParseError> {
         match self.lex.next()? {
-            Token::Kw(Keyword::Eq)  => Ok(IntPredicate::Eq),
-            Token::Kw(Keyword::Ne)  => Ok(IntPredicate::Ne),
+            Token::Kw(Keyword::Eq) => Ok(IntPredicate::Eq),
+            Token::Kw(Keyword::Ne) => Ok(IntPredicate::Ne),
             Token::Kw(Keyword::Ugt) => Ok(IntPredicate::Ugt),
             Token::Kw(Keyword::Uge) => Ok(IntPredicate::Uge),
             Token::Kw(Keyword::Ult) => Ok(IntPredicate::Ult),
@@ -1237,20 +1470,20 @@ impl<'src> Parser<'src> {
     fn parse_float_pred(&mut self) -> Result<FloatPredicate, ParseError> {
         match self.lex.next()? {
             Token::Kw(Keyword::False) => Ok(FloatPredicate::False),
-            Token::Kw(Keyword::Oeq)  => Ok(FloatPredicate::Oeq),
-            Token::Kw(Keyword::Ogt)  => Ok(FloatPredicate::Ogt),
-            Token::Kw(Keyword::Oge)  => Ok(FloatPredicate::Oge),
-            Token::Kw(Keyword::Olt)  => Ok(FloatPredicate::Olt),
-            Token::Kw(Keyword::Ole)  => Ok(FloatPredicate::Ole),
-            Token::Kw(Keyword::One)  => Ok(FloatPredicate::One),
-            Token::Kw(Keyword::Ord)  => Ok(FloatPredicate::Ord),
-            Token::Kw(Keyword::Uno)  => Ok(FloatPredicate::Uno),
-            Token::Kw(Keyword::Ueq)  => Ok(FloatPredicate::Ueq),
-            Token::Kw(Keyword::Ugt)  => Ok(FloatPredicate::Ugt),
-            Token::Kw(Keyword::Uge)  => Ok(FloatPredicate::Uge),
-            Token::Kw(Keyword::Ult)  => Ok(FloatPredicate::Ult),
-            Token::Kw(Keyword::Ule)  => Ok(FloatPredicate::Ule),
-            Token::Kw(Keyword::Une)  => Ok(FloatPredicate::Une),
+            Token::Kw(Keyword::Oeq) => Ok(FloatPredicate::Oeq),
+            Token::Kw(Keyword::Ogt) => Ok(FloatPredicate::Ogt),
+            Token::Kw(Keyword::Oge) => Ok(FloatPredicate::Oge),
+            Token::Kw(Keyword::Olt) => Ok(FloatPredicate::Olt),
+            Token::Kw(Keyword::Ole) => Ok(FloatPredicate::Ole),
+            Token::Kw(Keyword::One) => Ok(FloatPredicate::One),
+            Token::Kw(Keyword::Ord) => Ok(FloatPredicate::Ord),
+            Token::Kw(Keyword::Uno) => Ok(FloatPredicate::Uno),
+            Token::Kw(Keyword::Ueq) => Ok(FloatPredicate::Ueq),
+            Token::Kw(Keyword::Ugt) => Ok(FloatPredicate::Ugt),
+            Token::Kw(Keyword::Uge) => Ok(FloatPredicate::Uge),
+            Token::Kw(Keyword::Ult) => Ok(FloatPredicate::Ult),
+            Token::Kw(Keyword::Ule) => Ok(FloatPredicate::Ule),
+            Token::Kw(Keyword::Une) => Ok(FloatPredicate::Une),
             Token::Kw(Keyword::True) => Ok(FloatPredicate::True),
             t => Err(self.err(format!("expected fcmp predicate, got {:?}", t))),
         }
@@ -1278,7 +1511,9 @@ impl<'src> Parser<'src> {
             let _ = self.parse_type()?;
             let n = self.lex.expect_int_lit()? as i32;
             mask.push(n);
-            if !self.lex.eat(&Token::Comma) { break; }
+            if !self.lex.eat(&Token::Comma) {
+                break;
+            }
         }
         self.lex.expect(&Token::RAngle)?;
         Ok(mask)
@@ -1311,7 +1546,9 @@ impl<'src> Parser<'src> {
                 Token::Kw(Keyword::Private)
                 | Token::Kw(Keyword::Internal)
                 | Token::Kw(Keyword::External)
-                | Token::Kw(Keyword::Weak) => { self.lex.next()?; }
+                | Token::Kw(Keyword::Weak) => {
+                    self.lex.next()?;
+                }
                 Token::Hash => {
                     self.lex.next()?;
                     self.lex.next()?; // skip number
@@ -1327,9 +1564,17 @@ impl<'src> Parser<'src> {
         loop {
             match self.lex.peek()? {
                 Token::LBrace | Token::Eof => break,
-                Token::Hash => { self.lex.next()?; self.lex.next()?; }
-                Token::Bang => { self.skip_metadata_line()?; break; }
-                _ => { self.lex.next()?; }
+                Token::Hash => {
+                    self.lex.next()?;
+                    self.lex.next()?;
+                }
+                Token::Bang => {
+                    self.skip_metadata_line()?;
+                    break;
+                }
+                _ => {
+                    self.lex.next()?;
+                }
             }
         }
         Ok(())
@@ -1344,8 +1589,13 @@ impl<'src> Parser<'src> {
                     self.lex.next()?;
                     self.lex.next()?; // alignment number
                 }
-                Token::Hash => { self.lex.next()?; self.lex.next()?; }
-                _ => { self.lex.next()?; }
+                Token::Hash => {
+                    self.lex.next()?;
+                    self.lex.next()?;
+                }
+                _ => {
+                    self.lex.next()?;
+                }
             }
         }
         Ok(())
@@ -1356,7 +1606,9 @@ impl<'src> Parser<'src> {
             // Consume tokens until newline-ish heuristic: next top-level token.
             // We approximate: consume until we see a GlobalIdent, Kw(Define), etc.
             let tok = self.lex.next()?;
-            if matches!(tok, Token::Eof) { break; }
+            if matches!(tok, Token::Eof) {
+                break;
+            }
             // Metadata lines end at things that look like module-level items.
             // Heuristic: stop when we've consumed something that looks complete.
             // For now we consume an entire "statement" by stopping at Eof.
@@ -1439,7 +1691,10 @@ target datalayout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16
 "#;
         let (_ctx, module) = parse(src).expect("parse failed");
         assert_eq!(module.source_filename.as_deref(), Some("test.c"));
-        assert_eq!(module.target_triple.as_deref(), Some("x86_64-unknown-linux-gnu"));
+        assert_eq!(
+            module.target_triple.as_deref(),
+            Some("x86_64-unknown-linux-gnu")
+        );
     }
 
     #[test]

@@ -9,13 +9,13 @@ use std::fmt;
 #[derive(Clone, Debug, PartialEq)]
 pub enum Keyword {
     // Directives
-    Source,       // source_filename
-    Target,       // target
-    Triple,       // triple
-    Datalayout,   // datalayout
+    Source,     // source_filename
+    Target,     // target
+    Triple,     // triple
+    Datalayout, // datalayout
     Define,
     Declare,
-    Type,         // "type" keyword after %Foo =
+    Type, // "type" keyword after %Foo =
 
     // Linkage
     Private,
@@ -63,24 +63,81 @@ pub enum Keyword {
     Reassoc,
 
     // Opcodes
-    Add,  Sub,  Mul,  Udiv, Sdiv, Urem, Srem,
-    And,  Or,   Xor,  Shl,  Lshr, Ashr,
-    Fadd, Fsub, Fmul, Fdiv, Frem, Fneg,
-    Icmp, Fcmp,
-    Alloca, Load, Store, Getelementptr,
-    Trunc, Zext, Sext, Fptrunc, Fpext,
-    Fptoui, Fptosi, Uitofp, Sitofp,
-    Ptrtoint, Inttoptr, Bitcast, Addrspacecast,
-    Select, Phi, Extractvalue, Insertvalue,
-    Extractelement, Insertelement, Shufflevector,
+    Add,
+    Sub,
+    Mul,
+    Udiv,
+    Sdiv,
+    Urem,
+    Srem,
+    And,
+    Or,
+    Xor,
+    Shl,
+    Lshr,
+    Ashr,
+    Fadd,
+    Fsub,
+    Fmul,
+    Fdiv,
+    Frem,
+    Fneg,
+    Icmp,
+    Fcmp,
+    Alloca,
+    Load,
+    Store,
+    Getelementptr,
+    Trunc,
+    Zext,
+    Sext,
+    Fptrunc,
+    Fpext,
+    Fptoui,
+    Fptosi,
+    Uitofp,
+    Sitofp,
+    Ptrtoint,
+    Inttoptr,
+    Bitcast,
+    Addrspacecast,
+    Select,
+    Phi,
+    Extractvalue,
+    Insertvalue,
+    Extractelement,
+    Insertelement,
+    Shufflevector,
     Call,
-    Ret, Br, Switch, Unreachable,
+    Ret,
+    Br,
+    Switch,
+    Unreachable,
 
     // ICmp predicates
-    Eq, Ne, Ugt, Uge, Ult, Ule, Sgt, Sge, Slt, Sle,
+    Eq,
+    Ne,
+    Ugt,
+    Uge,
+    Ult,
+    Ule,
+    Sgt,
+    Sge,
+    Slt,
+    Sle,
     // FCmp predicates
-    False, Oeq, Ogt, Oge, Olt, Ole, One, Ord,
-    Uno,   Ueq, Une, True,
+    False,
+    Oeq,
+    Ogt,
+    Oge,
+    Olt,
+    Ole,
+    One,
+    Ord,
+    Uno,
+    Ueq,
+    Une,
+    True,
 
     // Aggregate/misc constants
     Zeroinitializer,
@@ -89,8 +146,8 @@ pub enum Keyword {
     Null,
     Align,
     To,
-    X,             // "x" in vector / array size
-    Vscale,        // "vscale" before "x" in scalable vector
+    X,      // "x" in vector / array size
+    Vscale, // "vscale" before "x" in scalable vector
 }
 
 // ---------------------------------------------------------------------------
@@ -162,7 +219,11 @@ pub struct LexError {
 
 impl fmt::Display for LexError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "lex error at {}:{}: {}", self.line, self.col, self.message)
+        write!(
+            f,
+            "lex error at {}:{}: {}",
+            self.line, self.col, self.message
+        )
     }
 }
 
@@ -181,7 +242,13 @@ pub struct Lexer<'src> {
 
 impl<'src> Lexer<'src> {
     pub fn new(src: &'src str) -> Self {
-        Lexer { src: src.as_bytes(), pos: 0, line: 1, col: 1, peeked: None }
+        Lexer {
+            src: src.as_bytes(),
+            pos: 0,
+            line: 1,
+            col: 1,
+            peeked: None,
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -199,7 +266,12 @@ impl<'src> Lexer<'src> {
     fn advance(&mut self) -> Option<u8> {
         let ch = self.src.get(self.pos).copied()?;
         self.pos += 1;
-        if ch == b'\n' { self.line += 1; self.col = 1; } else { self.col += 1; }
+        if ch == b'\n' {
+            self.line += 1;
+            self.col = 1;
+        } else {
+            self.col += 1;
+        }
         Some(ch)
     }
 
@@ -219,7 +291,11 @@ impl<'src> Lexer<'src> {
     }
 
     fn make_err(&self, msg: impl Into<String>) -> LexError {
-        LexError { line: self.line, col: self.col, message: msg.into() }
+        LexError {
+            line: self.line,
+            col: self.col,
+            message: msg.into(),
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -238,6 +314,7 @@ impl<'src> Lexer<'src> {
     }
 
     /// Consume and return the next token.
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Result<Token, LexError> {
         if let Some(t) = self.peeked.take() {
             return t;
@@ -248,7 +325,10 @@ impl<'src> Lexer<'src> {
     /// Consume if next token matches; otherwise leave it in the peek buffer.
     pub fn eat(&mut self, expected: &Token) -> bool {
         match self.peek() {
-            Ok(t) if t == expected => { let _ = self.next(); true }
+            Ok(t) if t == expected => {
+                let _ = self.next();
+                true
+            }
             _ => false,
         }
     }
@@ -313,8 +393,12 @@ impl<'src> Lexer<'src> {
         }
     }
 
-    pub fn current_line(&self) -> usize { self.line }
-    pub fn current_col(&self) -> usize { self.col }
+    pub fn current_line(&self) -> usize {
+        self.line
+    }
+    pub fn current_col(&self) -> usize {
+        self.col
+    }
 
     // -----------------------------------------------------------------------
     // Core tokenizer
@@ -348,26 +432,76 @@ impl<'src> Lexer<'src> {
                 Ok(Token::StringLit(s))
             }
             b'-' | b'0'..=b'9' => self.lex_number(),
-            b'=' => { self.advance(); Ok(Token::Equal) }
-            b',' => { self.advance(); Ok(Token::Comma) }
-            b':' => { self.advance(); Ok(Token::Colon) }
-            b'*' => { self.advance(); Ok(Token::Star) }
-            b'(' => { self.advance(); Ok(Token::LParen) }
-            b')' => { self.advance(); Ok(Token::RParen) }
-            b'[' => { self.advance(); Ok(Token::LBracket) }
-            b']' => { self.advance(); Ok(Token::RBracket) }
-            b'{' => { self.advance(); Ok(Token::LBrace) }
-            b'}' => { self.advance(); Ok(Token::RBrace) }
-            b'<' => { self.advance(); Ok(Token::LAngle) }
-            b'>' => { self.advance(); Ok(Token::RAngle) }
-            b'!' => { self.advance(); Ok(Token::Bang) }
-            b'#' => { self.advance(); Ok(Token::Hash) }
+            b'=' => {
+                self.advance();
+                Ok(Token::Equal)
+            }
+            b',' => {
+                self.advance();
+                Ok(Token::Comma)
+            }
+            b':' => {
+                self.advance();
+                Ok(Token::Colon)
+            }
+            b'*' => {
+                self.advance();
+                Ok(Token::Star)
+            }
+            b'(' => {
+                self.advance();
+                Ok(Token::LParen)
+            }
+            b')' => {
+                self.advance();
+                Ok(Token::RParen)
+            }
+            b'[' => {
+                self.advance();
+                Ok(Token::LBracket)
+            }
+            b']' => {
+                self.advance();
+                Ok(Token::RBracket)
+            }
+            b'{' => {
+                self.advance();
+                Ok(Token::LBrace)
+            }
+            b'}' => {
+                self.advance();
+                Ok(Token::RBrace)
+            }
+            b'<' => {
+                self.advance();
+                Ok(Token::LAngle)
+            }
+            b'>' => {
+                self.advance();
+                Ok(Token::RAngle)
+            }
+            b'!' => {
+                self.advance();
+                Ok(Token::Bang)
+            }
+            b'#' => {
+                self.advance();
+                Ok(Token::Hash)
+            }
             b'.' => {
-                if self.src.get(self.pos+1) == Some(&b'.') && self.src.get(self.pos+2) == Some(&b'.') {
-                    self.advance(); self.advance(); self.advance();
+                if self.src.get(self.pos + 1) == Some(&b'.')
+                    && self.src.get(self.pos + 2) == Some(&b'.')
+                {
+                    self.advance();
+                    self.advance();
+                    self.advance();
                     Ok(Token::Ellipsis)
                 } else {
-                    Err(LexError { line: start_line, col: start_col, message: "unexpected '.'".into() })
+                    Err(LexError {
+                        line: start_line,
+                        col: start_col,
+                        message: "unexpected '.'".into(),
+                    })
                 }
             }
             _ if ch.is_ascii_alphabetic() || ch == b'_' || ch == b'$' => {
@@ -376,8 +510,11 @@ impl<'src> Lexer<'src> {
             }
             _ => {
                 self.advance();
-                Err(LexError { line: start_line, col: start_col,
-                    message: format!("unexpected character {:?}", ch as char) })
+                Err(LexError {
+                    line: start_line,
+                    col: start_col,
+                    message: format!("unexpected character {:?}", ch as char),
+                })
             }
         }
     }
@@ -403,11 +540,16 @@ impl<'src> Lexer<'src> {
     fn read_ident_or_int(&mut self) -> Result<String, LexError> {
         if self.peek_ch() == Some(b'"') {
             self.advance();
-            return self.read_string_literal();
+            self.read_string_literal()
         } else if self.peek_ch().map_or(false, |c| c.is_ascii_digit()) {
             let mut s = String::new();
             while let Some(c) = self.peek_ch() {
-                if c.is_ascii_digit() { self.advance(); s.push(c as char); } else { break; }
+                if c.is_ascii_digit() {
+                    self.advance();
+                    s.push(c as char);
+                } else {
+                    break;
+                }
             }
             Ok(s)
         } else {
@@ -429,7 +571,10 @@ impl<'src> Lexer<'src> {
         loop {
             match self.peek_ch() {
                 None => return Err(self.make_err("unterminated string")),
-                Some(b'"') => { self.advance(); break; }
+                Some(b'"') => {
+                    self.advance();
+                    break;
+                }
                 Some(b'\\') => {
                     self.advance();
                     let h1 = self.advance().ok_or_else(|| self.make_err("bad escape"))?;
@@ -439,7 +584,10 @@ impl<'src> Lexer<'src> {
                         .map_err(|_| self.make_err(format!("invalid hex escape \\{}", hex_str)))?;
                     s.push(byte as char);
                 }
-                Some(c) => { self.advance(); s.push(c as char); }
+                Some(c) => {
+                    self.advance();
+                    s.push(c as char);
+                }
             }
         }
         Ok(s)
@@ -451,7 +599,9 @@ impl<'src> Lexer<'src> {
 
     fn lex_number(&mut self) -> Result<Token, LexError> {
         let negative = self.peek_ch() == Some(b'-');
-        if negative { self.advance(); }
+        if negative {
+            self.advance();
+        }
 
         // Hex float "0x..."
         if self.peek_ch() == Some(b'0') && matches!(self.peek_ch2(), Some(b'x') | Some(b'X')) {
@@ -459,10 +609,14 @@ impl<'src> Lexer<'src> {
             self.advance(); // 'x'
             let mut hex = String::new();
             while let Some(c) = self.peek_ch() {
-                if c.is_ascii_hexdigit() { self.advance(); hex.push(c as char); } else { break; }
+                if c.is_ascii_hexdigit() {
+                    self.advance();
+                    hex.push(c as char);
+                } else {
+                    break;
+                }
             }
-            let bits = u64::from_str_radix(&hex, 16)
-                .map_err(|_| self.make_err("bad hex float"))?;
+            let bits = u64::from_str_radix(&hex, 16).map_err(|_| self.make_err("bad hex float"))?;
             let f = f64::from_bits(bits);
             return Ok(Token::FloatLit(if negative { -f } else { f }));
         }
@@ -470,18 +624,32 @@ impl<'src> Lexer<'src> {
         // Read digits.
         let mut digits = String::new();
         while let Some(c) = self.peek_ch() {
-            if c.is_ascii_digit() { self.advance(); digits.push(c as char); } else { break; }
+            if c.is_ascii_digit() {
+                self.advance();
+                digits.push(c as char);
+            } else {
+                break;
+            }
         }
 
         // Float if decimal point or exponent follows.
         let is_float = matches!(self.peek_ch(), Some(b'.') | Some(b'e') | Some(b'E'));
         if is_float {
-            let mut s = if negative { format!("-{}", digits) } else { digits };
+            let mut s = if negative {
+                format!("-{}", digits)
+            } else {
+                digits
+            };
             if self.peek_ch() == Some(b'.') {
                 self.advance();
                 s.push('.');
                 while let Some(c) = self.peek_ch() {
-                    if c.is_ascii_digit() { self.advance(); s.push(c as char); } else { break; }
+                    if c.is_ascii_digit() {
+                        self.advance();
+                        s.push(c as char);
+                    } else {
+                        break;
+                    }
                 }
             }
             if matches!(self.peek_ch(), Some(b'e') | Some(b'E')) {
@@ -492,14 +660,23 @@ impl<'src> Lexer<'src> {
                     s.push(sign as char);
                 }
                 while let Some(c) = self.peek_ch() {
-                    if c.is_ascii_digit() { self.advance(); s.push(c as char); } else { break; }
+                    if c.is_ascii_digit() {
+                        self.advance();
+                        s.push(c as char);
+                    } else {
+                        break;
+                    }
                 }
             }
-            let f: f64 = s.parse().map_err(|_| self.make_err(format!("bad float: {}", s)))?;
+            let f: f64 = s
+                .parse()
+                .map_err(|_| self.make_err(format!("bad float: {}", s)))?;
             Ok(Token::FloatLit(f))
         } else {
             // Integer.
-            let n: u64 = digits.parse().map_err(|_| self.make_err(format!("bad int: {}", digits)))?;
+            let n: u64 = digits
+                .parse()
+                .map_err(|_| self.make_err(format!("bad int: {}", digits)))?;
             if negative {
                 // i64::MIN is -(2^63) = 9223372036854775808; values beyond that don't fit.
                 if n > (i64::MAX as u64) + 1 {
@@ -529,130 +706,130 @@ impl<'src> Lexer<'src> {
         }
 
         let kw = match word {
-            "source_filename"      => Keyword::Source,
-            "target"               => Keyword::Target,
-            "triple"               => Keyword::Triple,
-            "datalayout"           => Keyword::Datalayout,
-            "define"               => Keyword::Define,
-            "declare"              => Keyword::Declare,
-            "type"                 => Keyword::Type,
-            "private"              => Keyword::Private,
-            "internal"             => Keyword::Internal,
-            "external"             => Keyword::External,
-            "weak"                 => Keyword::Weak,
-            "weak_odr"             => Keyword::WeakOdr,
-            "linkonce"             => Keyword::Linkonce,
-            "linkonce_odr"         => Keyword::LinkonceOdr,
-            "common"               => Keyword::Common,
+            "source_filename" => Keyword::Source,
+            "target" => Keyword::Target,
+            "triple" => Keyword::Triple,
+            "datalayout" => Keyword::Datalayout,
+            "define" => Keyword::Define,
+            "declare" => Keyword::Declare,
+            "type" => Keyword::Type,
+            "private" => Keyword::Private,
+            "internal" => Keyword::Internal,
+            "external" => Keyword::External,
+            "weak" => Keyword::Weak,
+            "weak_odr" => Keyword::WeakOdr,
+            "linkonce" => Keyword::Linkonce,
+            "linkonce_odr" => Keyword::LinkonceOdr,
+            "common" => Keyword::Common,
             "available_externally" => Keyword::AvailableExternally,
-            "void"                 => Keyword::Void,
-            "half"                 => Keyword::Half,
-            "bfloat"               => Keyword::Bfloat,
-            "float"                => Keyword::Float,
-            "double"               => Keyword::Double,
-            "fp128"                => Keyword::Fp128,
-            "x86_fp80"             => Keyword::X86Fp80,
-            "label"                => Keyword::Label,
-            "metadata"             => Keyword::Metadata,
-            "ptr"                  => Keyword::Ptr,
-            "global"               => Keyword::Global,
-            "constant"             => Keyword::Constant,
-            "inbounds"             => Keyword::Inbounds,
-            "exact"                => Keyword::Exact,
-            "nuw"                  => Keyword::Nuw,
-            "nsw"                  => Keyword::Nsw,
-            "volatile"             => Keyword::Volatile,
-            "tail"                 => Keyword::Tail,
-            "musttail"             => Keyword::Musttail,
-            "notail"               => Keyword::Notail,
-            "fast"                 => Keyword::Fast,
-            "nnan"                 => Keyword::Nnan,
-            "ninf"                 => Keyword::Ninf,
-            "nsz"                  => Keyword::Nsz,
-            "arcp"                 => Keyword::Arcp,
-            "contract"             => Keyword::Contract,
-            "afn"                  => Keyword::Afn,
-            "reassoc"              => Keyword::Reassoc,
-            "add"                  => Keyword::Add,
-            "sub"                  => Keyword::Sub,
-            "mul"                  => Keyword::Mul,
-            "udiv"                 => Keyword::Udiv,
-            "sdiv"                 => Keyword::Sdiv,
-            "urem"                 => Keyword::Urem,
-            "srem"                 => Keyword::Srem,
-            "and"                  => Keyword::And,
-            "or"                   => Keyword::Or,
-            "xor"                  => Keyword::Xor,
-            "shl"                  => Keyword::Shl,
-            "lshr"                 => Keyword::Lshr,
-            "ashr"                 => Keyword::Ashr,
-            "fadd"                 => Keyword::Fadd,
-            "fsub"                 => Keyword::Fsub,
-            "fmul"                 => Keyword::Fmul,
-            "fdiv"                 => Keyword::Fdiv,
-            "frem"                 => Keyword::Frem,
-            "fneg"                 => Keyword::Fneg,
-            "icmp"                 => Keyword::Icmp,
-            "fcmp"                 => Keyword::Fcmp,
-            "alloca"               => Keyword::Alloca,
-            "load"                 => Keyword::Load,
-            "store"                => Keyword::Store,
-            "getelementptr"        => Keyword::Getelementptr,
-            "trunc"                => Keyword::Trunc,
-            "zext"                 => Keyword::Zext,
-            "sext"                 => Keyword::Sext,
-            "fptrunc"              => Keyword::Fptrunc,
-            "fpext"                => Keyword::Fpext,
-            "fptoui"               => Keyword::Fptoui,
-            "fptosi"               => Keyword::Fptosi,
-            "uitofp"               => Keyword::Uitofp,
-            "sitofp"               => Keyword::Sitofp,
-            "ptrtoint"             => Keyword::Ptrtoint,
-            "inttoptr"             => Keyword::Inttoptr,
-            "bitcast"              => Keyword::Bitcast,
-            "addrspacecast"        => Keyword::Addrspacecast,
-            "select"               => Keyword::Select,
-            "phi"                  => Keyword::Phi,
-            "extractvalue"         => Keyword::Extractvalue,
-            "insertvalue"          => Keyword::Insertvalue,
-            "extractelement"       => Keyword::Extractelement,
-            "insertelement"        => Keyword::Insertelement,
-            "shufflevector"        => Keyword::Shufflevector,
-            "call"                 => Keyword::Call,
-            "ret"                  => Keyword::Ret,
-            "br"                   => Keyword::Br,
-            "switch"               => Keyword::Switch,
-            "unreachable"          => Keyword::Unreachable,
-            "eq"                   => Keyword::Eq,
-            "ne"                   => Keyword::Ne,
-            "ugt"                  => Keyword::Ugt,
-            "uge"                  => Keyword::Uge,
-            "ult"                  => Keyword::Ult,
-            "ule"                  => Keyword::Ule,
-            "sgt"                  => Keyword::Sgt,
-            "sge"                  => Keyword::Sge,
-            "slt"                  => Keyword::Slt,
-            "sle"                  => Keyword::Sle,
-            "false"                => Keyword::False,
-            "oeq"                  => Keyword::Oeq,
-            "ogt"                  => Keyword::Ogt,
-            "oge"                  => Keyword::Oge,
-            "olt"                  => Keyword::Olt,
-            "ole"                  => Keyword::Ole,
-            "one"                  => Keyword::One,
-            "ord"                  => Keyword::Ord,
-            "uno"                  => Keyword::Uno,
-            "ueq"                  => Keyword::Ueq,
-            "une"                  => Keyword::Une,
-            "true"                 => Keyword::True,
-            "zeroinitializer"      => Keyword::Zeroinitializer,
-            "undef"                => Keyword::Undef,
-            "poison"               => Keyword::Poison,
-            "null"                 => Keyword::Null,
-            "align"                => Keyword::Align,
-            "to"                   => Keyword::To,
-            "x"                    => Keyword::X,
-            "vscale"               => Keyword::Vscale,
+            "void" => Keyword::Void,
+            "half" => Keyword::Half,
+            "bfloat" => Keyword::Bfloat,
+            "float" => Keyword::Float,
+            "double" => Keyword::Double,
+            "fp128" => Keyword::Fp128,
+            "x86_fp80" => Keyword::X86Fp80,
+            "label" => Keyword::Label,
+            "metadata" => Keyword::Metadata,
+            "ptr" => Keyword::Ptr,
+            "global" => Keyword::Global,
+            "constant" => Keyword::Constant,
+            "inbounds" => Keyword::Inbounds,
+            "exact" => Keyword::Exact,
+            "nuw" => Keyword::Nuw,
+            "nsw" => Keyword::Nsw,
+            "volatile" => Keyword::Volatile,
+            "tail" => Keyword::Tail,
+            "musttail" => Keyword::Musttail,
+            "notail" => Keyword::Notail,
+            "fast" => Keyword::Fast,
+            "nnan" => Keyword::Nnan,
+            "ninf" => Keyword::Ninf,
+            "nsz" => Keyword::Nsz,
+            "arcp" => Keyword::Arcp,
+            "contract" => Keyword::Contract,
+            "afn" => Keyword::Afn,
+            "reassoc" => Keyword::Reassoc,
+            "add" => Keyword::Add,
+            "sub" => Keyword::Sub,
+            "mul" => Keyword::Mul,
+            "udiv" => Keyword::Udiv,
+            "sdiv" => Keyword::Sdiv,
+            "urem" => Keyword::Urem,
+            "srem" => Keyword::Srem,
+            "and" => Keyword::And,
+            "or" => Keyword::Or,
+            "xor" => Keyword::Xor,
+            "shl" => Keyword::Shl,
+            "lshr" => Keyword::Lshr,
+            "ashr" => Keyword::Ashr,
+            "fadd" => Keyword::Fadd,
+            "fsub" => Keyword::Fsub,
+            "fmul" => Keyword::Fmul,
+            "fdiv" => Keyword::Fdiv,
+            "frem" => Keyword::Frem,
+            "fneg" => Keyword::Fneg,
+            "icmp" => Keyword::Icmp,
+            "fcmp" => Keyword::Fcmp,
+            "alloca" => Keyword::Alloca,
+            "load" => Keyword::Load,
+            "store" => Keyword::Store,
+            "getelementptr" => Keyword::Getelementptr,
+            "trunc" => Keyword::Trunc,
+            "zext" => Keyword::Zext,
+            "sext" => Keyword::Sext,
+            "fptrunc" => Keyword::Fptrunc,
+            "fpext" => Keyword::Fpext,
+            "fptoui" => Keyword::Fptoui,
+            "fptosi" => Keyword::Fptosi,
+            "uitofp" => Keyword::Uitofp,
+            "sitofp" => Keyword::Sitofp,
+            "ptrtoint" => Keyword::Ptrtoint,
+            "inttoptr" => Keyword::Inttoptr,
+            "bitcast" => Keyword::Bitcast,
+            "addrspacecast" => Keyword::Addrspacecast,
+            "select" => Keyword::Select,
+            "phi" => Keyword::Phi,
+            "extractvalue" => Keyword::Extractvalue,
+            "insertvalue" => Keyword::Insertvalue,
+            "extractelement" => Keyword::Extractelement,
+            "insertelement" => Keyword::Insertelement,
+            "shufflevector" => Keyword::Shufflevector,
+            "call" => Keyword::Call,
+            "ret" => Keyword::Ret,
+            "br" => Keyword::Br,
+            "switch" => Keyword::Switch,
+            "unreachable" => Keyword::Unreachable,
+            "eq" => Keyword::Eq,
+            "ne" => Keyword::Ne,
+            "ugt" => Keyword::Ugt,
+            "uge" => Keyword::Uge,
+            "ult" => Keyword::Ult,
+            "ule" => Keyword::Ule,
+            "sgt" => Keyword::Sgt,
+            "sge" => Keyword::Sge,
+            "slt" => Keyword::Slt,
+            "sle" => Keyword::Sle,
+            "false" => Keyword::False,
+            "oeq" => Keyword::Oeq,
+            "ogt" => Keyword::Ogt,
+            "oge" => Keyword::Oge,
+            "olt" => Keyword::Olt,
+            "ole" => Keyword::Ole,
+            "one" => Keyword::One,
+            "ord" => Keyword::Ord,
+            "uno" => Keyword::Uno,
+            "ueq" => Keyword::Ueq,
+            "une" => Keyword::Une,
+            "true" => Keyword::True,
+            "zeroinitializer" => Keyword::Zeroinitializer,
+            "undef" => Keyword::Undef,
+            "poison" => Keyword::Poison,
+            "null" => Keyword::Null,
+            "align" => Keyword::Align,
+            "to" => Keyword::To,
+            "x" => Keyword::X,
+            "vscale" => Keyword::Vscale,
             // Unknown words become bare local identifiers (shouldn't normally happen at module level).
             other => return Token::LocalIdent(other.to_string()),
         };
@@ -669,7 +846,9 @@ mod tests {
         let mut toks = Vec::new();
         loop {
             let t = lex.next().unwrap();
-            if t == Token::Eof { break; }
+            if t == Token::Eof {
+                break;
+            }
             toks.push(t);
         }
         toks

@@ -4,9 +4,9 @@
 //! Also provides dominance frontier computation (Cytron et al. 1991),
 //! required for SSA φ-node placement in `mem2reg`.
 
-use std::collections::HashMap;
-use llvm_ir::{BlockId, Function};
 use crate::cfg::Cfg;
+use llvm_ir::{BlockId, Function};
+use std::collections::HashMap;
 
 /// Dominator tree for a single function.
 ///
@@ -87,8 +87,12 @@ impl DomTree {
     /// Walk up both fingers until they meet — the common dominator.
     fn intersect(mut a: usize, mut b: usize, idom: &[usize]) -> usize {
         while a != b {
-            while a > b { a = idom[a]; }
-            while b > a { b = idom[b]; }
+            while a > b {
+                a = idom[a];
+            }
+            while b > a {
+                b = idom[b];
+            }
         }
         a
     }
@@ -102,7 +106,9 @@ impl DomTree {
     /// Returns `true` if block `a` dominates block `b`.
     /// Every block dominates itself.
     pub fn dominates(&self, a: BlockId, b: BlockId) -> bool {
-        if a == b { return true; }
+        if a == b {
+            return true;
+        }
         self.strictly_dominates(a, b)
     }
 
@@ -166,7 +172,7 @@ impl DomTree {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use llvm_ir::{Context, Function, BasicBlock, Instruction, InstrKind, Linkage, ValueRef};
+    use llvm_ir::{BasicBlock, Context, Function, InstrKind, Instruction, Linkage, ValueRef};
 
     fn build_func(num_blocks: usize, edges: &[(usize, Vec<usize>)]) -> (Context, Function) {
         let mut ctx = Context::new();
@@ -180,19 +186,33 @@ mod tests {
             has_term[src] = true;
             let kind = match dsts.as_slice() {
                 [] => InstrKind::Unreachable,
-                [dst] => InstrKind::Br { dest: BlockId(*dst as u32) },
+                [dst] => InstrKind::Br {
+                    dest: BlockId(*dst as u32),
+                },
                 [t, f] => {
                     let cond = ValueRef::Constant(ctx.const_int(ctx.i1_ty, 0));
-                    InstrKind::CondBr { cond, then_dest: BlockId(*t as u32), else_dest: BlockId(*f as u32) }
+                    InstrKind::CondBr {
+                        cond,
+                        then_dest: BlockId(*t as u32),
+                        else_dest: BlockId(*f as u32),
+                    }
                 }
                 _ => panic!("max 2 successors"),
             };
-            let iid = func.alloc_instr(Instruction { name: None, ty: ctx.void_ty, kind });
+            let iid = func.alloc_instr(Instruction {
+                name: None,
+                ty: ctx.void_ty,
+                kind,
+            });
             func.blocks[src].set_terminator(iid);
         }
-        for i in 0..num_blocks {
-            if !has_term[i] {
-                let iid = func.alloc_instr(Instruction { name: None, ty: ctx.void_ty, kind: InstrKind::Unreachable });
+        for (i, &needs_term) in has_term.iter().enumerate() {
+            if !needs_term {
+                let iid = func.alloc_instr(Instruction {
+                    name: None,
+                    ty: ctx.void_ty,
+                    kind: InstrKind::Unreachable,
+                });
                 func.blocks[i].set_terminator(iid);
             }
         }
@@ -226,12 +246,10 @@ mod tests {
     #[test]
     fn domtree_diamond() {
         // 0 -> {1,2} -> 3
-        let (_ctx, func) = build_func(4, &[
-            (0, vec![1, 2]),
-            (1, vec![3]),
-            (2, vec![3]),
-            (3, vec![]),
-        ]);
+        let (_ctx, func) = build_func(
+            4,
+            &[(0, vec![1, 2]), (1, vec![3]), (2, vec![3]), (3, vec![])],
+        );
         let cfg = Cfg::compute(&func);
         let dom = DomTree::compute(&func, &cfg);
         // 0 dominates everything; 3's idom is 0 (not 1 or 2).
@@ -244,12 +262,10 @@ mod tests {
     #[test]
     fn domtree_loop() {
         // 0 -> 1 -> 2 -> {1, 3}
-        let (_ctx, func) = build_func(4, &[
-            (0, vec![1]),
-            (1, vec![2]),
-            (2, vec![1, 3]),
-            (3, vec![]),
-        ]);
+        let (_ctx, func) = build_func(
+            4,
+            &[(0, vec![1]), (1, vec![2]), (2, vec![1, 3]), (3, vec![])],
+        );
         let cfg = Cfg::compute(&func);
         let dom = DomTree::compute(&func, &cfg);
         assert_eq!(dom.idom(BlockId(1)), Some(BlockId(0)));
@@ -262,18 +278,22 @@ mod tests {
     #[test]
     fn dominance_frontier_diamond() {
         // 0 -> {1,2} -> 3  — classic phi-placement example
-        let (_ctx, func) = build_func(4, &[
-            (0, vec![1, 2]),
-            (1, vec![3]),
-            (2, vec![3]),
-            (3, vec![]),
-        ]);
+        let (_ctx, func) = build_func(
+            4,
+            &[(0, vec![1, 2]), (1, vec![3]), (2, vec![3]), (3, vec![])],
+        );
         let cfg = Cfg::compute(&func);
         let dom = DomTree::compute(&func, &cfg);
         let df = dom.dominance_frontier(&cfg);
         // DF(1) = DF(2) = {3}, DF(0) = DF(3) = {}
-        assert_eq!(df.get(&BlockId(1)).map(|v| v.as_slice()), Some(&[BlockId(3)][..]));
-        assert_eq!(df.get(&BlockId(2)).map(|v| v.as_slice()), Some(&[BlockId(3)][..]));
+        assert_eq!(
+            df.get(&BlockId(1)).map(|v| v.as_slice()),
+            Some(&[BlockId(3)][..])
+        );
+        assert_eq!(
+            df.get(&BlockId(2)).map(|v| v.as_slice()),
+            Some(&[BlockId(3)][..])
+        );
         assert!(df.get(&BlockId(0)).map_or(true, |v| v.is_empty()));
         assert!(df.get(&BlockId(3)).map_or(true, |v| v.is_empty()));
     }
@@ -281,16 +301,16 @@ mod tests {
     #[test]
     fn dominance_frontier_loop() {
         // 0 -> 1 -> 2 -> {1, 3}: DF(2) = {1} (back-edge creates frontier)
-        let (_ctx, func) = build_func(4, &[
-            (0, vec![1]),
-            (1, vec![2]),
-            (2, vec![1, 3]),
-            (3, vec![]),
-        ]);
+        let (_ctx, func) = build_func(
+            4,
+            &[(0, vec![1]), (1, vec![2]), (2, vec![1, 3]), (3, vec![])],
+        );
         let cfg = Cfg::compute(&func);
         let dom = DomTree::compute(&func, &cfg);
         let df = dom.dominance_frontier(&cfg);
-        assert!(df.get(&BlockId(2)).map_or(false, |v| v.contains(&BlockId(1))));
+        assert!(df
+            .get(&BlockId(2))
+            .map_or(false, |v| v.contains(&BlockId(1))));
     }
 
     #[test]
@@ -300,20 +320,20 @@ mod tests {
         // and idom[3] = None.  Without the fix the while-condition
         // `Some(runner) != None` would be permanently true until the inner
         // `None => break` fires, producing spurious DF entries for blocks 1 and 2.
-        let (_ctx, func) = build_func(4, &[
-            (0, vec![]),
-            (1, vec![3]),
-            (2, vec![3]),
-            (3, vec![]),
-        ]);
+        let (_ctx, func) = build_func(4, &[(0, vec![]), (1, vec![3]), (2, vec![3]), (3, vec![])]);
         let cfg = Cfg::compute(&func);
         let dom = DomTree::compute(&func, &cfg);
         let df = dom.dominance_frontier(&cfg);
         // No reachable block exists, so the dominance frontier must be empty.
-        assert!(df.get(&BlockId(1)).map_or(true, |v| v.is_empty()),
-            "spurious DF entry for unreachable block 1: {:?}", df.get(&BlockId(1)));
-        assert!(df.get(&BlockId(2)).map_or(true, |v| v.is_empty()),
-            "spurious DF entry for unreachable block 2: {:?}", df.get(&BlockId(2)));
+        assert!(
+            df.get(&BlockId(1)).map_or(true, |v| v.is_empty()),
+            "spurious DF entry for unreachable block 1: {:?}",
+            df.get(&BlockId(1))
+        );
+        assert!(
+            df.get(&BlockId(2)).map_or(true, |v| v.is_empty()),
+            "spurious DF entry for unreachable block 2: {:?}",
+            df.get(&BlockId(2))
+        );
     }
 }
-

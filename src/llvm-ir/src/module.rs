@@ -1,9 +1,9 @@
 //! Module: top-level container for globals, functions, and metadata.
 
-use std::collections::HashMap;
 use crate::context::{FunctionId, GlobalId, TypeId};
 use crate::function::Function;
 use crate::value::GlobalVariable;
+use std::collections::HashMap;
 
 /// Top-level IR module.
 pub struct Module {

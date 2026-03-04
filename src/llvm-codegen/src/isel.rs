@@ -139,7 +139,10 @@ impl MachineFunction {
     /// Append a new empty machine block and return its index.
     pub fn add_block(&mut self, label: impl Into<String>) -> usize {
         let idx = self.blocks.len();
-        self.blocks.push(MachineBlock { label: label.into(), instrs: Vec::new() });
+        self.blocks.push(MachineBlock {
+            label: label.into(),
+            instrs: Vec::new(),
+        });
         idx
     }
 

@@ -4,17 +4,17 @@
 //! translated to one or more machine instructions using virtual registers.
 //! Phi-destruction (parallel copy insertion) is also handled here.
 
-use std::collections::HashMap;
-use llvm_codegen::isel::{IselBackend, MachineFunction, MInstr, PReg, VReg};
-use llvm_ir::{
-    ArgId, BlockId, ConstantData, Context, Function, InstrId, InstrKind,
-    IntPredicate, Module, TypeData, ValueRef,
-};
 use crate::{
     abi::{classify_sysv_args, ArgLocation, SYSV_INT_RET},
     instructions::*,
     regs::{ALLOCATABLE, CALLEE_SAVED, RCX, RDX},
 };
+use llvm_codegen::isel::{IselBackend, MInstr, MachineFunction, PReg, VReg};
+use llvm_ir::{
+    ArgId, BlockId, ConstantData, Context, Function, InstrId, InstrKind, IntPredicate, Module,
+    TypeData, ValueRef,
+};
+use std::collections::HashMap;
 
 /// x86_64 instruction-selection backend.
 pub struct X86Backend;
@@ -130,8 +130,8 @@ fn const_to_imm(cd: &ConstantData) -> i64 {
 
 fn pred_to_cc(pred: IntPredicate) -> i64 {
     match pred {
-        IntPredicate::Eq  => CC_EQ,
-        IntPredicate::Ne  => CC_NE,
+        IntPredicate::Eq => CC_EQ,
+        IntPredicate::Ne => CC_NE,
         IntPredicate::Slt => CC_LT,
         IntPredicate::Sle => CC_LE,
         IntPredicate::Sgt => CC_GT,
@@ -195,16 +195,22 @@ fn lower_instr(
             emit_mov_to_preg(mf, mblock, RCX, r);
             let mut shift_mi = MInstr::new($op).with_dst(dst);
             shift_mi.phys_uses = vec![RCX];
-            shift_mi.clobbers  = vec![RCX];
+            shift_mi.clobbers = vec![RCX];
             mf.push(mblock, shift_mi);
         }};
     }
 
     match &instr.kind {
         // ── arithmetic ─────────────────────────────────────────────────────
-        Add { lhs, rhs, .. }  => { emit_binop!(ADD_RR, *lhs, *rhs); }
-        Sub { lhs, rhs, .. }  => { emit_binop!(SUB_RR, *lhs, *rhs); }
-        Mul { lhs, rhs, .. }  => { emit_binop!(IMUL_RR, *lhs, *rhs); }
+        Add { lhs, rhs, .. } => {
+            emit_binop!(ADD_RR, *lhs, *rhs);
+        }
+        Sub { lhs, rhs, .. } => {
+            emit_binop!(SUB_RR, *lhs, *rhs);
+        }
+        Mul { lhs, rhs, .. } => {
+            emit_binop!(IMUL_RR, *lhs, *rhs);
+        }
 
         SDiv { lhs, rhs, .. } => {
             let dst = new_dst!();
@@ -263,16 +269,28 @@ fn lower_instr(
         }
 
         // ── bitwise ────────────────────────────────────────────────────────
-        And { lhs, rhs } => { emit_binop!(AND_RR, *lhs, *rhs); }
-        Or  { lhs, rhs } => { emit_binop!(OR_RR,  *lhs, *rhs); }
-        Xor { lhs, rhs } => { emit_binop!(XOR_RR, *lhs, *rhs); }
+        And { lhs, rhs } => {
+            emit_binop!(AND_RR, *lhs, *rhs);
+        }
+        Or { lhs, rhs } => {
+            emit_binop!(OR_RR, *lhs, *rhs);
+        }
+        Xor { lhs, rhs } => {
+            emit_binop!(XOR_RR, *lhs, *rhs);
+        }
 
         // ── shifts ─────────────────────────────────────────────────────────
         // x86 variable shifts require the count in CL (low byte of RCX).
         // emit_shift! (defined above) loads rhs into RCX then emits the shift.
-        Shl  { lhs, rhs, .. } => { emit_shift!(SHL_RR, *lhs, *rhs); }
-        LShr { lhs, rhs, .. } => { emit_shift!(SHR_RR, *lhs, *rhs); }
-        AShr { lhs, rhs, .. } => { emit_shift!(SAR_RR, *lhs, *rhs); }
+        Shl { lhs, rhs, .. } => {
+            emit_shift!(SHL_RR, *lhs, *rhs);
+        }
+        LShr { lhs, rhs, .. } => {
+            emit_shift!(SHR_RR, *lhs, *rhs);
+        }
+        AShr { lhs, rhs, .. } => {
+            emit_shift!(SAR_RR, *lhs, *rhs);
+        }
 
         // ── comparisons ────────────────────────────────────────────────────
         ICmp { pred, lhs, rhs } => {
@@ -291,9 +309,13 @@ fn lower_instr(
         }
 
         // ── select ─────────────────────────────────────────────────────────
-        Select { cond, then_val, else_val } => {
+        Select {
+            cond,
+            then_val,
+            else_val,
+        } => {
             let dst = new_dst!();
-            let c  = res!(*cond);
+            let c = res!(*cond);
             let tv = res!(*then_val);
             let fv = res!(*else_val);
             // dst = fv; test cond; setne tmp; if cond != 0 → dst = tv.
@@ -307,16 +329,40 @@ fn lower_instr(
             let scratch = mf.fresh_vreg();
             mf.push(mblock, MInstr::new(SETCC).with_dst(scratch).with_imm(CC_NE));
             // Negate scratch: scratch = 0 - scratch (0→0, 1→-1 = all-ones).
-            mf.push(mblock, MInstr::new(NEG_R).with_dst(scratch).with_vreg(scratch));
+            mf.push(
+                mblock,
+                MInstr::new(NEG_R).with_dst(scratch).with_vreg(scratch),
+            );
             // dst = (fv & ~scratch) | (tv & scratch)
             let tmp1 = mf.fresh_vreg();
             let tmp2 = mf.fresh_vreg();
             mf.push(mblock, MInstr::new(MOV_RR).with_dst(tmp1).with_vreg(fv));
-            mf.push(mblock, MInstr::new(AND_RR).with_dst(tmp1).with_vreg(tmp1).with_vreg(scratch));
-            mf.push(mblock, MInstr::new(NOT_R).with_dst(scratch).with_vreg(scratch));
+            mf.push(
+                mblock,
+                MInstr::new(AND_RR)
+                    .with_dst(tmp1)
+                    .with_vreg(tmp1)
+                    .with_vreg(scratch),
+            );
+            mf.push(
+                mblock,
+                MInstr::new(NOT_R).with_dst(scratch).with_vreg(scratch),
+            );
             mf.push(mblock, MInstr::new(MOV_RR).with_dst(tmp2).with_vreg(tv));
-            mf.push(mblock, MInstr::new(AND_RR).with_dst(tmp2).with_vreg(tmp2).with_vreg(scratch));
-            mf.push(mblock, MInstr::new(OR_RR).with_dst(dst).with_vreg(tmp1).with_vreg(tmp2));
+            mf.push(
+                mblock,
+                MInstr::new(AND_RR)
+                    .with_dst(tmp2)
+                    .with_vreg(tmp2)
+                    .with_vreg(scratch),
+            );
+            mf.push(
+                mblock,
+                MInstr::new(OR_RR)
+                    .with_dst(dst)
+                    .with_vreg(tmp1)
+                    .with_vreg(tmp2),
+            );
         }
 
         // ── phi ────────────────────────────────────────────────────────────
@@ -326,11 +372,17 @@ fn lower_instr(
         }
 
         // ── casts ──────────────────────────────────────────────────────────
-        ZExt { val, .. } | Trunc { val, .. } | BitCast { val, .. }
-        | PtrToInt { val, .. } | IntToPtr { val, .. }
-        | FPTrunc { val, .. } | FPExt { val, .. }
-        | FPToUI { val, .. } | FPToSI { val, .. }
-        | UIToFP { val, .. } | SIToFP { val, .. }
+        ZExt { val, .. }
+        | Trunc { val, .. }
+        | BitCast { val, .. }
+        | PtrToInt { val, .. }
+        | IntToPtr { val, .. }
+        | FPTrunc { val, .. }
+        | FPExt { val, .. }
+        | FPToUI { val, .. }
+        | FPToSI { val, .. }
+        | UIToFP { val, .. }
+        | SIToFP { val, .. }
         | AddrSpaceCast { val, .. } => {
             let dst = new_dst!();
             let src = res!(*val);
@@ -341,13 +393,20 @@ fn lower_instr(
             let dst = new_dst!();
             let src = res!(*val);
             // Select the correct sign-extension opcode based on source bit width.
-            let src_bits = func.type_of_value(*val)
+            let src_bits = func
+                .type_of_value(*val)
                 .map(|tid| match ctx.get_type(tid) {
                     TypeData::Integer(bits) => *bits,
                     _ => 32,
                 })
                 .unwrap_or(32);
-            let opcode = if src_bits <= 8 { MOVSX_8 } else if src_bits <= 16 { MOVSX_16 } else { MOVSX_32 };
+            let opcode = if src_bits <= 8 {
+                MOVSX_8
+            } else if src_bits <= 16 {
+                MOVSX_16
+            } else {
+                MOVSX_32
+            };
             mf.push(mblock, MInstr::new(opcode).with_dst(dst).with_vreg(src));
         }
 
@@ -391,8 +450,11 @@ fn lower_instr(
         }
 
         // ── aggregate / vector ops (not yet supported) ─────────────────────
-        ExtractValue { .. } | InsertValue { .. } | ExtractElement { .. }
-        | InsertElement { .. } | ShuffleVector { .. } => {
+        ExtractValue { .. }
+        | InsertValue { .. }
+        | ExtractElement { .. }
+        | InsertElement { .. }
+        | ShuffleVector { .. } => {
             let dst = new_dst!();
             mf.push(mblock, MInstr::new(MOV_RI).with_dst(dst).with_imm(0));
         }
@@ -429,7 +491,11 @@ fn lower_terminator(
             mf.push(mblock, MInstr::new(JMP).with_block(dest.0 as usize));
         }
 
-        CondBr { cond, then_dest, else_dest } => {
+        CondBr {
+            cond,
+            then_dest,
+            else_dest,
+        } => {
             let c = resolve(ctx, mf, mblock, vmap, *cond);
             // Each successor edge gets its own trampoline block so that phi
             // copies for one edge cannot overwrite values needed by the other.
@@ -441,21 +507,29 @@ fn lower_terminator(
             emit_phi_copies(ctx, func, mf, mblock, else_edge, *else_dest, vmap);
             mf.push(else_edge, MInstr::new(JMP).with_block(else_dest.0 as usize));
             mf.push(mblock, MInstr::new(TEST_RR).with_vreg(c).with_vreg(c));
-            mf.push(mblock, MInstr::new(JCC)
-                .with_imm(CC_NE)
-                .with_block(then_edge));
+            mf.push(
+                mblock,
+                MInstr::new(JCC).with_imm(CC_NE).with_block(then_edge),
+            );
             mf.push(mblock, MInstr::new(JMP).with_block(else_edge));
         }
 
-        Switch { val, default, cases } => {
+        Switch {
+            val,
+            default,
+            cases,
+        } => {
             let v = resolve(ctx, mf, mblock, vmap, *val);
             for (case_val, case_dest) in cases {
                 let cv = resolve(ctx, mf, mblock, vmap, *case_val);
                 emit_phi_copies(ctx, func, mf, mblock, mblock, *case_dest, vmap);
                 mf.push(mblock, MInstr::new(CMP_RR).with_vreg(v).with_vreg(cv));
-                mf.push(mblock, MInstr::new(JCC)
-                    .with_imm(CC_EQ)
-                    .with_block(case_dest.0 as usize));
+                mf.push(
+                    mblock,
+                    MInstr::new(JCC)
+                        .with_imm(CC_EQ)
+                        .with_block(case_dest.0 as usize),
+                );
             }
             emit_phi_copies(ctx, func, mf, mblock, mblock, *default, vmap);
             mf.push(mblock, MInstr::new(JMP).with_block(default.0 as usize));
@@ -499,9 +573,10 @@ fn emit_phi_copies(
                     None => continue,
                 };
                 let src_vreg = resolve(ctx, mf, emit_to_mblock, vmap, *incoming_val);
-                mf.push(emit_to_mblock, MInstr::new(MOV_RR)
-                    .with_dst(phi_vreg)
-                    .with_vreg(src_vreg));
+                mf.push(
+                    emit_to_mblock,
+                    MInstr::new(MOV_RR).with_dst(phi_vreg).with_vreg(src_vreg),
+                );
             }
         }
     }
@@ -566,9 +641,10 @@ mod tests {
         let (ctx, module) = make_add_fn();
         let mut be = X86Backend;
         let mf = be.lower_function(&ctx, &module, &module.functions[0]);
-        let has_ret = mf.blocks.iter().any(|b| {
-            b.instrs.iter().any(|i| i.opcode == RET)
-        });
+        let has_ret = mf
+            .blocks
+            .iter()
+            .any(|b| b.instrs.iter().any(|i| i.opcode == RET));
         assert!(has_ret, "machine function must contain a RET");
     }
 
@@ -614,13 +690,15 @@ mod tests {
         let mut be = X86Backend;
         let mf = be.lower_function(&ctx, &module, &module.functions[0]);
 
-        let has_cmp = mf.blocks.iter().any(|bl| {
-            bl.instrs.iter().any(|i| i.opcode == CMP_RR)
-        });
-        let has_setcc = mf.blocks.iter().any(|bl| {
-            bl.instrs.iter().any(|i| i.opcode == SETCC)
-        });
-        assert!(has_cmp,   "should emit CMP");
+        let has_cmp = mf
+            .blocks
+            .iter()
+            .any(|bl| bl.instrs.iter().any(|i| i.opcode == CMP_RR));
+        let has_setcc = mf
+            .blocks
+            .iter()
+            .any(|bl| bl.instrs.iter().any(|i| i.opcode == SETCC));
+        assert!(has_cmp, "should emit CMP");
         assert!(has_setcc, "should emit SETCC");
     }
 
@@ -681,20 +759,28 @@ mod tests {
         let mf = be.lower_function(&ctx, &module, &module.functions[0]);
 
         // There must be a SHL_RR in the function.
-        let shl_instr = mf.blocks.iter().flat_map(|b| b.instrs.iter())
+        let shl_instr = mf
+            .blocks
+            .iter()
+            .flat_map(|b| b.instrs.iter())
             .find(|i| i.opcode == SHL_RR)
             .expect("should emit SHL_RR");
 
         // SHL_RR must declare RCX as a physical use (shift reads CL).
-        assert!(shl_instr.phys_uses.contains(&RCX),
-            "SHL_RR must have RCX in phys_uses (CL holds the shift amount)");
+        assert!(
+            shl_instr.phys_uses.contains(&RCX),
+            "SHL_RR must have RCX in phys_uses (CL holds the shift amount)"
+        );
 
         // There must be a MOV_PR targeting RCX somewhere in the function.
         let has_mov_to_rcx = mf.blocks.iter().flat_map(|b| b.instrs.iter()).any(|i| {
-            i.opcode == MOV_PR && i.operands.first() == Some(&llvm_codegen::isel::MOperand::PReg(RCX))
+            i.opcode == MOV_PR
+                && i.operands.first() == Some(&llvm_codegen::isel::MOperand::PReg(RCX))
         });
-        assert!(has_mov_to_rcx,
-            "a MOV_PR loading the shift count into RCX must be emitted before SHL_RR");
+        assert!(
+            has_mov_to_rcx,
+            "a MOV_PR loading the shift count into RCX must be emitted before SHL_RR"
+        );
     }
 
     #[test]
@@ -703,9 +789,15 @@ mod tests {
         let (ctx, module) = make_div_fn(true);
         let mut be = X86Backend;
         let mf = be.lower_function(&ctx, &module, &module.functions[0]);
-        let has_div_r = mf.blocks.iter().any(|bl| bl.instrs.iter().any(|i| i.opcode == DIV_R));
-        let has_idiv_r = mf.blocks.iter().any(|bl| bl.instrs.iter().any(|i| i.opcode == IDIV_R));
-        assert!(has_div_r,  "UDiv must emit DIV_R (unsigned div)");
+        let has_div_r = mf
+            .blocks
+            .iter()
+            .any(|bl| bl.instrs.iter().any(|i| i.opcode == DIV_R));
+        let has_idiv_r = mf
+            .blocks
+            .iter()
+            .any(|bl| bl.instrs.iter().any(|i| i.opcode == IDIV_R));
+        assert!(has_div_r, "UDiv must emit DIV_R (unsigned div)");
         assert!(!has_idiv_r, "UDiv must NOT emit IDIV_R (signed div)");
     }
 
@@ -715,10 +807,16 @@ mod tests {
         let (ctx, module) = make_div_fn(false);
         let mut be = X86Backend;
         let mf = be.lower_function(&ctx, &module, &module.functions[0]);
-        let has_idiv_r = mf.blocks.iter().any(|bl| bl.instrs.iter().any(|i| i.opcode == IDIV_R));
-        let has_div_r  = mf.blocks.iter().any(|bl| bl.instrs.iter().any(|i| i.opcode == DIV_R));
+        let has_idiv_r = mf
+            .blocks
+            .iter()
+            .any(|bl| bl.instrs.iter().any(|i| i.opcode == IDIV_R));
+        let has_div_r = mf
+            .blocks
+            .iter()
+            .any(|bl| bl.instrs.iter().any(|i| i.opcode == DIV_R));
         assert!(has_idiv_r, "SDiv must emit IDIV_R (signed div)");
-        assert!(!has_div_r,  "SDiv must NOT emit DIV_R (unsigned div)");
+        assert!(!has_div_r, "SDiv must NOT emit DIV_R (unsigned div)");
     }
 
     #[test]
@@ -727,8 +825,8 @@ mod tests {
         // physical register destination survives register allocation.
         // Verify: the instruction has dst=None, opcode=MOV_PR,
         //         operands[0]=PReg(preg), operands[1]=VReg(src).
-        use llvm_codegen::isel::{MachineFunction, MOperand};
         use crate::regs::RAX;
+        use llvm_codegen::isel::{MOperand, MachineFunction};
 
         let mut mf = MachineFunction::new("f".into());
         let b = mf.add_block("entry");
@@ -736,11 +834,25 @@ mod tests {
         super::emit_mov_to_preg(&mut mf, b, RAX, src);
 
         let instr = &mf.blocks[b].instrs[0];
-        assert_eq!(instr.opcode, MOV_PR, "emit_mov_to_preg must use MOV_PR opcode");
-        assert!(instr.dst.is_none(), "dst must be None (destination is a fixed PReg)");
+        assert_eq!(
+            instr.opcode, MOV_PR,
+            "emit_mov_to_preg must use MOV_PR opcode"
+        );
+        assert!(
+            instr.dst.is_none(),
+            "dst must be None (destination is a fixed PReg)"
+        );
         assert_eq!(instr.operands.len(), 2);
-        assert_eq!(instr.operands[0], MOperand::PReg(RAX), "operands[0] must be the fixed PReg");
-        assert_eq!(instr.operands[1], MOperand::VReg(src), "operands[1] must be the source VReg");
+        assert_eq!(
+            instr.operands[0],
+            MOperand::PReg(RAX),
+            "operands[0] must be the fixed PReg"
+        );
+        assert_eq!(
+            instr.operands[1],
+            MOperand::VReg(src),
+            "operands[1] must be the source VReg"
+        );
     }
 
     #[test]
@@ -752,13 +864,16 @@ mod tests {
         let mf = be.lower_function(&ctx, &module, &module.functions[0]);
 
         // Find the ADD_RR instruction.
-        let add_instr = mf.blocks.iter()
+        let add_instr = mf
+            .blocks
+            .iter()
             .flat_map(|b| b.instrs.iter())
             .find(|i| i.opcode == ADD_RR);
         let add_instr = add_instr.expect("should have an ADD_RR instruction");
 
         assert_eq!(
-            add_instr.operands.len(), 1,
+            add_instr.operands.len(),
+            1,
             "ADD_RR must carry only the RHS operand, not a self-reference (issue #34)"
         );
     }
@@ -789,10 +904,14 @@ mod tests {
         let (ctx, module) = make_sext_fn(8);
         let mut be = X86Backend;
         let mf = be.lower_function(&ctx, &module, &module.functions[0]);
-        let has_movsx8 = mf.blocks.iter().any(|b| {
-            b.instrs.iter().any(|i| i.opcode == MOVSX_8)
-        });
-        assert!(has_movsx8, "sext from i8 must use MOVSX_8 (0F BE), not MOVSXD (63)");
+        let has_movsx8 = mf
+            .blocks
+            .iter()
+            .any(|b| b.instrs.iter().any(|i| i.opcode == MOVSX_8));
+        assert!(
+            has_movsx8,
+            "sext from i8 must use MOVSX_8 (0F BE), not MOVSXD (63)"
+        );
     }
 
     #[test]
@@ -800,10 +919,14 @@ mod tests {
         let (ctx, module) = make_sext_fn(16);
         let mut be = X86Backend;
         let mf = be.lower_function(&ctx, &module, &module.functions[0]);
-        let has_movsx16 = mf.blocks.iter().any(|b| {
-            b.instrs.iter().any(|i| i.opcode == MOVSX_16)
-        });
-        assert!(has_movsx16, "sext from i16 must use MOVSX_16 (0F BF), not MOVSXD (63)");
+        let has_movsx16 = mf
+            .blocks
+            .iter()
+            .any(|b| b.instrs.iter().any(|i| i.opcode == MOVSX_16));
+        assert!(
+            has_movsx16,
+            "sext from i16 must use MOVSX_16 (0F BF), not MOVSXD (63)"
+        );
     }
 
     #[test]
@@ -811,9 +934,10 @@ mod tests {
         let (ctx, module) = make_sext_fn(32);
         let mut be = X86Backend;
         let mf = be.lower_function(&ctx, &module, &module.functions[0]);
-        let has_movsx32 = mf.blocks.iter().any(|b| {
-            b.instrs.iter().any(|i| i.opcode == MOVSX_32)
-        });
+        let has_movsx32 = mf
+            .blocks
+            .iter()
+            .any(|b| b.instrs.iter().any(|i| i.opcode == MOVSX_32));
         assert!(has_movsx32, "sext from i32 must use MOVSX_32 (movsxd, 63)");
     }
 
@@ -847,14 +971,14 @@ mod tests {
             Linkage::External,
         );
         // entry: br i1 %cond, label %then_bb, label %else_bb
-        let entry    = b.add_block("entry");
-        let then_bb  = b.add_block("then_bb");
-        let else_bb  = b.add_block("else_bb");
+        let entry = b.add_block("entry");
+        let then_bb = b.add_block("then_bb");
+        let else_bb = b.add_block("else_bb");
         let merge_bb = b.add_block("merge");
 
         b.position_at_end(entry);
-        let a    = b.get_arg(0);
-        let bv   = b.get_arg(1);
+        let a = b.get_arg(0);
+        let bv = b.get_arg(1);
         let cond = b.get_arg(2);
         b.build_cond_br(cond, then_bb, else_bb);
 
@@ -892,7 +1016,8 @@ mod tests {
             mf.blocks.len() > ir_block_count,
             "CondBr must create trampoline edge blocks for phi copies; \
              expected > {} machine blocks, got {}",
-            ir_block_count, mf.blocks.len()
+            ir_block_count,
+            mf.blocks.len()
         );
     }
 
@@ -909,11 +1034,17 @@ mod tests {
 
         // entry is machine block 0; find its JCC and JMP targets.
         let entry_block = &mf.blocks[0];
-        let branch_targets: Vec<usize> = entry_block.instrs.iter()
+        let branch_targets: Vec<usize> = entry_block
+            .instrs
+            .iter()
             .filter_map(|i| {
                 if i.opcode == JCC || i.opcode == JMP {
                     i.operands.iter().find_map(|op| {
-                        if let MOperand::Block(b) = op { Some(*b) } else { None }
+                        if let MOperand::Block(b) = op {
+                            Some(*b)
+                        } else {
+                            None
+                        }
                     })
                 } else {
                     None
@@ -929,7 +1060,8 @@ mod tests {
             assert!(
                 target >= ir_block_count,
                 "CondBr must branch to trampoline blocks (index >= {}), got target {}",
-                ir_block_count, target
+                ir_block_count,
+                target
             );
         }
     }

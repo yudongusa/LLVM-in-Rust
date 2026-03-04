@@ -11,17 +11,17 @@ pub mod types;
 pub mod value;
 
 // Re-export key types at crate root for ergonomic use.
-pub use context::{
-    Context, TypeId, FunctionId, BlockId, InstrId, ArgId, ConstId, GlobalId, ValueRef,
-};
-pub use types::{TypeData, FloatKind, StructType, FunctionType};
-pub use value::{ConstantData, Argument, GlobalVariable, Linkage};
-pub use instruction::{
-    Instruction, InstrKind, IntArithFlags, FastMathFlags, ExactFlag,
-    IntPredicate, FloatPredicate, TailCallKind,
-};
 pub use basic_block::BasicBlock;
-pub use function::Function;
-pub use module::Module;
 pub use builder::Builder;
+pub use context::{
+    ArgId, BlockId, ConstId, Context, FunctionId, GlobalId, InstrId, TypeId, ValueRef,
+};
+pub use function::Function;
+pub use instruction::{
+    ExactFlag, FastMathFlags, FloatPredicate, InstrKind, Instruction, IntArithFlags, IntPredicate,
+    TailCallKind,
+};
+pub use module::Module;
 pub use printer::Printer;
+pub use types::{FloatKind, FunctionType, StructType, TypeData};
+pub use value::{Argument, ConstantData, GlobalVariable, Linkage};

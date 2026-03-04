@@ -7,15 +7,12 @@
 //! Each AArch64 instruction is exactly 4 bytes.  Branches are patched in a
 //! second pass once all block offsets are known.
 
-use std::collections::HashMap;
+use crate::{instructions::*, regs::reg_enc};
 use llvm_codegen::{
     emit::{Emitter, ObjectFormat, Reloc, Section},
-    isel::{MachineFunction, MInstr, MOperand, PReg},
+    isel::{MInstr, MOperand, MachineFunction, PReg},
 };
-use crate::{
-    instructions::*,
-    regs::reg_enc,
-};
+use std::collections::HashMap;
 
 /// AArch64 code emitter.
 pub struct AArch64Emitter {
@@ -76,7 +73,7 @@ impl Emitter for AArch64Emitter {
         }
 
         let section_name = match self.format {
-            ObjectFormat::Elf   => ".text",
+            ObjectFormat::Elf => ".text",
             ObjectFormat::MachO => "__text",
         };
 
@@ -107,7 +104,9 @@ impl EncodeCtx {
     fn emit4(&mut self, word: u32) {
         self.code.extend_from_slice(&word.to_le_bytes());
     }
-    fn pos(&self) -> usize { self.code.len() }
+    fn pos(&self) -> usize {
+        self.code.len()
+    }
 }
 
 // ── instruction encoding ─────────────────────────────────────────────────
@@ -115,10 +114,16 @@ impl EncodeCtx {
 fn encode_instr(instr: &MInstr, ctx: &mut EncodeCtx) {
     // Helper to extract PReg from operand.
     let preg = |op: &MOperand| -> Option<PReg> {
-        match op { MOperand::PReg(r) => Some(*r), _ => None }
+        match op {
+            MOperand::PReg(r) => Some(*r),
+            _ => None,
+        }
     };
     let imm = |op: &MOperand| -> Option<i64> {
-        match op { MOperand::Imm(v) => Some(*v), _ => None }
+        match op {
+            MOperand::Imm(v) => Some(*v),
+            _ => None,
+        }
     };
 
     match instr.opcode {
@@ -174,15 +179,21 @@ fn encode_instr(instr: &MInstr, ctx: &mut EncodeCtx) {
             if let (Some(dst), Some(val)) = (instr.dst, instr.operands.first().and_then(imm)) {
                 let rd = reg_enc(PReg(dst.0 as u8)) as u32;
                 let val_u64 = val as u64;
-                let chunk0 = ((val_u64      ) & 0xFFFF) as u32;
+                let chunk0 = ((val_u64) & 0xFFFF) as u32;
                 let chunk1 = ((val_u64 >> 16) & 0xFFFF) as u32;
                 let chunk2 = ((val_u64 >> 32) & 0xFFFF) as u32;
                 let chunk3 = ((val_u64 >> 48) & 0xFFFF) as u32;
                 // Always emit MOVZ for chunk0 (clears the register).
                 ctx.emit4(0xD2800000 | (chunk0 << 5) | rd);
-                if chunk1 != 0 { ctx.emit4(0xF2A00000 | (chunk1 << 5) | rd); }
-                if chunk2 != 0 { ctx.emit4(0xF2C00000 | (chunk2 << 5) | rd); }
-                if chunk3 != 0 { ctx.emit4(0xF2E00000 | (chunk3 << 5) | rd); }
+                if chunk1 != 0 {
+                    ctx.emit4(0xF2A00000 | (chunk1 << 5) | rd);
+                }
+                if chunk2 != 0 {
+                    ctx.emit4(0xF2C00000 | (chunk2 << 5) | rd);
+                }
+                if chunk3 != 0 {
+                    ctx.emit4(0xF2E00000 | (chunk3 << 5) | rd);
+                }
             } else {
                 ctx.emit4(0xD503201F);
             }
@@ -297,17 +308,13 @@ fn encode_instr(instr: &MInstr, ctx: &mut EncodeCtx) {
 
         // ── B_COND (b.cond offset) — 0x54000000 | (imm19<<5) | cond ─────
         B_COND => {
-            if let (Some(cc_op), Some(MOperand::Block(target))) =
+            if let (Some(MOperand::Imm(cc)), Some(MOperand::Block(target))) =
                 (instr.operands.first(), instr.operands.get(1))
             {
-                if let MOperand::Imm(cc) = cc_op {
-                    let hw_cond = cc_to_hw(*cc);
-                    let patch_pos = ctx.pos();
-                    ctx.emit4(0x54000000 | hw_cond as u32); // placeholder
-                    ctx.branch_patches.push((patch_pos, *target));
-                } else {
-                    ctx.emit4(0xD503201F);
-                }
+                let hw_cond = cc_to_hw(*cc);
+                let patch_pos = ctx.pos();
+                ctx.emit4(0x54000000 | hw_cond as u32); // placeholder
+                ctx.branch_patches.push((patch_pos, *target));
             } else {
                 ctx.emit4(0xD503201F);
             }
@@ -392,10 +399,12 @@ fn encode_rrr3(ctx: &mut EncodeCtx, instr: &MInstr, base: u32) {
     if let (Some(dst), Some(rn_preg), Some(rm_preg)) = (
         instr.dst,
         instr.operands.first().and_then(|op| match op {
-            MOperand::PReg(r) => Some(*r), _ => None,
+            MOperand::PReg(r) => Some(*r),
+            _ => None,
         }),
         instr.operands.get(1).and_then(|op| match op {
-            MOperand::PReg(r) => Some(*r), _ => None,
+            MOperand::PReg(r) => Some(*r),
+            _ => None,
         }),
     ) {
         let rd = reg_enc(PReg(dst.0 as u8)) as u32;
@@ -411,7 +420,11 @@ fn encode_rrr3(ctx: &mut EncodeCtx, instr: &MInstr, base: u32) {
 fn get_dst_src(instr: &MInstr) -> (Option<PReg>, Option<PReg>) {
     let dst = instr.dst.map(|v| PReg(v.0 as u8));
     let src = instr.operands.iter().find_map(|op| {
-        if let MOperand::PReg(r) = op { Some(*r) } else { None }
+        if let MOperand::PReg(r) = op {
+            Some(*r)
+        } else {
+            None
+        }
     });
     (dst, src)
 }
@@ -419,7 +432,11 @@ fn get_dst_src(instr: &MInstr) -> (Option<PReg>, Option<PReg>) {
 /// Extract two PReg operands from `instr.operands`.
 fn get_two_pregs(instr: &MInstr) -> (Option<PReg>, Option<PReg>) {
     let mut it = instr.operands.iter().filter_map(|op| {
-        if let MOperand::PReg(r) = op { Some(*r) } else { None }
+        if let MOperand::PReg(r) = op {
+            Some(*r)
+        } else {
+            None
+        }
     });
     (it.next(), it.next())
 }
@@ -431,17 +448,17 @@ fn get_two_pregs(instr: &MInstr) -> (Option<PReg>, Option<PReg>) {
 ///   HI=8, LS=9, GE=10, LT=11, GT=12, LE=13, AL=14, NV=15
 fn cc_to_hw(cc: i64) -> u8 {
     match cc {
-        CC_EQ => 0,   // EQ (Z=1)
-        CC_NE => 1,   // NE (Z=0)
-        CC_LT => 11,  // LT (N!=V)
-        CC_LE => 13,  // LE (Z=1 or N!=V)
-        CC_GT => 12,  // GT (Z=0 and N=V)
-        CC_GE => 10,  // GE (N=V)
-        CC_LO => 3,   // LO/CC (C=0)
-        CC_LS => 9,   // LS (C=0 or Z=1)
-        CC_HI => 8,   // HI (C=1 and Z=0)
-        CC_HS => 2,   // HS/CS (C=1)
-        _     => 0,
+        CC_EQ => 0,  // EQ (Z=1)
+        CC_NE => 1,  // NE (Z=0)
+        CC_LT => 11, // LT (N!=V)
+        CC_LE => 13, // LE (Z=1 or N!=V)
+        CC_GT => 12, // GT (Z=0 and N=V)
+        CC_GE => 10, // GE (N=V)
+        CC_LO => 3,  // LO/CC (C=0)
+        CC_LS => 9,  // LS (C=0 or Z=1)
+        CC_HI => 8,  // HI (C=1 and Z=0)
+        CC_HS => 2,  // HS/CS (C=1)
+        _ => 0,
     }
 }
 
@@ -450,16 +467,18 @@ fn cc_to_hw(cc: i64) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::regs::{X0, X1, X2};
     use llvm_codegen::{
         emit::emit_object,
-        isel::{MachineFunction, MInstr, VReg},
+        isel::{MInstr, MachineFunction, VReg},
     };
-    use crate::regs::{X0, X1, X2};
 
     fn single_block_mf(name: &str, instrs: Vec<MInstr>) -> MachineFunction {
         let mut mf = MachineFunction::new(name.into());
         let b = mf.add_block("entry");
-        for i in instrs { mf.push(b, i); }
+        for i in instrs {
+            mf.push(b, i);
+        }
         mf
     }
 
@@ -477,8 +496,11 @@ mod tests {
         let mut e = AArch64Emitter::new(ObjectFormat::Elf);
         let sec = e.emit_function(&mf);
         // RET = 0xD65F03C0 in little-endian: [0xC0, 0x03, 0x5F, 0xD6]
-        assert_eq!(&sec.data[0..4], &[0xC0, 0x03, 0x5F, 0xD6],
-            "RET must encode as 0xD65F03C0");
+        assert_eq!(
+            &sec.data[0..4],
+            &[0xC0, 0x03, 0x5F, 0xD6],
+            "RET must encode as 0xD65F03C0"
+        );
     }
 
     #[test]
@@ -512,7 +534,10 @@ mod tests {
         let mut e = AArch64Emitter::new(ObjectFormat::Elf);
         let sec = e.emit_function(&mf);
         let word = u32::from_le_bytes([sec.data[0], sec.data[1], sec.data[2], sec.data[3]]);
-        assert_eq!(word, 0x8B020020, "add x0, x1, x2 should encode as 0x8B020020");
+        assert_eq!(
+            word, 0x8B020020,
+            "add x0, x1, x2 should encode as 0x8B020020"
+        );
     }
 
     #[test]
@@ -532,8 +557,16 @@ mod tests {
         let b_word = u32::from_le_bytes([sec.data[0], sec.data[1], sec.data[2], sec.data[3]]);
         // Branch target is 1 instruction forward from the branch instruction.
         // offset = (4 - 0) / 4 = 1; imm26 = 1; B = 0x14000001.
-        assert_eq!(b_word & 0xFC000000, 0x14000000, "unconditional branch base bits");
-        assert_eq!(b_word & 0x03FFFFFF, 1, "branch offset should be 1 instruction forward");
+        assert_eq!(
+            b_word & 0xFC000000,
+            0x14000000,
+            "unconditional branch base bits"
+        );
+        assert_eq!(
+            b_word & 0x03FFFFFF,
+            1,
+            "branch offset should be 1 instruction forward"
+        );
     }
 
     #[test]
@@ -557,7 +590,10 @@ mod tests {
         let mut e = AArch64Emitter::new(ObjectFormat::MachO);
         let sec = e.emit_function(&mf);
         // RET = 0xD65F03C0; byte 0 = 0xC0
-        assert!(sec.data.contains(&0xC0), "RET byte 0 (0xC0) must be in code");
+        assert!(
+            sec.data.contains(&0xC0),
+            "RET byte 0 (0xC0) must be in code"
+        );
     }
 
     #[test]
@@ -580,31 +616,46 @@ mod tests {
         let sec = e.emit_function(&mf);
 
         // Must emit exactly 4 instructions (4 × 4 bytes = 16 bytes).
-        assert_eq!(sec.data.len(), 16,
-            "MOV_WIDE with a full 64-bit value must emit 4 instructions (16 bytes)");
+        assert_eq!(
+            sec.data.len(),
+            16,
+            "MOV_WIDE with a full 64-bit value must emit 4 instructions (16 bytes)"
+        );
 
         // First instruction: MOVZ X0, #0x5678 — 0xD280_ACF0
         let w0 = u32::from_le_bytes([sec.data[0], sec.data[1], sec.data[2], sec.data[3]]);
-        assert_eq!(w0 & 0xFFE0_001F, 0xD280_0000,
-            "first word must be MOVZ (opcode 0xD280_0000 with chunk in bits[20:5])");
+        assert_eq!(
+            w0 & 0xFFE0_001F,
+            0xD280_0000,
+            "first word must be MOVZ (opcode 0xD280_0000 with chunk in bits[20:5])"
+        );
         assert_eq!((w0 >> 5) & 0xFFFF, 0x5678, "chunk0 must be 0x5678");
 
         // Second instruction: MOVK X0, #0x1234, lsl 16 — base 0xF2A0_0000
         let w1 = u32::from_le_bytes([sec.data[4], sec.data[5], sec.data[6], sec.data[7]]);
-        assert_eq!(w1 & 0xFFE0_001F, 0xF2A0_0000,
-            "second word must be MOVK lsl 16 (0xF2A0_0000)");
+        assert_eq!(
+            w1 & 0xFFE0_001F,
+            0xF2A0_0000,
+            "second word must be MOVK lsl 16 (0xF2A0_0000)"
+        );
         assert_eq!((w1 >> 5) & 0xFFFF, 0x1234, "chunk1 must be 0x1234");
 
         // Third instruction: MOVK X0, #0xCAFE, lsl 32 — base 0xF2C0_0000
         let w2 = u32::from_le_bytes([sec.data[8], sec.data[9], sec.data[10], sec.data[11]]);
-        assert_eq!(w2 & 0xFFE0_001F, 0xF2C0_0000,
-            "third word must be MOVK lsl 32 (0xF2C0_0000)");
+        assert_eq!(
+            w2 & 0xFFE0_001F,
+            0xF2C0_0000,
+            "third word must be MOVK lsl 32 (0xF2C0_0000)"
+        );
         assert_eq!((w2 >> 5) & 0xFFFF, 0xCAFE, "chunk2 must be 0xCAFE");
 
         // Fourth instruction: MOVK X0, #0xDEAD, lsl 48 — base 0xF2E0_0000
         let w3 = u32::from_le_bytes([sec.data[12], sec.data[13], sec.data[14], sec.data[15]]);
-        assert_eq!(w3 & 0xFFE0_001F, 0xF2E0_0000,
-            "fourth word must be MOVK lsl 48 (0xF2E0_0000)");
+        assert_eq!(
+            w3 & 0xFFE0_001F,
+            0xF2E0_0000,
+            "fourth word must be MOVK lsl 48 (0xF2E0_0000)"
+        );
         assert_eq!((w3 >> 5) & 0xFFFF, 0xDEAD, "chunk3 must be 0xDEAD");
     }
 
@@ -623,7 +674,10 @@ mod tests {
         let mf = single_block_mf("mov_wide_32_fn", vec![mi]);
         let mut e = AArch64Emitter::new(ObjectFormat::Elf);
         let sec = e.emit_function(&mf);
-        assert_eq!(sec.data.len(), 8,
-            "MOV_WIDE 0x1_2345 must emit exactly 2 instructions (8 bytes)");
+        assert_eq!(
+            sec.data.len(),
+            8,
+            "MOV_WIDE 0x1_2345 must emit exactly 2 instructions (8 bytes)"
+        );
     }
 }

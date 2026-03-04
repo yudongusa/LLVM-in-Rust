@@ -9,8 +9,8 @@ pub mod reader;
 pub mod writer;
 
 pub use error::BitcodeError;
-pub use writer::write_bitcode;
 pub use reader::read_bitcode;
+pub use writer::write_bitcode;
 
 // ── tests ──────────────────────────────────────────────────────────────────
 
@@ -135,8 +135,11 @@ mod tests {
         let (ctx2, _) = read_bitcode(&bytes).expect("round-trip must succeed");
         // The serialised type at the same index must decode as Metadata.
         let td = ctx2.get_type(meta_ty);
-        assert_eq!(td, &TypeData::Metadata,
-            "Metadata type must round-trip as TypeData::Metadata, not Label");
+        assert_eq!(
+            td,
+            &TypeData::Metadata,
+            "Metadata type must round-trip as TypeData::Metadata, not Label"
+        );
     }
 
     #[test]
@@ -144,7 +147,8 @@ mod tests {
         let bad = b"BAAD\x01\x00\x00\x00\x00\x00\x00\x00";
         let result = read_bitcode(bad);
         assert!(result.is_err(), "invalid magic must return an error");
-        if let Err(BitcodeError::InvalidMagic) = result { /* ok */ } else {
+        if let Err(BitcodeError::InvalidMagic) = result { /* ok */
+        } else {
             panic!("expected InvalidMagic error");
         }
     }

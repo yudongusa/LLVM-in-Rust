@@ -1,7 +1,7 @@
 //! AArch64 calling convention support (AAPCS64).
 
-use llvm_codegen::isel::PReg;
 use crate::regs::{ARG_REGS, RET_REG};
+use llvm_codegen::isel::PReg;
 
 // Re-export for convenience.
 pub use crate::regs::RET_REG as AAPCS64_INT_RET;
