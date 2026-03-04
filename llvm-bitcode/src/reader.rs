@@ -172,11 +172,7 @@ fn intern_type(ctx: &mut Context, td: TypeData) -> TypeId {
         TypeData::Float(k)   => ctx.mk_float(k),
         TypeData::Pointer    => ctx.mk_ptr(),
         TypeData::Label      => ctx.mk_label(),
-        TypeData::Metadata   => {
-            // Metadata isn't exposed via a public constructor; intern manually.
-            // Fall back to label_ty as a placeholder (metadata is rare in Phase 1 tests).
-            ctx.mk_label()
-        }
+        TypeData::Metadata   => ctx.mk_metadata(),
         TypeData::Array { element, len } => ctx.mk_array(element, len),
         TypeData::Vector { element, len, scalable } => ctx.mk_vector(element, len, scalable),
         TypeData::Struct(st) => {

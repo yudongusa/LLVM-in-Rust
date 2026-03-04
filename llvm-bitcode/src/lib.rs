@@ -124,6 +124,22 @@ mod tests {
     }
 
     #[test]
+    fn metadata_type_round_trips_as_metadata_not_label() {
+        // A Context that contains a Metadata type must deserialise back as
+        // Metadata, not as Label (which was the previous incorrect fallback).
+        use llvm_ir::TypeData;
+        let mut ctx = Context::new();
+        let meta_ty = ctx.mk_metadata();
+        let module = Module::new("meta_test");
+        let bytes = write_bitcode(&ctx, &module);
+        let (ctx2, _) = read_bitcode(&bytes).expect("round-trip must succeed");
+        // The serialised type at the same index must decode as Metadata.
+        let td = ctx2.get_type(meta_ty);
+        assert_eq!(td, &TypeData::Metadata,
+            "Metadata type must round-trip as TypeData::Metadata, not Label");
+    }
+
+    #[test]
     fn invalid_magic_returns_error() {
         let bad = b"BAAD\x01\x00\x00\x00\x00\x00\x00\x00";
         let result = read_bitcode(bad);

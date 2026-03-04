@@ -146,6 +146,10 @@ impl Context {
         self.label_ty
     }
 
+    pub fn mk_metadata(&mut self) -> TypeId {
+        self.intern_anon(TypeData::Metadata)
+    }
+
     pub fn mk_array(&mut self, element: TypeId, len: u64) -> TypeId {
         self.intern_anon(TypeData::Array { element, len })
     }
