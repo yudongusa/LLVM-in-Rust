@@ -1,14 +1,13 @@
 [workspace]
 resolver = "2"
 members = [
-    "llvm-ir",
-    "llvm-ir-parser",
-    "llvm-analysis",
-    "llvm-transforms",
-    "llvm-codegen",
-    "llvm-target-x86",
-    "llvm-target-arm",
-    "llvm-bitcode",
-    "llvm",
+    "src/llvm-ir",
+    "src/llvm-ir-parser",
+    "src/llvm-analysis",
+    "src/llvm-transforms",
+    "src/llvm-codegen",
+    "src/llvm-target-x86",
+    "src/llvm-target-arm",
+    "src/llvm-bitcode",
+    "src/llvm",
 ]
-
