@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use llvm_codegen::isel::{IselBackend, MachineFunction, MInstr, PReg, VReg};
 use llvm_ir::{
     ArgId, BlockId, ConstantData, Context, Function, InstrId, InstrKind,
-    IntPredicate, Module, ValueRef,
+    IntPredicate, Module, TypeData, ValueRef,
 };
 use crate::{
     abi::{classify_sysv_args, ArgLocation, SYSV_INT_RET},
@@ -340,7 +340,15 @@ fn lower_instr(
         SExt { val, .. } => {
             let dst = new_dst!();
             let src = res!(*val);
-            mf.push(mblock, MInstr::new(MOVSX_32).with_dst(dst).with_vreg(src));
+            // Select the correct sign-extension opcode based on source bit width.
+            let src_bits = func.type_of_value(*val)
+                .map(|tid| match ctx.get_type(tid) {
+                    TypeData::Integer(bits) => *bits,
+                    _ => 32,
+                })
+                .unwrap_or(32);
+            let opcode = if src_bits <= 8 { MOVSX_8 } else if src_bits <= 16 { MOVSX_16 } else { MOVSX_32 };
+            mf.push(mblock, MInstr::new(opcode).with_dst(dst).with_vreg(src));
         }
 
         // ── calls ──────────────────────────────────────────────────────────
@@ -740,5 +748,59 @@ mod tests {
             add_instr.operands.len(), 1,
             "ADD_RR must carry only the RHS operand, not a self-reference (issue #34)"
         );
+    }
+
+    fn make_sext_fn(src_ty_bits: u32) -> (Context, Module) {
+        let mut ctx = Context::new();
+        let mut module = Module::new("test");
+        let src_ty = ctx.mk_int(src_ty_bits);
+        let mut b = Builder::new(&mut ctx, &mut module);
+        b.add_function(
+            "sext_fn",
+            b.ctx.i64_ty,
+            vec![src_ty],
+            vec!["x".into()],
+            false,
+            Linkage::External,
+        );
+        let entry = b.add_block("entry");
+        b.position_at_end(entry);
+        let x = b.get_arg(0);
+        let ext = b.build_sext("ext", x, b.ctx.i64_ty);
+        b.build_ret(ext);
+        (ctx, module)
+    }
+
+    #[test]
+    fn sext_i8_uses_movsx_8() {
+        let (ctx, module) = make_sext_fn(8);
+        let mut be = X86Backend;
+        let mf = be.lower_function(&ctx, &module, &module.functions[0]);
+        let has_movsx8 = mf.blocks.iter().any(|b| {
+            b.instrs.iter().any(|i| i.opcode == MOVSX_8)
+        });
+        assert!(has_movsx8, "sext from i8 must use MOVSX_8 (0F BE), not MOVSXD (63)");
+    }
+
+    #[test]
+    fn sext_i16_uses_movsx_16() {
+        let (ctx, module) = make_sext_fn(16);
+        let mut be = X86Backend;
+        let mf = be.lower_function(&ctx, &module, &module.functions[0]);
+        let has_movsx16 = mf.blocks.iter().any(|b| {
+            b.instrs.iter().any(|i| i.opcode == MOVSX_16)
+        });
+        assert!(has_movsx16, "sext from i16 must use MOVSX_16 (0F BF), not MOVSXD (63)");
+    }
+
+    #[test]
+    fn sext_i32_uses_movsx_32() {
+        let (ctx, module) = make_sext_fn(32);
+        let mut be = X86Backend;
+        let mf = be.lower_function(&ctx, &module, &module.functions[0]);
+        let has_movsx32 = mf.blocks.iter().any(|b| {
+            b.instrs.iter().any(|i| i.opcode == MOVSX_32)
+        });
+        assert!(has_movsx32, "sext from i32 must use MOVSX_32 (movsxd, 63)");
     }
 }

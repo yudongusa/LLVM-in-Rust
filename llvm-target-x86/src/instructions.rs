@@ -13,6 +13,8 @@ pub const MOVSX_32:  MOpcode = MOpcode(0x02);
 pub const MOVSX_8:   MOpcode = MOpcode(0x03);
 /// Zero-extend 8-bit source to 64-bit destination (`movzx`)
 pub const MOVZX_8:   MOpcode = MOpcode(0x04);
+/// Sign-extend 16-bit source to 64-bit destination (`movsx`)
+pub const MOVSX_16:  MOpcode = MOpcode(0x06);
 /// Move VReg source into a fixed physical register destination.
 /// Layout: `operands[0]` = `PReg` (destination, ABI-fixed), `operands[1]` = `VReg`/`PReg` (source).
 /// Used by `emit_mov_to_preg`; unlike `MOV_RR` there is no `dst` field so the

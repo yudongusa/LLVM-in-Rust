@@ -369,6 +369,30 @@ fn encode_instr(instr: &MInstr, ctx: &mut EncodeCtx) {
             }
         }
 
+        // ── MOVSX r64, r/m8  (REX.W 0x0F 0xBE /r) ───────────────────────
+        MOVSX_8 => {
+            if let (Some(dst), Some(src)) = get_dst_src(instr) {
+                maybe_rex(ctx, true, dst, src);
+                ctx.emit(0x0F);
+                ctx.emit(0xBE);
+                ctx.emit(modrm_rr(dst, src));
+            } else {
+                ctx.emit(0x90);
+            }
+        }
+
+        // ── MOVSX r64, r/m16 (REX.W 0x0F 0xBF /r) ───────────────────────
+        MOVSX_16 => {
+            if let (Some(dst), Some(src)) = get_dst_src(instr) {
+                maybe_rex(ctx, true, dst, src);
+                ctx.emit(0x0F);
+                ctx.emit(0xBF);
+                ctx.emit(modrm_rr(dst, src));
+            } else {
+                ctx.emit(0x90);
+            }
+        }
+
         // ── MOVSX (sign-extend 32→64: REX.W 0x63 /r) ────────────────────
         MOVSX_32 => {
             if let (Some(dst), Some(src)) = get_dst_src(instr) {
