@@ -8,7 +8,7 @@ use std::fmt;
 use llvm_ir::{
     ArgId, Argument, BasicBlock, BlockId, ConstId, ConstantData, Context, FastMathFlags, FloatKind,
     FloatPredicate, Function, GlobalId, GlobalVariable, InstrKind, Instruction, IntArithFlags,
-    IntPredicate, Linkage, Module, TailCallKind, TypeId, ValueRef,
+    IntPredicate, Linkage, Module, TailCallKind, TypeData, TypeId, ValueRef,
 };
 
 use crate::lexer::{Keyword, LexError, Lexer, Token};
@@ -1016,7 +1016,8 @@ impl<'src> Parser<'src> {
                 self.lex.expect(&Token::Comma)?;
                 let (then_val, ty) = self.parse_typed_value()?;
                 self.lex.expect(&Token::Comma)?;
-                let else_val = self.parse_value(ty)?;
+                // else_val may have an explicit type prefix (standard LLVM IR) or not.
+                let (else_val, _) = self.parse_typed_value()?;
                 Ok((
                     InstrKind::Select {
                         cond,
@@ -1053,8 +1054,19 @@ impl<'src> Parser<'src> {
                     let idx = self.lex.expect_uint_lit()? as u32;
                     indices.push(idx);
                 }
-                // Result type is field type — approximate as the aggregate type for now.
-                Ok((InstrKind::ExtractValue { aggregate, indices }, agg_ty))
+                // Walk the index chain to find the actual element type.
+                let mut result_ty = agg_ty;
+                for &idx in &indices {
+                    result_ty = match self.ctx.get_type(result_ty) {
+                        TypeData::Struct(s) => {
+                            s.fields.get(idx as usize).copied().unwrap_or(result_ty)
+                        }
+                        TypeData::Array { element, .. } => *element,
+                        TypeData::Vector { element, .. } => *element,
+                        _ => result_ty,
+                    };
+                }
+                Ok((InstrKind::ExtractValue { aggregate, indices }, result_ty))
             }
             Token::Kw(Keyword::Insertvalue) => {
                 self.lex.next()?;
@@ -1213,7 +1225,7 @@ impl<'src> Parser<'src> {
             Token::Kw(Keyword::Switch) => {
                 self.lex.next()?;
                 let void_ty = self.ctx.void_ty;
-                let (val, val_ty) = self.parse_typed_value()?;
+                let (val, _val_ty) = self.parse_typed_value()?;
                 self.lex.expect(&Token::Comma)?;
                 self.lex.expect_kw(&Keyword::Label)?;
                 let default_name = self.lex.expect_local_ident()?;
@@ -1221,7 +1233,8 @@ impl<'src> Parser<'src> {
                 self.lex.expect(&Token::LBracket)?;
                 let mut cases = Vec::new();
                 while !matches!(self.lex.peek()?, Token::RBracket) {
-                    let case_val = self.parse_value(val_ty)?;
+                    // Case values always carry an explicit type in standard LLVM IR (e.g. `i32 0`).
+                    let (case_val, _) = self.parse_typed_value()?;
                     self.lex.expect(&Token::Comma)?;
                     self.lex.expect_kw(&Keyword::Label)?;
                     let dest_name = self.lex.expect_local_ident()?;
@@ -1560,10 +1573,19 @@ impl<'src> Parser<'src> {
     }
 
     fn skip_trailing_fn_attrs(&mut self) -> Result<(), ParseError> {
-        // Skip `#N`, bare word attrs, etc. until `{` or EOF.
+        // Skip `#N`, bare word attrs, etc. until `{`, EOF, or next top-level token.
+        // Stopping at top-level tokens prevents consuming into the next definition
+        // when parsing a declaration (which has no `{`).
         loop {
             match self.lex.peek()? {
-                Token::LBrace | Token::Eof => break,
+                Token::LBrace
+                | Token::Eof
+                | Token::Kw(Keyword::Define)
+                | Token::Kw(Keyword::Declare)
+                | Token::GlobalIdent(_)
+                | Token::LocalIdent(_)
+                | Token::Kw(Keyword::Target)
+                | Token::Kw(Keyword::Source) => break,
                 Token::Hash => {
                     self.lex.next()?;
                     self.lex.next()?;
