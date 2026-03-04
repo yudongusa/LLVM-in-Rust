@@ -10,7 +10,7 @@
 //!    - If a free register exists, assign it.
 //!    - Otherwise spill the interval with the largest end point.
 
-use crate::isel::{MOperand, MachineFunction, PReg, VReg};
+use crate::isel::{MInstr, MOpcode, MOperand, MachineFunction, PReg, VReg};
 use std::collections::HashMap;
 
 // ── live intervals ─────────────────────────────────────────────────────────
@@ -160,13 +160,139 @@ pub fn linear_scan(intervals: &[LiveInterval], allocatable: &[PReg]) -> RegAlloc
     result
 }
 
+// ── spill/reload insertion ─────────────────────────────────────────────────
+
+/// Insert spill stores and reload loads for all spilled VRegs.
+///
+/// For each spilled VReg `v`:
+/// - After every instruction that **defines** `v`, insert a STORE of `v` to
+///   its frame slot using a fresh VReg.
+/// - Before every instruction that **uses** `v`, insert a LOAD from its frame
+///   slot into a fresh VReg, and replace the use with that fresh VReg.
+///
+/// Fresh VRegs are then allocated in a second linear-scan pass (they have very
+/// short live intervals so they virtually never cause additional spills).  The
+/// result is merged into `result`.
+///
+/// `load_op` / `store_op` are target-provided opcodes.  The instructions
+/// have the layout:
+/// - LOAD:  `dst = VReg(fresh), operands = [Imm(slot)]`
+/// - STORE: `dst = None,        operands = [Imm(slot), VReg(src)]`
+pub fn insert_spill_reloads(
+    mf: &mut MachineFunction,
+    result: &mut RegAllocResult,
+    load_op: MOpcode,
+    store_op: MOpcode,
+) {
+    if result.spilled.is_empty() {
+        return;
+    }
+
+    // Collect spilled VRegs and assign each a frame slot.
+    let spilled: Vec<VReg> = result.spilled.drain(..).collect();
+    for &vr in &spilled {
+        mf.alloc_spill_slot(vr);
+    }
+
+    // Rebuild every block's instruction list with loads/stores inserted.
+    for bi in 0..mf.blocks.len() {
+        let old_instrs: Vec<MInstr> = std::mem::take(&mut mf.blocks[bi].instrs);
+        let mut new_instrs: Vec<MInstr> = Vec::with_capacity(old_instrs.len() * 2);
+
+        for mut instr in old_instrs {
+            // 1) Before the instruction: reload every spilled VReg that appears
+            //    as a source operand, replacing the operand with a fresh VReg.
+            for op in &mut instr.operands {
+                if let MOperand::VReg(vr) = op {
+                    if let Some(&slot) = mf.spill_slots.get(vr) {
+                        let fresh = mf.fresh_vreg();
+                        // Insert LOAD before this instruction.
+                        new_instrs.push(MInstr::new(load_op).with_dst(fresh).with_imm(slot as i64));
+                        *op = MOperand::VReg(fresh);
+                    }
+                }
+            }
+
+            // 2) If the instruction defines a spilled VReg, rewrite dst to a
+            //    fresh VReg, emit the instruction, then insert a STORE.
+            let store_after = if let Some(dst_vr) = instr.dst {
+                if let Some(&slot) = mf.spill_slots.get(&dst_vr) {
+                    let fresh = mf.fresh_vreg();
+                    instr.dst = Some(fresh);
+                    Some((fresh, slot))
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            new_instrs.push(instr);
+
+            if let Some((fresh, slot)) = store_after {
+                new_instrs.push(MInstr::new(store_op).with_imm(slot as i64).with_vreg(fresh));
+            }
+        }
+
+        mf.blocks[bi].instrs = new_instrs;
+    }
+
+    // Second allocation pass for the fresh VRegs just created.
+    let fresh_intervals = compute_live_intervals(mf);
+    // Only allocate the truly-fresh VRegs (those not yet in result).
+    let fresh_only: Vec<LiveInterval> = fresh_intervals
+        .into_iter()
+        .filter(|iv| !result.vreg_to_preg.contains_key(&iv.vreg))
+        .collect();
+
+    if !fresh_only.is_empty() {
+        let alloc = mf.allocatable_pregs.clone();
+        let second = linear_scan(&fresh_only, &alloc);
+        // Merge — fresh VRegs should not spill given their tiny intervals.
+        for (vr, pr) in second.vreg_to_preg {
+            result.vreg_to_preg.insert(vr, pr);
+        }
+        // Any unexpected spills from fresh VRegs: just assign the first allocatable reg.
+        if !second.spilled.is_empty() {
+            let fallback = alloc.first().copied().unwrap_or(PReg(0));
+            for vr in second.spilled {
+                result.vreg_to_preg.entry(vr).or_insert(fallback);
+            }
+        }
+    }
+}
+
 // ── apply allocation ───────────────────────────────────────────────────────
 
 /// Replace `MOperand::VReg` with `MOperand::PReg` in `mf` according to
 /// `result`.  Also rewrites `instr.dst` so that the destination register
 /// number reflects the assigned physical register rather than the raw VReg
 /// counter.  Spilled VRegs are left unchanged (the caller must handle them).
+///
+/// Also populates `mf.used_callee_saved` with any callee-saved registers
+/// that were actually assigned during allocation.
 pub fn apply_allocation(mf: &mut MachineFunction, result: &RegAllocResult) {
+    // Collect callee-saved registers that are actually used.
+    let callee_saved: std::collections::HashSet<PReg> =
+        mf.callee_saved_pregs.iter().copied().collect();
+    let mut used_cs: std::collections::HashSet<PReg> = std::collections::HashSet::new();
+
+    for &pr in result.vreg_to_preg.values() {
+        if callee_saved.contains(&pr) {
+            used_cs.insert(pr);
+        }
+    }
+    mf.used_callee_saved = used_cs.into_iter().collect();
+    // Keep a stable order matching the original callee_saved_pregs list.
+    let order: HashMap<PReg, usize> = mf
+        .callee_saved_pregs
+        .iter()
+        .enumerate()
+        .map(|(i, &p)| (p, i))
+        .collect();
+    mf.used_callee_saved
+        .sort_by_key(|p| order.get(p).copied().unwrap_or(usize::MAX));
+
     for block in &mut mf.blocks {
         for instr in &mut block.instrs {
             // Rewrite destination VReg.
@@ -332,5 +458,108 @@ mod tests {
         assert_eq!(v0_iv.end, 2);
         // v1 defined at 1, never used → end = 2
         assert_eq!(v1_iv.start, 1);
+    }
+
+    #[test]
+    fn insert_spill_reloads_inserts_load_store() {
+        // Create a MachineFunction with a single register available and two
+        // simultaneously live VRegs → one must spill.
+        use crate::isel::{MInstr, MOpcode, MachineFunction};
+        const LOAD_OP: MOpcode = MOpcode(0xA0);
+        const STORE_OP: MOpcode = MOpcode(0xA1);
+
+        let mut mf = MachineFunction::new("spill_test".into());
+        mf.allocatable_pregs = vec![PReg(0)];
+        let b = mf.add_block("entry");
+
+        let v0 = mf.fresh_vreg();
+        let v1 = mf.fresh_vreg();
+        // instr 0: v0 = ...  (defines v0)
+        mf.push(b, MInstr::new(MOpcode(1)).with_dst(v0));
+        // instr 1: v1 = ... v0 ...  (defines v1, uses v0 — both live simultaneously)
+        mf.push(b, MInstr::new(MOpcode(2)).with_dst(v1).with_vreg(v0));
+        // instr 2: use v1
+        mf.push(b, MInstr::new(MOpcode(3)).with_vreg(v1));
+
+        let intervals = compute_live_intervals(&mf);
+        let mut result = linear_scan(&intervals, &mf.allocatable_pregs);
+
+        // With only 1 register, one VReg must spill.
+        assert_eq!(
+            result.spilled.len(),
+            1,
+            "one VReg must spill with 1 reg, 2 simultaneously live"
+        );
+
+        insert_spill_reloads(&mut mf, &mut result, LOAD_OP, STORE_OP);
+
+        // After insertion: no VReg should remain in result.spilled (they were processed).
+        assert!(
+            result.spilled.is_empty(),
+            "spilled list must be empty after insert_spill_reloads"
+        );
+
+        // The spill slot must have been allocated.
+        assert_eq!(mf.spill_slots.len(), 1, "one spill slot must be allocated");
+        assert!(mf.frame_size > 0, "frame_size must be non-zero after spill");
+
+        // The block must have more instructions than the original 3 (loads/stores inserted).
+        assert!(
+            mf.blocks[0].instrs.len() > 3,
+            "instructions must be inserted for load/store around the spilled VReg"
+        );
+
+        // Every LOAD_OP must have a dst, every STORE_OP must have no dst.
+        for instr in &mf.blocks[0].instrs {
+            if instr.opcode == LOAD_OP {
+                assert!(instr.dst.is_some(), "LOAD_OP must have a dst VReg");
+                assert!(
+                    matches!(instr.operands.first(), Some(MOperand::Imm(_))),
+                    "LOAD_OP first operand must be Imm(slot)"
+                );
+            } else if instr.opcode == STORE_OP {
+                assert!(instr.dst.is_none(), "STORE_OP must have no dst");
+                assert!(
+                    matches!(instr.operands.first(), Some(MOperand::Imm(_))),
+                    "STORE_OP first operand must be Imm(slot)"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn apply_allocation_populates_used_callee_saved() {
+        use crate::isel::{MInstr, MOpcode, MachineFunction};
+
+        let mut mf = MachineFunction::new("cs_test".into());
+        mf.allocatable_pregs = vec![PReg(0), PReg(3)]; // RAX and RBX
+        mf.callee_saved_pregs = vec![PReg(3)]; // RBX is callee-saved
+        let b = mf.add_block("entry");
+        let v0 = mf.fresh_vreg();
+        let v1 = mf.fresh_vreg();
+        mf.push(b, MInstr::new(MOpcode(0)).with_dst(v0));
+        mf.push(b, MInstr::new(MOpcode(1)).with_dst(v1).with_vreg(v0));
+
+        let intervals = compute_live_intervals(&mf);
+        let result = linear_scan(&intervals, &mf.allocatable_pregs);
+        // Ensure both are allocated (not spilled)
+        assert_eq!(result.spilled.len(), 0);
+
+        apply_allocation(&mut mf, &result);
+
+        // If RBX (PReg(3)) was used, it must appear in used_callee_saved.
+        let used_pregs: std::collections::HashSet<PReg> =
+            result.vreg_to_preg.values().copied().collect();
+        if used_pregs.contains(&PReg(3)) {
+            assert!(
+                mf.used_callee_saved.contains(&PReg(3)),
+                "used callee-saved PReg must appear in mf.used_callee_saved"
+            );
+        } else {
+            assert!(
+                !mf.used_callee_saved.contains(&PReg(3)),
+                "unused callee-saved PReg must not appear in mf.used_callee_saved"
+            );
+        }
     }
 }

@@ -4,6 +4,7 @@
 //! Target backends implement [`IselBackend`] to lower LLVM IR to machine IR.
 
 use llvm_ir::{Context, Function, Module};
+use std::collections::HashMap;
 
 // ── indices ────────────────────────────────────────────────────────────────
 
@@ -113,8 +114,14 @@ pub struct MachineFunction {
     pub allocatable_pregs: Vec<PReg>,
     /// Callee-saved physical registers (set by the target).
     pub callee_saved_pregs: Vec<PReg>,
-    /// Frame size in bytes (set by the target during lowering).
+    /// Frame size in bytes (spill slots only; set by insert_spill_reloads).
     pub frame_size: u32,
+    /// Map from spilled VReg → frame slot index (0-based; emitter converts to byte offset).
+    pub spill_slots: HashMap<VReg, u32>,
+    /// Callee-saved physical registers actually used by this function (populated by apply_allocation).
+    pub used_callee_saved: Vec<PReg>,
+    /// Counter for frame slot allocation.
+    next_slot: u32,
 }
 
 impl MachineFunction {
@@ -126,6 +133,9 @@ impl MachineFunction {
             allocatable_pregs: Vec::new(),
             callee_saved_pregs: Vec::new(),
             frame_size: 0,
+            spill_slots: HashMap::new(),
+            used_callee_saved: Vec::new(),
+            next_slot: 0,
         }
     }
 
@@ -134,6 +144,23 @@ impl MachineFunction {
         let id = self.next_vreg;
         self.next_vreg += 1;
         VReg(id)
+    }
+
+    /// Allocate a fresh frame slot for a spilled VReg and return its index.
+    ///
+    /// Slot 0 is the first 8-byte slot below the frame pointer.  The emitter
+    /// converts a slot index `n` to a byte offset (e.g. x86: `-(n+1)*8` from
+    /// RBP; AArch64: `(n+2)*8` above the saved FP/LR pair).
+    pub fn alloc_spill_slot(&mut self, vreg: VReg) -> u32 {
+        if let Some(&existing) = self.spill_slots.get(&vreg) {
+            return existing;
+        }
+        let slot = self.next_slot;
+        self.next_slot += 1;
+        self.spill_slots.insert(vreg, slot);
+        // Update frame_size: each slot is 8 bytes.
+        self.frame_size = self.next_slot * 8;
+        slot
     }
 
     /// Append a new empty machine block and return its index.

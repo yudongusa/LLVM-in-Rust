@@ -8,3 +8,4 @@ pub mod schedule;
 
 pub use emit::{emit_object, Emitter, ObjectFile, ObjectFormat, Reloc, RelocKind, Section, Symbol};
 pub use isel::{IselBackend, MInstr, MOpcode, MOperand, MachineBlock, MachineFunction, PReg, VReg};
+pub use regalloc::{apply_allocation, compute_live_intervals, insert_spill_reloads, linear_scan};

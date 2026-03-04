@@ -4,12 +4,15 @@ extern crate test;
 use llvm_codegen::{
     emit_object,
     isel::IselBackend,
-    regalloc::{apply_allocation, compute_live_intervals, linear_scan},
+    regalloc::{apply_allocation, compute_live_intervals, insert_spill_reloads, linear_scan},
     ObjectFormat,
 };
 use llvm_ir::{Builder, Context, Linkage, Module, Printer};
 use llvm_ir_parser::parser::parse;
-use llvm_target_x86::{X86Backend, X86Emitter};
+use llvm_target_x86::{
+    instructions::{MOV_LOAD_MR, MOV_STORE_RM},
+    X86Backend, X86Emitter,
+};
 use llvm_transforms::{pass::PassManager, DeadCodeElim, Mem2Reg};
 use test::Bencher;
 
@@ -28,7 +31,8 @@ fn codegen_module(ctx: &Context, module: &Module) {
         }
         let mut mf = backend.lower_function(ctx, module, func);
         let intervals = compute_live_intervals(&mf);
-        let result = linear_scan(&intervals, &mf.allocatable_pregs);
+        let mut result = linear_scan(&intervals, &mf.allocatable_pregs);
+        insert_spill_reloads(&mut mf, &mut result, MOV_LOAD_MR, MOV_STORE_RM);
         apply_allocation(&mut mf, &result);
         let mut emitter = X86Emitter::new(ObjectFormat::Elf);
         emit_object(&mf, &mut emitter);

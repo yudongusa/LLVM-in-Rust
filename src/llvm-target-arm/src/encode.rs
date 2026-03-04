@@ -29,10 +29,63 @@ impl Emitter for AArch64Emitter {
     fn emit_function(&mut self, mf: &MachineFunction) -> Section {
         let mut ctx = EncodeCtx::default();
 
+        // Determine whether we need a frame (x29/x30 save + sub-sp).
+        // Needed when there are spill slots OR when callee-saved regs were used.
+        let n_cs = mf.used_callee_saved.len();
+        let needs_frame = mf.frame_size > 0 || n_cs > 0;
+
+        // Frame layout (x29 = new SP after pre-index):
+        //   [x29 +  0] saved x29
+        //   [x29 +  8] saved x30 (LR)
+        //   [x29 + 16]                    ← callee-saved regs start
+        //   [x29 + 16 + i*8]  saved X(19+i) for i in 0..n_cs
+        //   [x29 + 16 + n_cs*8 + slot*8]  spill slots
+        let cs_save_size = n_cs * 8;
+        let frame_alloc = if needs_frame {
+            ((16 + cs_save_size + mf.frame_size as usize) + 15) & !15
+        } else {
+            0
+        };
+
+        ctx.cs_save_count = n_cs as u32;
+
+        // Emit prologue.
+        if needs_frame {
+            let frame_alloc_u32 = frame_alloc as u32;
+            // stp x29, x30, [sp, #-frame_alloc]!
+            // Encoding: 0xA9800000 | (imm7 << 15) | (x30=30 << 10) | (sp=31 << 5) | x29=29
+            // imm7 = -frame_alloc/8 (signed 7-bit)
+            let imm7 = ((-((frame_alloc_u32 / 8) as i32)) as u32) & 0x7F;
+            ctx.emit4(0xA9800000 | (imm7 << 15) | (30 << 10) | (31 << 5) | 29);
+            // add x29, sp, #0  (mov x29, sp)
+            ctx.emit4(0x910003FD);
+            // str Xreg, [x29, #(16 + i*8)] for each callee-saved register.
+            // Unsigned-offset form: 0xF9000000 | (imm12 << 10) | (x29=29 << 5) | Rt
+            for (i, &pr) in mf.used_callee_saved.iter().enumerate() {
+                let rt = crate::regs::reg_enc(pr) as u32;
+                let imm12 = (2 + i as u32) & 0xFFF; // (16 + i*8) / 8
+                ctx.emit4(0xF9000000 | (imm12 << 10) | (29 << 5) | rt);
+            }
+        }
+
         // First pass: encode all instructions, recording branch patch sites.
         for (bi, block) in mf.blocks.iter().enumerate() {
             ctx.block_offsets.insert(bi, ctx.code.len());
             for instr in &block.instrs {
+                // Emit epilogue before any RET when we have a frame.
+                if instr.opcode == RET && needs_frame {
+                    // ldr Xreg, [x29, #(16 + i*8)] for each callee-saved reg (reverse order).
+                    for (i, &pr) in mf.used_callee_saved.iter().enumerate().rev() {
+                        let rt = crate::regs::reg_enc(pr) as u32;
+                        let imm12 = (2 + i as u32) & 0xFFF;
+                        ctx.emit4(0xF9400000 | (imm12 << 10) | (29 << 5) | rt);
+                    }
+                    // ldp x29, x30, [sp], #frame_alloc (post-index)
+                    // Encoding: 0xA8C00000 | (imm7 << 15) | (x30=30 << 10) | (sp=31 << 5) | x29=29
+                    let frame_alloc_u32 = frame_alloc as u32;
+                    let imm7 = ((frame_alloc_u32 / 8) as u32) & 0x7F;
+                    ctx.emit4(0xA8C00000 | (imm7 << 15) | (30 << 10) | (31 << 5) | 29);
+                }
                 encode_instr(instr, &mut ctx);
             }
         }
@@ -98,6 +151,10 @@ struct EncodeCtx {
     branch_patches: Vec<(usize, usize)>,
     block_offsets: HashMap<usize, usize>,
     relocs: Vec<Reloc>,
+    /// Number of callee-saved registers (X19–X28) saved in the prologue.
+    /// Used by LDR_FP/STR_FP to compute the x29-relative slot offset:
+    /// spill slot n lives at [x29 + 16 + cs_save_count*8 + n*8].
+    cs_save_count: u32,
 }
 
 impl EncodeCtx {
@@ -287,9 +344,10 @@ fn encode_instr(instr: &MInstr, ctx: &mut EncodeCtx) {
                 let hw_cond = cc_to_hw(cc);
                 // Invert condition for CSET encoding (CSINC with inverted cond).
                 let inv_cond = hw_cond ^ 1;
-                // CSINC Rd, XZR, XZR, inv_cond: 0x9A9F0FE0 base | (inv_cond<<12) | Rd
-                // Full encoding: 0x9A9F17E0 clears the cond field from base.
-                ctx.emit4(0x9A9F07E0 | ((inv_cond as u32) << 12) | rd);
+                // CSINC Rd, XZR, XZR, inv_cond.
+                // Base constant: sf=1, op=0, S=0, bits[28:21]=11010110, Rm=XZR(31),
+                // cond=0000, o2=0, o1=1, Rn=XZR(31), Rd=0 → 0x9ADF07E0.
+                ctx.emit4(0x9ADF07E0 | ((inv_cond as u32) << 12) | rd);
             } else {
                 ctx.emit4(0xD503201F);
             }
@@ -379,9 +437,36 @@ fn encode_instr(instr: &MInstr, ctx: &mut EncodeCtx) {
             }
         }
 
-        // ── LDR / STR (placeholder: NOP) ─────────────────────────────────
+        // ── LDR / STR (generic: placeholder NOP) ─────────────────────────
         LDR | STR => {
             ctx.emit4(0xD503201F);
+        }
+
+        // ── LDR_FP: ldr xd, [x29, #(16 + cs_save_count*8 + slot*8)] ────
+        // Unsigned offset form: 0xF9400000 | (imm12 << 10) | (Rn << 5) | Rt
+        // imm12 = (16 + cs_save_count*8 + slot*8) / 8 = 2 + cs_save_count + slot.
+        LDR_FP => {
+            if let (Some(dst), Some(MOperand::Imm(slot))) = (instr.dst, instr.operands.first()) {
+                let rd = reg_enc(PReg(dst.0 as u8)) as u32;
+                let imm12 = (2 + ctx.cs_save_count + *slot as u32) & 0xFFF;
+                ctx.emit4(0xF9400000 | (imm12 << 10) | (29 << 5) | rd);
+            } else {
+                ctx.emit4(0xD503201F);
+            }
+        }
+
+        // ── STR_FP: str xs, [x29, #(16 + cs_save_count*8 + slot*8)] ────
+        // Unsigned offset form: 0xF9000000 | (imm12 << 10) | (Rn << 5) | Rt
+        STR_FP => {
+            if let (Some(MOperand::Imm(slot)), Some(src)) =
+                (instr.operands.first(), instr.operands.get(1).and_then(preg))
+            {
+                let rt = reg_enc(src) as u32;
+                let imm12 = (2 + ctx.cs_save_count + *slot as u32) & 0xFFF;
+                ctx.emit4(0xF9000000 | (imm12 << 10) | (29 << 5) | rt);
+            } else {
+                ctx.emit4(0xD503201F);
+            }
         }
 
         // ── unsupported: emit NOP ─────────────────────────────────────────
@@ -597,6 +682,160 @@ mod tests {
     }
 
     #[test]
+    fn ldr_fp_slot0_encodes_correctly() {
+        // LDR_FP: ldr x0, [x29, #16]  (slot 0 → imm12 = 2+0 = 2)
+        // Encoding: 0xF9400000 | (2 << 10) | (29 << 5) | 0
+        //         = 0xF9400000 | 0x800 | 0x3A0 | 0 = 0xF9400BA0
+        use crate::instructions::LDR_FP;
+        let mi = MInstr {
+            opcode: LDR_FP,
+            dst: Some(VReg(X0.0 as u32)),
+            operands: vec![MOperand::Imm(0)],
+            phys_uses: vec![],
+            clobbers: vec![],
+        };
+        let mf = single_block_mf("ldr_fp_fn", vec![mi]);
+        let mut e = AArch64Emitter::new(ObjectFormat::Elf);
+        let sec = e.emit_function(&mf);
+        let word = u32::from_le_bytes([sec.data[0], sec.data[1], sec.data[2], sec.data[3]]);
+        // 0xF9400000 | (2 << 10) | (29 << 5) | 0
+        let expected = 0xF9400000u32 | (2 << 10) | (29 << 5);
+        assert_eq!(word, expected, "ldr x0, [x29, #16] encoding");
+    }
+
+    #[test]
+    fn str_fp_slot0_encodes_correctly() {
+        // STR_FP: str x1, [x29, #16]  (slot 0 → imm12 = 2)
+        // Encoding: 0xF9000000 | (2 << 10) | (29 << 5) | 1
+        use crate::instructions::STR_FP;
+        let mi = MInstr {
+            opcode: STR_FP,
+            dst: None,
+            operands: vec![MOperand::Imm(0), MOperand::PReg(X1)],
+            phys_uses: vec![],
+            clobbers: vec![],
+        };
+        let mf = single_block_mf("str_fp_fn", vec![mi]);
+        let mut e = AArch64Emitter::new(ObjectFormat::Elf);
+        let sec = e.emit_function(&mf);
+        let word = u32::from_le_bytes([sec.data[0], sec.data[1], sec.data[2], sec.data[3]]);
+        let expected = 0xF9000000u32 | (2 << 10) | (29 << 5) | 1;
+        assert_eq!(word, expected, "str x1, [x29, #16] encoding");
+    }
+
+    #[test]
+    fn prologue_emitted_when_frame_size_nonzero() {
+        // frame_size=8 → N=(16+8+15)&!15=32 → imm7=-4 → stp x29,x30,[sp,#-32]!
+        // stp encoding: 0xA9800000 | (imm7<<15) | (30<<10) | (31<<5) | 29
+        // imm7 = (-32/8) as u32 & 0x7F = (-4i32 as u32) & 0x7F = 0x7C
+        // = 0xA9800000 | (0x7C<<15) | (30<<10) | (31<<5) | 29
+        // = 0xA9800000 | 0x3E00000 | 0x7800 | 0x3E0 | 0x1D = 0xABBE7BFD
+        // (let's verify the bytes instead of the whole word)
+        let mut mf = MachineFunction::new("framed_fn".into());
+        mf.frame_size = 8; // 1 spill slot
+        let b = mf.add_block("entry");
+        mf.push(b, MInstr::new(RET));
+        let mut e = AArch64Emitter::new(ObjectFormat::Elf);
+        let sec = e.emit_function(&mf);
+
+        // Must have at least prologue (4B stp + 4B add) + epilogue (4B ldp) + ret (4B) = 16 bytes.
+        assert!(sec.data.len() >= 16, "must have prologue+epilogue+ret");
+
+        // First instruction: stp x29, x30, [sp, #-N]! — high byte should indicate STP pre-index.
+        let w0 = u32::from_le_bytes([sec.data[0], sec.data[1], sec.data[2], sec.data[3]]);
+        // STP pre-index 64-bit: bits[31:23] = 101010011 = 0xA9...(high bits), bit[22]=0(store)
+        assert_eq!(
+            w0 & 0xFFC00000,
+            0xA9800000,
+            "first word should be STP pre-index store (0xA98xxxxx)"
+        );
+
+        // Second instruction: add x29, sp, #0 = 0x910003FD
+        let w1 = u32::from_le_bytes([sec.data[4], sec.data[5], sec.data[6], sec.data[7]]);
+        assert_eq!(w1, 0x910003FD, "second word must be add x29, sp, #0");
+
+        // Epilogue before RET: ldp x29, x30, [sp], #N — bits[31:23] indicate LDP post-index.
+        let epilogue_off = sec.data.len() - 8; // ldp is 4B before ret 4B
+        let w_ldp = u32::from_le_bytes([
+            sec.data[epilogue_off],
+            sec.data[epilogue_off + 1],
+            sec.data[epilogue_off + 2],
+            sec.data[epilogue_off + 3],
+        ]);
+        // LDP post-index 64-bit load: bits[31:22] = 1010100011 = 0xA8C
+        assert_eq!(
+            w_ldp & 0xFFC00000,
+            0xA8C00000,
+            "epilogue should be LDP post-index load (0xA8Cxxxxx)"
+        );
+
+        // Last instruction: RET = 0xD65F03C0
+        let w_ret = u32::from_le_bytes([
+            sec.data[sec.data.len() - 4],
+            sec.data[sec.data.len() - 3],
+            sec.data[sec.data.len() - 2],
+            sec.data[sec.data.len() - 1],
+        ]);
+        assert_eq!(w_ret, 0xD65F03C0, "last instruction must be RET");
+    }
+
+    #[test]
+    fn no_prologue_when_frame_size_zero() {
+        // frame_size=0 → no prologue/epilogue → just RET.
+        let mf = single_block_mf("plain_fn", vec![MInstr::new(RET)]);
+        let mut e = AArch64Emitter::new(ObjectFormat::Elf);
+        let sec = e.emit_function(&mf);
+        assert_eq!(sec.data.len(), 4, "only RET (4 bytes), no prologue");
+        let w = u32::from_le_bytes([sec.data[0], sec.data[1], sec.data[2], sec.data[3]]);
+        assert_eq!(w, 0xD65F03C0, "must be RET");
+    }
+
+    #[test]
+    fn spill_end_to_end_aarch64() {
+        use crate::instructions::{LDR_FP, STR_FP};
+        use crate::regs::X0;
+        use llvm_codegen::isel::MOpcode;
+        use llvm_codegen::regalloc::{
+            apply_allocation, compute_live_intervals, insert_spill_reloads, linear_scan,
+        };
+
+        let mut mf = MachineFunction::new("spill_e2e_arm".into());
+        // Only 1 allocatable register → forces a spill.
+        mf.allocatable_pregs = vec![X0];
+        mf.callee_saved_pregs = vec![];
+        let b = mf.add_block("entry");
+        let v0 = mf.fresh_vreg();
+        mf.push(b, MInstr::new(MOpcode(0x10)).with_dst(v0));
+        let v1 = mf.fresh_vreg();
+        mf.push(b, MInstr::new(MOpcode(0x10)).with_dst(v1).with_vreg(v0));
+        mf.push(b, MInstr::new(RET));
+
+        let intervals = compute_live_intervals(&mf);
+        let mut result = linear_scan(&intervals, &mf.allocatable_pregs);
+        assert!(!result.spilled.is_empty(), "must have spills");
+        insert_spill_reloads(&mut mf, &mut result, LDR_FP, STR_FP);
+        apply_allocation(&mut mf, &result);
+
+        let mut e = AArch64Emitter::new(ObjectFormat::Elf);
+        let sec = e.emit_function(&mf);
+
+        assert!(!sec.data.is_empty(), "emitted code must be non-empty");
+        // Prologue must be present (frame_size > 0): first word is STP.
+        let w0 = u32::from_le_bytes([sec.data[0], sec.data[1], sec.data[2], sec.data[3]]);
+        assert_eq!(
+            w0 & 0xFFC00000,
+            0xA9800000,
+            "prologue STP must be first instruction"
+        );
+        // RET = 0xD65F03C0 must be present somewhere.
+        let found_ret = sec
+            .data
+            .chunks(4)
+            .any(|c| c.len() == 4 && u32::from_le_bytes([c[0], c[1], c[2], c[3]]) == 0xD65F03C0);
+        assert!(found_ret, "RET must be present in emitted code");
+    }
+
+    #[test]
     fn mov_wide_64bit_emits_four_chunks() {
         // 0xDEAD_CAFE_1234_5678:
         //   chunk0 [15: 0] = 0x5678  → MOVZ X0, #0x5678          = 0xD280_ACF0
@@ -657,6 +896,182 @@ mod tests {
             "fourth word must be MOVK lsl 48 (0xF2E0_0000)"
         );
         assert_eq!((w3 >> 5) & 0xFFFF, 0xDEAD, "chunk3 must be 0xDEAD");
+    }
+
+    // ── issue #73: CSINC (CSET) encoding ─────────────────────────────────
+
+    #[test]
+    fn cset_eq_encodes_correctly() {
+        // CSET X0, EQ  →  CSINC X0, XZR, XZR, NE  (inv_cond = EQ^1 = NE = 1)
+        // Base: 0x9ADF07E0; cond field at bits[15:12]; rd at bits[4:0].
+        // inv_cond = 1 (NE), Rd = X0 = 0
+        // → 0x9ADF07E0 | (1 << 12) | 0 = 0x9ADF17E0
+        use crate::instructions::CSET;
+        let mi = MInstr {
+            opcode: CSET,
+            dst: Some(VReg(X0.0 as u32)),
+            operands: vec![MOperand::Imm(CC_EQ)],
+            phys_uses: vec![],
+            clobbers: vec![],
+        };
+        let mf = single_block_mf("cset_fn", vec![mi]);
+        let mut e = AArch64Emitter::new(ObjectFormat::Elf);
+        let sec = e.emit_function(&mf);
+        let word = u32::from_le_bytes([sec.data[0], sec.data[1], sec.data[2], sec.data[3]]);
+        // CSINC X0, XZR, XZR, NE: bits[31:21]=10011010110, Rm=31, cond=0001, o2o1=01, Rn=31, Rd=0
+        // = 0x9ADF07E0 | (1 << 12) = 0x9ADF17E0
+        assert_eq!(
+            word, 0x9ADF17E0,
+            "CSET X0, EQ must encode as CSINC X0, XZR, XZR, NE = 0x9ADF17E0"
+        );
+        // Verify the old wrong constant is NOT present (sanity check against regression).
+        assert_ne!(
+            word & 0xFFFF0000,
+            0x9A9F0000,
+            "old wrong base 0x9A9F07E0 must not be used"
+        );
+    }
+
+    #[test]
+    fn cset_lt_encodes_correctly() {
+        // CSET X1, LT  →  CSINC X1, XZR, XZR, GE  (inv_cond = LT^1 = GE = 10^1 = 11 = 11)
+        // cc_to_hw(CC_LT) = 11 (LT), inv_cond = 11^1 = 10 (GE)
+        // Rd = X1 = reg_enc(X1) = 1
+        // → 0x9ADF07E0 | (10 << 12) | 1 = 0x9ADFA7E1
+        use crate::instructions::CSET;
+        let mi = MInstr {
+            opcode: CSET,
+            dst: Some(VReg(X1.0 as u32)),
+            operands: vec![MOperand::Imm(CC_LT)],
+            phys_uses: vec![],
+            clobbers: vec![],
+        };
+        let mf = single_block_mf("cset_lt_fn", vec![mi]);
+        let mut e = AArch64Emitter::new(ObjectFormat::Elf);
+        let sec = e.emit_function(&mf);
+        let word = u32::from_le_bytes([sec.data[0], sec.data[1], sec.data[2], sec.data[3]]);
+        // hw_cond(LT) = 11, inv = 10, Rd = 1
+        // = 0x9ADF07E0 | (10 << 12) | 1 = 0x9ADFA7E1
+        assert_eq!(
+            word, 0x9ADFA7E1,
+            "CSET X1, LT must encode as CSINC X1, XZR, XZR, GE = 0x9ADFA7E1"
+        );
+    }
+
+    // ── issue #74: AArch64 callee-saved register save/restore ────────────
+
+    #[test]
+    fn prologue_saves_callee_saved_regs() {
+        // A function that uses X19 (callee-saved) should emit:
+        //   stp x29, x30, [sp, #-N]!
+        //   add x29, sp, #0
+        //   str x19, [x29, #16]          ← callee-saved save
+        //   ...
+        //   ldr x19, [x29, #16]          ← callee-saved restore
+        //   ldp x29, x30, [sp], #N
+        //   ret
+        use crate::regs::*;
+        let mut mf = MachineFunction::new("cs_fn".into());
+        mf.used_callee_saved = vec![X19];
+        let b = mf.add_block("entry");
+        mf.push(b, MInstr::new(RET));
+
+        let mut e = AArch64Emitter::new(ObjectFormat::Elf);
+        let sec = e.emit_function(&mf);
+
+        // Layout: stp(4) + add(4) + str_x19(4) + ldr_x19(4) + ldp(4) + ret(4) = 24 bytes
+        assert_eq!(sec.data.len(), 24, "must have prologue + cs saves + epilogue + ret");
+
+        // Word 0: STP pre-index
+        let w0 = u32::from_le_bytes([sec.data[0], sec.data[1], sec.data[2], sec.data[3]]);
+        assert_eq!(w0 & 0xFFC00000, 0xA9800000, "word 0 must be STP pre-index");
+
+        // Word 1: add x29, sp, #0 = 0x910003FD
+        let w1 = u32::from_le_bytes([sec.data[4], sec.data[5], sec.data[6], sec.data[7]]);
+        assert_eq!(w1, 0x910003FD, "word 1 must be add x29, sp, #0");
+
+        // Word 2: str x19, [x29, #16]
+        // STR unsigned-offset: 0xF9000000 | (imm12=2 << 10) | (29 << 5) | reg_enc(X19)
+        // X19 = PReg(19), reg_enc = 19 & 0x1F = 19
+        let w2 = u32::from_le_bytes([sec.data[8], sec.data[9], sec.data[10], sec.data[11]]);
+        let expected_str = 0xF9000000u32 | (2 << 10) | (29 << 5) | 19;
+        assert_eq!(w2, expected_str, "word 2 must be str x19, [x29, #16]");
+
+        // Word 3 (epilogue): ldr x19, [x29, #16]
+        let w3 = u32::from_le_bytes([sec.data[12], sec.data[13], sec.data[14], sec.data[15]]);
+        let expected_ldr = 0xF9400000u32 | (2 << 10) | (29 << 5) | 19;
+        assert_eq!(w3, expected_ldr, "word 3 must be ldr x19, [x29, #16]");
+
+        // Word 4: LDP post-index
+        let w4 = u32::from_le_bytes([sec.data[16], sec.data[17], sec.data[18], sec.data[19]]);
+        assert_eq!(w4 & 0xFFC00000, 0xA8C00000, "word 4 must be LDP post-index");
+
+        // Word 5: RET
+        let w5 = u32::from_le_bytes([sec.data[20], sec.data[21], sec.data[22], sec.data[23]]);
+        assert_eq!(w5, 0xD65F03C0, "word 5 must be RET");
+    }
+
+    #[test]
+    fn needs_frame_when_callee_saved_but_no_spills() {
+        // used_callee_saved non-empty but frame_size == 0 — must still emit prologue.
+        use crate::regs::X20;
+        let mut mf = MachineFunction::new("cs_noframe".into());
+        mf.used_callee_saved = vec![X20];
+        // frame_size is 0 (no spill slots)
+        let b = mf.add_block("entry");
+        mf.push(b, MInstr::new(RET));
+
+        let mut e = AArch64Emitter::new(ObjectFormat::Elf);
+        let sec = e.emit_function(&mf);
+
+        // Must have more than just RET (prologue must be present).
+        assert!(sec.data.len() > 4, "must emit prologue even with no spill slots");
+        let w0 = u32::from_le_bytes([sec.data[0], sec.data[1], sec.data[2], sec.data[3]]);
+        assert_eq!(
+            w0 & 0xFFC00000,
+            0xA9800000,
+            "first word must be STP (prologue) even when frame_size == 0"
+        );
+    }
+
+    #[test]
+    fn spill_slot_offset_accounts_for_callee_saved() {
+        // With 1 callee-saved reg, spill slot 0 should be at [x29 + 24] (imm12 = 3),
+        // not [x29 + 16] (imm12 = 2).
+        use crate::instructions::LDR_FP;
+        use crate::regs::X19;
+        let mut mf = MachineFunction::new("cs_slot_fn".into());
+        mf.used_callee_saved = vec![X19];
+        mf.frame_size = 8; // 1 spill slot
+        let b = mf.add_block("entry");
+        let v = mf.fresh_vreg();
+        mf.push(
+            b,
+            MInstr {
+                opcode: LDR_FP,
+                dst: Some(v),
+                operands: vec![MOperand::Imm(0)], // slot 0
+                phys_uses: vec![],
+                clobbers: vec![],
+            },
+        );
+        mf.push(b, MInstr::new(RET));
+
+        let mut e = AArch64Emitter::new(ObjectFormat::Elf);
+        let sec = e.emit_function(&mf);
+
+        // Find the LDR_FP instruction.  Layout:
+        //   stp(4) + add(4) + str_x19(4) + ldr_fp(4) + ldr_x19(4) + ldp(4) + ret(4) = 28B
+        // LDR_FP is at byte offset 12.
+        let ldr_word =
+            u32::from_le_bytes([sec.data[12], sec.data[13], sec.data[14], sec.data[15]]);
+        // imm12 should be 3 (= 2 + cs_save_count=1 + slot=0)
+        // ldr x_reg, [x29, #24]: 0xF9400000 | (3 << 10) | (29 << 5) | rd
+        let imm12_actual = (ldr_word >> 10) & 0xFFF;
+        assert_eq!(
+            imm12_actual, 3,
+            "with 1 callee-saved reg, slot 0 should be at imm12=3 ([x29, #24]), not imm12=2"
+        );
     }
 
     #[test]

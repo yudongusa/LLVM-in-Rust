@@ -88,6 +88,12 @@ pub const NOP: MOpcode = MOpcode(0x70);
 /// `lea dst, [base + imm]`  — imm stored as `Imm` operand.
 pub const LEA_RI: MOpcode = MOpcode(0x71);
 
+// ── frame (spill) access ───────────────────────────────────────────────────
+/// `mov dst, [rbp + disp]`  — spill reload.  `dst` = VReg, `operands[0]` = `Imm(slot)`.
+pub const MOV_LOAD_MR: MOpcode = MOpcode(0x72);
+/// `mov [rbp + disp], src`  — spill store.  `dst` = None, `operands[0]` = `Imm(slot)`, `operands[1]` = VReg/PReg(src).
+pub const MOV_STORE_RM: MOpcode = MOpcode(0x73);
+
 // ── condition codes (used as Imm operands with JCC / SETCC) ────────────────
 pub const CC_EQ: i64 = 0; // je  / jz
 pub const CC_NE: i64 = 1; // jne / jnz

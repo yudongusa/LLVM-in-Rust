@@ -24,6 +24,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "llvm-bench"
+version = "0.1.0"
+dependencies = [
+ "llvm-analysis",
+ "llvm-codegen",
+ "llvm-ir",
+ "llvm-ir-parser",
+ "llvm-target-x86",
+ "llvm-transforms",
+]
+
+[[package]]
 name = "llvm-bitcode"
 version = "0.1.0"
 dependencies = [
