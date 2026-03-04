@@ -164,19 +164,25 @@ fn encode_instr(instr: &MInstr, ctx: &mut EncodeCtx) {
             }
         }
 
-        // ── MOV_WIDE (movz + movk for 64-bit immediates) ───────────────────
+        // ── MOV_WIDE (movz + up to 3×movk for full 64-bit immediates) ───────
+        // Encoding:
+        //   MOVZ Xd, #chunk, lsl  0 : 0xD2800000 | (chunk<<5) | Rd
+        //   MOVK Xd, #chunk, lsl 16 : 0xF2A00000 | (chunk<<5) | Rd
+        //   MOVK Xd, #chunk, lsl 32 : 0xF2C00000 | (chunk<<5) | Rd
+        //   MOVK Xd, #chunk, lsl 48 : 0xF2E00000 | (chunk<<5) | Rd
         MOV_WIDE => {
             if let (Some(dst), Some(val)) = (instr.dst, instr.operands.first().and_then(imm)) {
                 let rd = reg_enc(PReg(dst.0 as u8)) as u32;
                 let val_u64 = val as u64;
-                let lo16 = (val_u64 & 0xFFFF) as u32;
-                let hi16 = ((val_u64 >> 16) & 0xFFFF) as u32;
-                // movz xd, #lo16
-                ctx.emit4(0xD2800000 | (lo16 << 5) | rd);
-                if hi16 != 0 {
-                    // movk xd, #hi16, lsl 16
-                    ctx.emit4(0xF2A00000 | (hi16 << 5) | rd);
-                }
+                let chunk0 = ((val_u64      ) & 0xFFFF) as u32;
+                let chunk1 = ((val_u64 >> 16) & 0xFFFF) as u32;
+                let chunk2 = ((val_u64 >> 32) & 0xFFFF) as u32;
+                let chunk3 = ((val_u64 >> 48) & 0xFFFF) as u32;
+                // Always emit MOVZ for chunk0 (clears the register).
+                ctx.emit4(0xD2800000 | (chunk0 << 5) | rd);
+                if chunk1 != 0 { ctx.emit4(0xF2A00000 | (chunk1 << 5) | rd); }
+                if chunk2 != 0 { ctx.emit4(0xF2C00000 | (chunk2 << 5) | rd); }
+                if chunk3 != 0 { ctx.emit4(0xF2E00000 | (chunk3 << 5) | rd); }
             } else {
                 ctx.emit4(0xD503201F);
             }
@@ -552,5 +558,72 @@ mod tests {
         let sec = e.emit_function(&mf);
         // RET = 0xD65F03C0; byte 0 = 0xC0
         assert!(sec.data.contains(&0xC0), "RET byte 0 (0xC0) must be in code");
+    }
+
+    #[test]
+    fn mov_wide_64bit_emits_four_chunks() {
+        // 0xDEAD_CAFE_1234_5678:
+        //   chunk0 [15: 0] = 0x5678  → MOVZ X0, #0x5678          = 0xD280_ACF0
+        //   chunk1 [31:16] = 0x1234  → MOVK X0, #0x1234, lsl 16  = 0xF2A2_4680
+        //   chunk2 [47:32] = 0xCAFE  → MOVK X0, #0xCAFE, lsl 32  = 0xF2C9_5FC0
+        //   chunk3 [63:48] = 0xDEAD  → MOVK X0, #0xDEAD, lsl 48  = 0xF2EB_D5A0
+        let val: i64 = 0xDEAD_CAFE_1234_5678_u64 as i64;
+        let mi = MInstr {
+            opcode: MOV_WIDE,
+            dst: Some(VReg(X0.0 as u32)),
+            operands: vec![MOperand::Imm(val)],
+            phys_uses: vec![],
+            clobbers: vec![],
+        };
+        let mf = single_block_mf("mov_wide_fn", vec![mi]);
+        let mut e = AArch64Emitter::new(ObjectFormat::Elf);
+        let sec = e.emit_function(&mf);
+
+        // Must emit exactly 4 instructions (4 × 4 bytes = 16 bytes).
+        assert_eq!(sec.data.len(), 16,
+            "MOV_WIDE with a full 64-bit value must emit 4 instructions (16 bytes)");
+
+        // First instruction: MOVZ X0, #0x5678 — 0xD280_ACF0
+        let w0 = u32::from_le_bytes([sec.data[0], sec.data[1], sec.data[2], sec.data[3]]);
+        assert_eq!(w0 & 0xFFE0_001F, 0xD280_0000,
+            "first word must be MOVZ (opcode 0xD280_0000 with chunk in bits[20:5])");
+        assert_eq!((w0 >> 5) & 0xFFFF, 0x5678, "chunk0 must be 0x5678");
+
+        // Second instruction: MOVK X0, #0x1234, lsl 16 — base 0xF2A0_0000
+        let w1 = u32::from_le_bytes([sec.data[4], sec.data[5], sec.data[6], sec.data[7]]);
+        assert_eq!(w1 & 0xFFE0_001F, 0xF2A0_0000,
+            "second word must be MOVK lsl 16 (0xF2A0_0000)");
+        assert_eq!((w1 >> 5) & 0xFFFF, 0x1234, "chunk1 must be 0x1234");
+
+        // Third instruction: MOVK X0, #0xCAFE, lsl 32 — base 0xF2C0_0000
+        let w2 = u32::from_le_bytes([sec.data[8], sec.data[9], sec.data[10], sec.data[11]]);
+        assert_eq!(w2 & 0xFFE0_001F, 0xF2C0_0000,
+            "third word must be MOVK lsl 32 (0xF2C0_0000)");
+        assert_eq!((w2 >> 5) & 0xFFFF, 0xCAFE, "chunk2 must be 0xCAFE");
+
+        // Fourth instruction: MOVK X0, #0xDEAD, lsl 48 — base 0xF2E0_0000
+        let w3 = u32::from_le_bytes([sec.data[12], sec.data[13], sec.data[14], sec.data[15]]);
+        assert_eq!(w3 & 0xFFE0_001F, 0xF2E0_0000,
+            "fourth word must be MOVK lsl 48 (0xF2E0_0000)");
+        assert_eq!((w3 >> 5) & 0xFFFF, 0xDEAD, "chunk3 must be 0xDEAD");
+    }
+
+    #[test]
+    fn mov_wide_32bit_emits_two_chunks() {
+        // 0x0001_2345 has chunk0=0x2345, chunk1=0x0001, chunk2=0, chunk3=0.
+        // Should emit exactly 2 instructions.
+        let val: i64 = 0x0001_2345;
+        let mi = MInstr {
+            opcode: MOV_WIDE,
+            dst: Some(VReg(X0.0 as u32)),
+            operands: vec![MOperand::Imm(val)],
+            phys_uses: vec![],
+            clobbers: vec![],
+        };
+        let mf = single_block_mf("mov_wide_32_fn", vec![mi]);
+        let mut e = AArch64Emitter::new(ObjectFormat::Elf);
+        let sec = e.emit_function(&mf);
+        assert_eq!(sec.data.len(), 8,
+            "MOV_WIDE 0x1_2345 must emit exactly 2 instructions (8 bytes)");
     }
 }
