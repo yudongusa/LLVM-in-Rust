@@ -1,0 +1,14 @@
+[package]
+name = "llvm-bench"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+llvm-ir         = { path = "../llvm-ir" }
+llvm-ir-parser  = { path = "../llvm-ir-parser" }
+llvm-analysis   = { path = "../llvm-analysis" }
+llvm-transforms = { path = "../llvm-transforms" }
+llvm-codegen    = { path = "../llvm-codegen" }
+llvm-target-x86 = { path = "../llvm-target-x86" }
