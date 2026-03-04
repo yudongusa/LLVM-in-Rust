@@ -33,10 +33,94 @@ impl Emitter for X86Emitter {
     fn emit_function(&mut self, mf: &MachineFunction) -> Section {
         let mut ctx = EncodeCtx::default();
 
+        let n_callee = mf.used_callee_saved.len();
+        let needs_frame = mf.frame_size > 0 || n_callee > 0;
+
+        // Compute the `sub rsp` amount so that RSP is 16-byte aligned after the
+        // prologue.  After `push rbp` (1 push) and n_callee additional pushes,
+        // the stack has moved by (1 + n_callee) * 8 bytes from the entry RSP
+        // (which is 8 mod 16 because the call already pushed the return address).
+        // We need: (1 + n_callee) * 8 + sub_rsp ≡ 0 (mod 16).
+        let sub_rsp: usize = if needs_frame {
+            let needs_align8 = n_callee % 2 == 1; // odd n_callee → need sub_rsp ≡ 8 (mod 16)
+            let raw = mf.frame_size as usize;
+            if needs_align8 {
+                let r = raw % 16;
+                match r.cmp(&8) {
+                    std::cmp::Ordering::Equal => raw,
+                    std::cmp::Ordering::Less => raw + (8 - r),
+                    std::cmp::Ordering::Greater => raw + (24 - r),
+                }
+            } else {
+                (raw + 15) & !15
+            }
+        } else {
+            0
+        };
+
+        ctx.callee_save_bytes = (n_callee * 8) as u32;
+
+        // Emit prologue.
+        if needs_frame {
+            // push rbp  (0x55)
+            ctx.emit(0x55);
+            // mov rbp, rsp  (REX.W 0x89 ModRM: mod=11, reg=RSP(4), rm=RBP(5) → 0xE5)
+            ctx.emit(0x48);
+            ctx.emit(0x89);
+            ctx.emit(0xE5);
+            // push callee-saved registers.
+            for &pr in &mf.used_callee_saved {
+                if is_extended(pr) {
+                    ctx.emit(0x41);
+                }
+                ctx.emit(0x50 | reg_enc(pr));
+            }
+            // sub rsp, sub_rsp
+            if sub_rsp > 0 {
+                if sub_rsp <= 127 {
+                    ctx.emit(0x48);
+                    ctx.emit(0x83);
+                    ctx.emit(0xEC);
+                    ctx.emit(sub_rsp as u8);
+                } else {
+                    ctx.emit(0x48);
+                    ctx.emit(0x81);
+                    ctx.emit(0xEC);
+                    ctx.code.extend_from_slice(&(sub_rsp as u32).to_le_bytes());
+                }
+            }
+        }
+
         // First pass: encode all instructions, patching branches later.
         for (bi, block) in mf.blocks.iter().enumerate() {
             ctx.block_offsets.insert(bi, ctx.code.len());
             for instr in &block.instrs {
+                // Emit epilogue before any RET instruction when we have a frame.
+                if instr.opcode == RET && needs_frame {
+                    // add rsp, sub_rsp
+                    if sub_rsp > 0 {
+                        if sub_rsp <= 127 {
+                            ctx.emit(0x48);
+                            ctx.emit(0x83);
+                            ctx.emit(0xC4);
+                            ctx.emit(sub_rsp as u8);
+                        } else {
+                            ctx.emit(0x48);
+                            ctx.emit(0x81);
+                            ctx.emit(0xC4);
+                            ctx.code.extend_from_slice(&(sub_rsp as u32).to_le_bytes());
+                        }
+                    }
+                    // pop callee-saved (reverse order)
+                    for &pr in mf.used_callee_saved.iter().rev() {
+                        if is_extended(pr) {
+                            ctx.emit(0x41);
+                        }
+                        ctx.emit(0x58 | reg_enc(pr));
+                    }
+                    // pop rbp  (0x5D)
+                    ctx.emit(0x5D);
+                }
                 encode_instr(instr, &mut ctx);
             }
         }
@@ -77,6 +161,9 @@ struct EncodeCtx {
     branch_patches: Vec<(usize, usize)>,
     block_offsets: HashMap<usize, usize>,
     relocs: Vec<Reloc>,
+    /// Bytes below RBP consumed by callee-saved pushes (n_callee * 8).
+    /// Used to compute the correct RBP-relative displacement for spill slots.
+    callee_save_bytes: u32,
 }
 
 impl EncodeCtx {
@@ -438,6 +525,46 @@ fn encode_instr(instr: &MInstr, ctx: &mut EncodeCtx) {
             }
         }
 
+        // ── MOV_LOAD_MR: mov dst, [rbp + disp] — spill reload ────────────
+        // Spill slot `n` sits at [RBP - callee_save_bytes - (n+1)*8].
+        // Encoding: REX.W [REX.R if dst extended] 0x8B ModRM(10, dst, RBP=5) disp32
+        MOV_LOAD_MR => {
+            if let (Some(dst), Some(MOperand::Imm(slot))) = (instr.dst, instr.operands.first()) {
+                let dst_r = PReg(dst.0 as u8);
+                let disp = -((ctx.callee_save_bytes as i32) + (*slot as i32 + 1) * 8);
+                // REX.W + (REX.R if dst extended)
+                let rex = 0x48 | (if is_extended(dst_r) { 0x04 } else { 0 });
+                ctx.emit(rex);
+                ctx.emit(0x8B); // MOV r64, r/m64
+                                // ModRM: mod=10 (mem+disp32), reg=dst_enc, rm=5 (RBP)
+                ctx.emit(0x80 | (reg_enc(dst_r) << 3) | 5);
+                ctx.emit32(disp);
+            } else {
+                ctx.emit(0x90);
+            }
+        }
+
+        // ── MOV_STORE_RM: mov [rbp + disp], src — spill store ────────────
+        // Encoding: REX.W [REX.R if src extended] 0x89 ModRM(10, src, RBP=5) disp32
+        MOV_STORE_RM => {
+            if let (Some(MOperand::Imm(slot)), Some(src)) = (
+                instr.operands.first(),
+                instr.operands.get(1).and_then(|op| match op {
+                    MOperand::PReg(r) => Some(*r),
+                    _ => None,
+                }),
+            ) {
+                let disp = -((ctx.callee_save_bytes as i32) + (*slot as i32 + 1) * 8);
+                let rex = 0x48 | (if is_extended(src) { 0x04 } else { 0 });
+                ctx.emit(rex);
+                ctx.emit(0x89); // MOV r/m64, r64
+                ctx.emit(0x80 | (reg_enc(src) << 3) | 5);
+                ctx.emit32(disp);
+            } else {
+                ctx.emit(0x90);
+            }
+        }
+
         // ── LEA (placeholder: encode as MOV_RI 0) ────────────────────────
         LEA_RI => {
             // Simplified: emit xor reg, reg (zero the register).
@@ -790,5 +917,132 @@ mod tests {
         let mut e = X86Emitter::new(ObjectFormat::MachO);
         let sec = e.emit_function(&mf);
         assert!(sec.data.contains(&0xC3), "RET byte must be in code");
+    }
+
+    #[test]
+    fn mov_load_mr_encodes_correctly() {
+        // MOV_LOAD_MR: mov rax, [rbp + disp]  — slot 0, no callee-saved pushes.
+        // disp = -(0 + (0+1)*8) = -8
+        // REX.W(0x48) + 0x8B + ModRM(10, RAX=0, RBP=5 → 0x80|0<<3|5=0x85) + disp32(-8)
+        use crate::instructions::MOV_LOAD_MR;
+        let mi = MInstr {
+            opcode: MOV_LOAD_MR,
+            dst: Some(VReg(RAX.0 as u32)),
+            operands: vec![MOperand::Imm(0)], // slot 0
+            phys_uses: vec![],
+            clobbers: vec![],
+        };
+        let mf = single_block_mf("load_fn", vec![mi]);
+        let mut e = X86Emitter::new(ObjectFormat::Elf);
+        let sec = e.emit_function(&mf);
+        // Expect: REX.W=0x48, 0x8B, ModRM=0x45 (mod=01? or mod=10?), disp32
+        // For disp=-8 (fits in i32 but not i8 for this encoding form):
+        // Actually with ModRM mod=10 (mem+disp32): 0x80 | (0<<3) | 5 = 0x85
+        assert_eq!(sec.data[0], 0x48, "REX.W prefix");
+        assert_eq!(sec.data[1], 0x8B, "MOV r64, r/m64 opcode");
+        assert_eq!(sec.data[2], 0x85, "ModRM(mod=10, reg=RAX=0, rm=RBP=5)");
+        // disp32 = -8 = 0xFFFFFFF8 in LE: [0xF8, 0xFF, 0xFF, 0xFF]
+        assert_eq!(&sec.data[3..7], &[0xF8, 0xFF, 0xFF, 0xFF], "disp32 = -8");
+    }
+
+    #[test]
+    fn mov_store_rm_encodes_correctly() {
+        // MOV_STORE_RM: mov [rbp + disp], rax — slot 0, no callee-saved pushes.
+        // disp = -8
+        // REX.W(0x48) + 0x89 + ModRM(10, RAX=0, RBP=5 → 0x85) + disp32(-8)
+        use crate::instructions::MOV_STORE_RM;
+        let mi = MInstr {
+            opcode: MOV_STORE_RM,
+            dst: None,
+            operands: vec![MOperand::Imm(0), MOperand::PReg(RAX)], // slot 0, src=RAX
+            phys_uses: vec![],
+            clobbers: vec![],
+        };
+        let mf = single_block_mf("store_fn", vec![mi]);
+        let mut e = X86Emitter::new(ObjectFormat::Elf);
+        let sec = e.emit_function(&mf);
+        assert_eq!(sec.data[0], 0x48, "REX.W prefix");
+        assert_eq!(sec.data[1], 0x89, "MOV r/m64, r64 opcode");
+        assert_eq!(sec.data[2], 0x85, "ModRM(mod=10, reg=RAX=0, rm=RBP=5)");
+        assert_eq!(&sec.data[3..7], &[0xF8, 0xFF, 0xFF, 0xFF], "disp32 = -8");
+    }
+
+    #[test]
+    fn prologue_emitted_when_frame_size_nonzero() {
+        // A MachineFunction with frame_size=8 should emit push rbp; mov rbp,rsp; sub rsp,N.
+        let mut mf = MachineFunction::new("framed_fn".into());
+        mf.frame_size = 8;
+        let b = mf.add_block("entry");
+        mf.push(b, MInstr::new(RET));
+        let mut e = X86Emitter::new(ObjectFormat::Elf);
+        let sec = e.emit_function(&mf);
+        // Prologue: 0x55 (push rbp), 0x48 0x89 0xE5 (mov rbp,rsp),
+        //           sub rsp,16 (frame_size=8, padded to 16 for n_callee=0 even: needs mult of 16)
+        //           = 0x48 0x83 0xEC 0x10
+        // Epilogue before RET: add rsp,16 = 0x48 0x83 0xC4 0x10; pop rbp = 0x5D; ret = 0xC3
+        assert_eq!(sec.data[0], 0x55, "push rbp");
+        assert_eq!(&sec.data[1..4], &[0x48, 0x89, 0xE5], "mov rbp, rsp");
+        // sub rsp, 16: 0x48 0x83 0xEC 0x10
+        assert_eq!(&sec.data[4..8], &[0x48, 0x83, 0xEC, 0x10], "sub rsp, 16");
+        // Epilogue: add rsp,16 = 0x48 0x83 0xC4 0x10; pop rbp = 0x5D
+        assert_eq!(&sec.data[8..12], &[0x48, 0x83, 0xC4, 0x10], "add rsp, 16");
+        assert_eq!(sec.data[12], 0x5D, "pop rbp");
+        assert_eq!(sec.data[13], 0xC3, "ret");
+    }
+
+    #[test]
+    fn no_prologue_when_frame_size_zero_and_no_callee_saved() {
+        // A plain function with no spill slots and no callee-saved usage should
+        // emit only the instruction bytes without any prologue/epilogue.
+        let mf = single_block_mf("plain_fn", vec![MInstr::new(RET)]);
+        let mut e = X86Emitter::new(ObjectFormat::Elf);
+        let sec = e.emit_function(&mf);
+        // Must be exactly 1 byte: RET = 0xC3.
+        assert_eq!(
+            sec.data,
+            vec![0xC3],
+            "no prologue/epilogue for frameless function"
+        );
+    }
+
+    #[test]
+    fn spill_end_to_end_x86() {
+        // Build a MachineFunction with more simultaneously live VRegs than
+        // allocatable registers to force a spill, run insert_spill_reloads,
+        // apply_allocation, and emit — verify the output is non-empty and
+        // contains the expected prologue bytes.
+        use crate::instructions::{MOV_LOAD_MR, MOV_STORE_RM};
+        use llvm_codegen::isel::MOpcode;
+        use llvm_codegen::regalloc::{
+            apply_allocation, compute_live_intervals, insert_spill_reloads, linear_scan,
+        };
+
+        let mut mf = MachineFunction::new("spill_e2e".into());
+        // Only 1 allocatable register to guarantee spills.
+        mf.allocatable_pregs = vec![RAX];
+        mf.callee_saved_pregs = vec![];
+        let b = mf.add_block("entry");
+        // v0 = ...
+        let v0 = mf.fresh_vreg();
+        mf.push(b, MInstr::new(MOpcode(0x10)).with_dst(v0)); // ADD_RR placeholder
+                                                             // v1 = ... v0 ...  (v0 and v1 simultaneously live → v0 must spill)
+        let v1 = mf.fresh_vreg();
+        mf.push(b, MInstr::new(MOpcode(0x10)).with_dst(v1).with_vreg(v0));
+        // ret
+        mf.push(b, MInstr::new(RET));
+
+        let intervals = compute_live_intervals(&mf);
+        let mut result = linear_scan(&intervals, &mf.allocatable_pregs);
+        assert!(!result.spilled.is_empty(), "must have spills");
+        insert_spill_reloads(&mut mf, &mut result, MOV_LOAD_MR, MOV_STORE_RM);
+        apply_allocation(&mut mf, &result);
+
+        let mut e = X86Emitter::new(ObjectFormat::Elf);
+        let sec = e.emit_function(&mf);
+
+        // After spills: frame_size > 0, so prologue must be present.
+        assert!(!sec.data.is_empty(), "emitted code must be non-empty");
+        assert_eq!(sec.data[0], 0x55, "push rbp must be first byte of prologue");
+        assert!(sec.data.contains(&0xC3), "RET must be present in output");
     }
 }

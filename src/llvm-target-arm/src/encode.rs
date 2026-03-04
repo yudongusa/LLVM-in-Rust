@@ -29,10 +29,43 @@ impl Emitter for AArch64Emitter {
     fn emit_function(&mut self, mf: &MachineFunction) -> Section {
         let mut ctx = EncodeCtx::default();
 
+        // Determine whether we need a frame (x29/x30 save + sub-sp).
+        // We emit a frame whenever there are spill slots.
+        let needs_frame = mf.frame_size > 0;
+
+        // Total frame allocation: 16 bytes for saved x29/x30 + spill slots,
+        // rounded up to the next multiple of 16 for stack alignment.
+        let frame_alloc = if needs_frame {
+            ((16 + mf.frame_size as usize) + 15) & !15
+        } else {
+            0
+        };
+
+        // Emit prologue.
+        if needs_frame {
+            let frame_alloc = frame_alloc as u32;
+            // stp x29, x30, [sp, #-frame_alloc]!
+            // Encoding: 0xA9800000 | (imm7 << 15) | (x30=30 << 10) | (sp=31 << 5) | x29=29
+            // imm7 = -frame_alloc/8 (signed 7-bit)
+            let imm7 = ((-((frame_alloc / 8) as i32)) as u32) & 0x7F;
+            ctx.emit4(0xA9800000 | (imm7 << 15) | (30 << 10) | (31 << 5) | 29);
+            // add x29, sp, #0  (mov x29, sp)
+            // Encoding: 0x91000000 | (imm12=0 << 10) | (sp=31 << 5) | x29=29
+            ctx.emit4(0x910003FD);
+        }
+
         // First pass: encode all instructions, recording branch patch sites.
         for (bi, block) in mf.blocks.iter().enumerate() {
             ctx.block_offsets.insert(bi, ctx.code.len());
             for instr in &block.instrs {
+                // Emit epilogue before any RET when we have a frame.
+                if instr.opcode == RET && needs_frame {
+                    let frame_alloc = frame_alloc as u32;
+                    // ldp x29, x30, [sp], #frame_alloc
+                    // Encoding: 0xA8C00000 | (imm7 << 15) | (x30=30 << 10) | (sp=31 << 5) | x29=29
+                    let imm7 = ((frame_alloc / 8) as u32) & 0x7F;
+                    ctx.emit4(0xA8C00000 | (imm7 << 15) | (30 << 10) | (31 << 5) | 29);
+                }
                 encode_instr(instr, &mut ctx);
             }
         }
@@ -379,9 +412,37 @@ fn encode_instr(instr: &MInstr, ctx: &mut EncodeCtx) {
             }
         }
 
-        // ── LDR / STR (placeholder: NOP) ─────────────────────────────────
+        // ── LDR / STR (generic: placeholder NOP) ─────────────────────────
         LDR | STR => {
             ctx.emit4(0xD503201F);
+        }
+
+        // ── LDR_FP: ldr xd, [x29, #(16+slot*8)] ─────────────────────────
+        // Unsigned offset form: 0xF9400000 | (imm12 << 10) | (Rn << 5) | Rt
+        // Slot n → byte_offset = 16 + n*8 → imm12 = (16 + n*8) / 8 = 2 + n.
+        LDR_FP => {
+            if let (Some(dst), Some(MOperand::Imm(slot))) = (instr.dst, instr.operands.first()) {
+                let rd = reg_enc(PReg(dst.0 as u8)) as u32;
+                let imm12 = (2 + *slot as u32) & 0xFFF;
+                // Rn = x29 = 29
+                ctx.emit4(0xF9400000 | (imm12 << 10) | (29 << 5) | rd);
+            } else {
+                ctx.emit4(0xD503201F);
+            }
+        }
+
+        // ── STR_FP: str xs, [x29, #(16+slot*8)] ─────────────────────────
+        // Unsigned offset form: 0xF9000000 | (imm12 << 10) | (Rn << 5) | Rt
+        STR_FP => {
+            if let (Some(MOperand::Imm(slot)), Some(src)) =
+                (instr.operands.first(), instr.operands.get(1).and_then(preg))
+            {
+                let rt = reg_enc(src) as u32;
+                let imm12 = (2 + *slot as u32) & 0xFFF;
+                ctx.emit4(0xF9000000 | (imm12 << 10) | (29 << 5) | rt);
+            } else {
+                ctx.emit4(0xD503201F);
+            }
         }
 
         // ── unsupported: emit NOP ─────────────────────────────────────────
@@ -594,6 +655,160 @@ mod tests {
             sec.data.contains(&0xC0),
             "RET byte 0 (0xC0) must be in code"
         );
+    }
+
+    #[test]
+    fn ldr_fp_slot0_encodes_correctly() {
+        // LDR_FP: ldr x0, [x29, #16]  (slot 0 → imm12 = 2+0 = 2)
+        // Encoding: 0xF9400000 | (2 << 10) | (29 << 5) | 0
+        //         = 0xF9400000 | 0x800 | 0x3A0 | 0 = 0xF9400BA0
+        use crate::instructions::LDR_FP;
+        let mi = MInstr {
+            opcode: LDR_FP,
+            dst: Some(VReg(X0.0 as u32)),
+            operands: vec![MOperand::Imm(0)],
+            phys_uses: vec![],
+            clobbers: vec![],
+        };
+        let mf = single_block_mf("ldr_fp_fn", vec![mi]);
+        let mut e = AArch64Emitter::new(ObjectFormat::Elf);
+        let sec = e.emit_function(&mf);
+        let word = u32::from_le_bytes([sec.data[0], sec.data[1], sec.data[2], sec.data[3]]);
+        // 0xF9400000 | (2 << 10) | (29 << 5) | 0
+        let expected = 0xF9400000u32 | (2 << 10) | (29 << 5);
+        assert_eq!(word, expected, "ldr x0, [x29, #16] encoding");
+    }
+
+    #[test]
+    fn str_fp_slot0_encodes_correctly() {
+        // STR_FP: str x1, [x29, #16]  (slot 0 → imm12 = 2)
+        // Encoding: 0xF9000000 | (2 << 10) | (29 << 5) | 1
+        use crate::instructions::STR_FP;
+        let mi = MInstr {
+            opcode: STR_FP,
+            dst: None,
+            operands: vec![MOperand::Imm(0), MOperand::PReg(X1)],
+            phys_uses: vec![],
+            clobbers: vec![],
+        };
+        let mf = single_block_mf("str_fp_fn", vec![mi]);
+        let mut e = AArch64Emitter::new(ObjectFormat::Elf);
+        let sec = e.emit_function(&mf);
+        let word = u32::from_le_bytes([sec.data[0], sec.data[1], sec.data[2], sec.data[3]]);
+        let expected = 0xF9000000u32 | (2 << 10) | (29 << 5) | 1;
+        assert_eq!(word, expected, "str x1, [x29, #16] encoding");
+    }
+
+    #[test]
+    fn prologue_emitted_when_frame_size_nonzero() {
+        // frame_size=8 → N=(16+8+15)&!15=32 → imm7=-4 → stp x29,x30,[sp,#-32]!
+        // stp encoding: 0xA9800000 | (imm7<<15) | (30<<10) | (31<<5) | 29
+        // imm7 = (-32/8) as u32 & 0x7F = (-4i32 as u32) & 0x7F = 0x7C
+        // = 0xA9800000 | (0x7C<<15) | (30<<10) | (31<<5) | 29
+        // = 0xA9800000 | 0x3E00000 | 0x7800 | 0x3E0 | 0x1D = 0xABBE7BFD
+        // (let's verify the bytes instead of the whole word)
+        let mut mf = MachineFunction::new("framed_fn".into());
+        mf.frame_size = 8; // 1 spill slot
+        let b = mf.add_block("entry");
+        mf.push(b, MInstr::new(RET));
+        let mut e = AArch64Emitter::new(ObjectFormat::Elf);
+        let sec = e.emit_function(&mf);
+
+        // Must have at least prologue (4B stp + 4B add) + epilogue (4B ldp) + ret (4B) = 16 bytes.
+        assert!(sec.data.len() >= 16, "must have prologue+epilogue+ret");
+
+        // First instruction: stp x29, x30, [sp, #-N]! — high byte should indicate STP pre-index.
+        let w0 = u32::from_le_bytes([sec.data[0], sec.data[1], sec.data[2], sec.data[3]]);
+        // STP pre-index 64-bit: bits[31:23] = 101010011 = 0xA9...(high bits), bit[22]=0(store)
+        assert_eq!(
+            w0 & 0xFFC00000,
+            0xA9800000,
+            "first word should be STP pre-index store (0xA98xxxxx)"
+        );
+
+        // Second instruction: add x29, sp, #0 = 0x910003FD
+        let w1 = u32::from_le_bytes([sec.data[4], sec.data[5], sec.data[6], sec.data[7]]);
+        assert_eq!(w1, 0x910003FD, "second word must be add x29, sp, #0");
+
+        // Epilogue before RET: ldp x29, x30, [sp], #N — bits[31:23] indicate LDP post-index.
+        let epilogue_off = sec.data.len() - 8; // ldp is 4B before ret 4B
+        let w_ldp = u32::from_le_bytes([
+            sec.data[epilogue_off],
+            sec.data[epilogue_off + 1],
+            sec.data[epilogue_off + 2],
+            sec.data[epilogue_off + 3],
+        ]);
+        // LDP post-index 64-bit load: bits[31:22] = 1010100011 = 0xA8C
+        assert_eq!(
+            w_ldp & 0xFFC00000,
+            0xA8C00000,
+            "epilogue should be LDP post-index load (0xA8Cxxxxx)"
+        );
+
+        // Last instruction: RET = 0xD65F03C0
+        let w_ret = u32::from_le_bytes([
+            sec.data[sec.data.len() - 4],
+            sec.data[sec.data.len() - 3],
+            sec.data[sec.data.len() - 2],
+            sec.data[sec.data.len() - 1],
+        ]);
+        assert_eq!(w_ret, 0xD65F03C0, "last instruction must be RET");
+    }
+
+    #[test]
+    fn no_prologue_when_frame_size_zero() {
+        // frame_size=0 → no prologue/epilogue → just RET.
+        let mf = single_block_mf("plain_fn", vec![MInstr::new(RET)]);
+        let mut e = AArch64Emitter::new(ObjectFormat::Elf);
+        let sec = e.emit_function(&mf);
+        assert_eq!(sec.data.len(), 4, "only RET (4 bytes), no prologue");
+        let w = u32::from_le_bytes([sec.data[0], sec.data[1], sec.data[2], sec.data[3]]);
+        assert_eq!(w, 0xD65F03C0, "must be RET");
+    }
+
+    #[test]
+    fn spill_end_to_end_aarch64() {
+        use crate::instructions::{LDR_FP, STR_FP};
+        use crate::regs::X0;
+        use llvm_codegen::isel::MOpcode;
+        use llvm_codegen::regalloc::{
+            apply_allocation, compute_live_intervals, insert_spill_reloads, linear_scan,
+        };
+
+        let mut mf = MachineFunction::new("spill_e2e_arm".into());
+        // Only 1 allocatable register → forces a spill.
+        mf.allocatable_pregs = vec![X0];
+        mf.callee_saved_pregs = vec![];
+        let b = mf.add_block("entry");
+        let v0 = mf.fresh_vreg();
+        mf.push(b, MInstr::new(MOpcode(0x10)).with_dst(v0));
+        let v1 = mf.fresh_vreg();
+        mf.push(b, MInstr::new(MOpcode(0x10)).with_dst(v1).with_vreg(v0));
+        mf.push(b, MInstr::new(RET));
+
+        let intervals = compute_live_intervals(&mf);
+        let mut result = linear_scan(&intervals, &mf.allocatable_pregs);
+        assert!(!result.spilled.is_empty(), "must have spills");
+        insert_spill_reloads(&mut mf, &mut result, LDR_FP, STR_FP);
+        apply_allocation(&mut mf, &result);
+
+        let mut e = AArch64Emitter::new(ObjectFormat::Elf);
+        let sec = e.emit_function(&mf);
+
+        assert!(!sec.data.is_empty(), "emitted code must be non-empty");
+        // Prologue must be present (frame_size > 0): first word is STP.
+        let w0 = u32::from_le_bytes([sec.data[0], sec.data[1], sec.data[2], sec.data[3]]);
+        assert_eq!(
+            w0 & 0xFFC00000,
+            0xA9800000,
+            "prologue STP must be first instruction"
+        );
+        // RET = 0xD65F03C0 must be present somewhere.
+        let found_ret = sec
+            .data
+            .chunks(4)
+            .any(|c| c.len() == 4 && u32::from_le_bytes([c[0], c[1], c[2], c[3]]) == 0xD65F03C0);
+        assert!(found_ret, "RET must be present in emitted code");
     }
 
     #[test]

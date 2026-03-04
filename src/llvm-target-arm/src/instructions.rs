@@ -70,6 +70,10 @@ pub const RET: MOpcode = MOpcode(0x44);
 pub const LDR: MOpcode = MOpcode(0x50);
 /// `str xs, [xn, #off]`
 pub const STR: MOpcode = MOpcode(0x51);
+/// Spill reload: `ldr xd, [x29, #(16+slot*8)]`.  `dst`=VReg, `operands[0]`=`Imm(slot)`.
+pub const LDR_FP: MOpcode = MOpcode(0x52);
+/// Spill store: `str xs, [x29, #(16+slot*8)]`.  `dst`=None, `operands[0]`=`Imm(slot)`, `operands[1]`=PReg/VReg(src).
+pub const STR_FP: MOpcode = MOpcode(0x53);
 
 // ── sign-extension ─────────────────────────────────────────────────────────
 
