@@ -1,0 +1,54 @@
+name: Differential Tests (LLVM 19)
+
+on:
+  push:
+    branches: [main, "feat/**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  differential:
+    name: Differential tests against LLVM 19
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust nightly toolchain
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cache cargo registry and build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Install LLVM 19 and Clang 19
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y llvm-19 clang-19 binutils
+          # Create unversioned symlinks so find_llvm_bin() resolves them
+          sudo update-alternatives --install /usr/bin/llvm-as llvm-as \
+            /usr/lib/llvm-19/bin/llvm-as 100
+          sudo update-alternatives --install /usr/bin/llvm-objdump llvm-objdump \
+            /usr/lib/llvm-19/bin/llvm-objdump 100
+          sudo update-alternatives --install /usr/bin/clang clang \
+            /usr/bin/clang-19 100
+          # Verify installation
+          llvm-as --version
+          llvm-objdump --version
+          clang --version
+
+      - name: Run differential tests (ZERO skips enforced)
+        env:
+          REQUIRE_LLVM: "1"
+        run: cargo test -p llvm-ir-parser differential --no-fail-fast -- --nocapture
+
+      - name: Run regression hash check
+        env:
+          REQUIRE_LLVM: "1"
+        run: cargo test -p llvm-ir-parser check_regression_hashes -- --nocapture
