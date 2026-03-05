@@ -833,18 +833,34 @@ impl<'src> Parser<'src> {
             Token::Kw(Keyword::Alloca) => {
                 self.lex.next()?;
                 let alloc_ty = self.parse_type()?;
-                let num_elements = if self.lex.eat(&Token::Comma) {
-                    match self.lex.peek()? {
-                        Token::Kw(Keyword::Align) => None,
-                        _ => {
-                            let (ne, _) = self.parse_typed_value()?;
-                            Some(ne)
+                // Parse optional `, <num_elements>` and/or `, align N`.
+                // When we eat a comma and see `align` directly (no
+                // num_elements), the comma is already consumed so we must NOT
+                // go through parse_optional_align (which expects its own
+                // leading comma).
+                let (num_elements, comma_before_align_consumed) =
+                    if self.lex.eat(&Token::Comma) {
+                        match self.lex.peek()? {
+                            Token::Kw(Keyword::Align) => (None, true),
+                            _ => {
+                                let (ne, _) = self.parse_typed_value()?;
+                                (Some(ne), false)
+                            }
                         }
+                    } else {
+                        (None, false)
+                    };
+                let align = if comma_before_align_consumed {
+                    // Comma was already consumed; parse `align N` directly.
+                    if self.lex.eat_kw(Keyword::Align) {
+                        let a = self.lex.expect_uint_lit()? as u32;
+                        Some(a)
+                    } else {
+                        None
                     }
                 } else {
-                    None
+                    self.parse_optional_align()?
                 };
-                let align = self.parse_optional_align()?;
                 let ptr_ty = self.ctx.ptr_ty;
                 Ok((
                     InstrKind::Alloca {
@@ -1092,8 +1108,12 @@ impl<'src> Parser<'src> {
                 let (vec, vec_ty) = self.parse_typed_value()?;
                 self.lex.expect(&Token::Comma)?;
                 let (idx, _) = self.parse_typed_value()?;
-                // Result type is element type — approximate.
-                Ok((InstrKind::ExtractElement { vec, idx }, vec_ty))
+                // Result type is the element type of the vector.
+                let elem_ty = match self.ctx.get_type(vec_ty) {
+                    llvm_ir::types::TypeData::Vector { element, .. } => *element,
+                    _ => vec_ty,
+                };
+                Ok((InstrKind::ExtractElement { vec, idx }, elem_ty))
             }
             Token::Kw(Keyword::Insertelement) => {
                 self.lex.next()?;
@@ -1513,14 +1533,31 @@ impl<'src> Parser<'src> {
     }
 
     fn parse_shuffle_mask(&mut self) -> Result<Vec<i32>, ParseError> {
-        // Could be `<i32 0, i32 1>` or `undef`.
+        // Mask is either `undef` or a typed constant vector.
+        // LLVM IR requires the type annotation: `<N x i32> <i32 0, i32 1, ...>`.
+        // Older (pre-typed-pointer) IR sometimes omits the outer type, so we
+        // accept both forms.
         if self.lex.eat_kw(Keyword::Undef) {
             return Ok(vec![]);
+        }
+        // Consume optional outer type annotation `<N x i32>`.
+        if matches!(self.lex.peek()?, Token::LAngle) {
+            // We don't know yet whether this is the type prefix or the inner
+            // constant itself. Speculatively parse it as a type; if the next
+            // token after `>` is `<` we consumed the type prefix and the inner
+            // constant follows.  Either way we discard the type — we care only
+            // about the integer values.
+            let _outer_ty = self.parse_type()?;
+            // If the next token is NOT `<`, we've already consumed the whole
+            // mask (old short form without type prefix) — but that can't happen
+            // here because `parse_type` would have parsed `<i32 0,...>` as a
+            // vector type, not as a constant. So after consuming the outer type
+            // the next token must be `<` starting the actual constant.
         }
         self.lex.expect(&Token::LAngle)?;
         let mut mask = Vec::new();
         loop {
-            // Skip type.
+            // Each element: `i32 <int_literal>`.
             let _ = self.parse_type()?;
             let n = self.lex.expect_int_lit()? as i32;
             mask.push(n);

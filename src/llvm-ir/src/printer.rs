@@ -594,10 +594,10 @@ impl<'a> Printer<'a> {
                 align,
                 volatile,
             } => {
+                out.push_str("load ");
                 if *volatile {
                     out.push_str("volatile ");
                 }
-                out.push_str("load ");
                 self.write_type(out, *ty);
                 out.push_str(", ");
                 self.write_typed_value(out, *ptr, func);
@@ -611,10 +611,10 @@ impl<'a> Printer<'a> {
                 align,
                 volatile,
             } => {
+                out.push_str("store ");
                 if *volatile {
                     out.push_str("volatile ");
                 }
-                out.push_str("store ");
                 self.write_typed_value(out, *val, func);
                 out.push_str(", ");
                 self.write_typed_value(out, *ptr, func);
@@ -727,7 +727,8 @@ impl<'a> Printer<'a> {
                 self.write_typed_value(out, *v1, func);
                 out.push_str(", ");
                 self.write_typed_value(out, *v2, func);
-                out.push_str(", <");
+                // Mask: LLVM requires the type annotation, e.g. `<4 x i32> <i32 0, ...>`.
+                write!(out, ", <{} x i32> <", mask.len()).unwrap();
                 for (i, &m) in mask.iter().enumerate() {
                     if i > 0 {
                         out.push_str(", ");
