@@ -82,6 +82,10 @@ fn require_tool(name: &str) -> Option<PathBuf> {
     }
 }
 
+fn strict_smoke_required() -> bool {
+    std::env::var("REQUIRE_LLVM").is_ok()
+}
+
 // ── temp-file helpers ─────────────────────────────────────────────────────────
 
 fn with_temp_ll<R>(tag: &str, content: &str, f: impl FnOnce(&Path) -> R) -> R {
@@ -139,8 +143,16 @@ fn run_oracle(clang: &Path, label: &str, ir: &str) -> Option<RunResult> {
 
 // ── our pipeline path ─────────────────────────────────────────────────────────
 
+fn host_object_format() -> ObjectFormat {
+    if cfg!(target_os = "macos") {
+        ObjectFormat::MachO
+    } else {
+        ObjectFormat::Elf
+    }
+}
+
 /// Lower `@main` with our x86 backend, link with `cc`, execute, and return
-/// exit code + stdout.  Returns `None` if linking fails (graceful skip).
+/// exit code + stdout. Returns `None` if linking fails.
 fn run_ours(ctx: &Context, module: &Module, label: &str) -> Option<RunResult> {
     let main_func = module
         .functions
@@ -153,7 +165,7 @@ fn run_ours(ctx: &Context, module: &Module, label: &str) -> Option<RunResult> {
     let mut result = linear_scan(&intervals, &mf.allocatable_pregs);
     insert_spill_reloads(&mut mf, &mut result, MOV_LOAD_MR, MOV_STORE_RM);
     apply_allocation(&mut mf, &result);
-    let mut emitter = X86Emitter::new(ObjectFormat::Elf);
+    let mut emitter = X86Emitter::new(host_object_format());
     let obj = emit_object(&mf, &mut emitter);
     let obj_bytes = obj.to_bytes();
 
@@ -192,8 +204,7 @@ fn run_ours(ctx: &Context, module: &Module, label: &str) -> Option<RunResult> {
 /// 4. Assert exact equality.
 ///
 /// If Clang is absent the test skips (or panics when `REQUIRE_LLVM=1`).
-/// If our pipeline fails to link, the oracle result is still verified against
-/// any expected value printed in the test — our path is noted as skipped.
+/// If `REQUIRE_LLVM=1` is set, our path must also emit+link+run successfully.
 fn smoke_oracle(label: &str, src: &str) {
     let clang = match require_tool("clang") {
         Some(p) => p,
@@ -219,6 +230,9 @@ fn smoke_oracle(label: &str, src: &str) {
     let ours = match run_ours(&ctx, &module, label) {
         Some(r) => r,
         None => {
+            if strict_smoke_required() {
+                panic!("[smoke/{label}] our path failed (emit/link/run) with REQUIRE_LLVM=1");
+            }
             eprintln!("[smoke/{label}] our path skipped (link/emit failed)");
             eprintln!(
                 "[smoke/{label}] oracle produced: exit={} stdout={:?}",
