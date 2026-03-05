@@ -174,7 +174,11 @@ impl Function {
     pub fn fresh_name(&mut self) -> String {
         let n = self.next_name_id;
         self.next_name_id += 1;
-        n.to_string()
+        // Prefix with "v" so the printed name is "%v0", "%v1", etc.  Plain
+        // integer names ("%0", "%1") collide with LLVM's implicit slot
+        // numbering and are rejected by llvm-as / clang with:
+        //   "instruction expected to be numbered '%N' or greater"
+        format!("v{n}")
     }
 }
 
@@ -188,9 +192,9 @@ mod tests {
         let mut ctx = Context::new();
         let fn_ty = ctx.mk_fn_type(ctx.void_ty, vec![], false);
         let mut f = Function::new("test", fn_ty, vec![], Linkage::External);
-        assert_eq!(f.fresh_name(), "0");
-        assert_eq!(f.fresh_name(), "1");
-        assert_eq!(f.fresh_name(), "2");
+        assert_eq!(f.fresh_name(), "v0");
+        assert_eq!(f.fresh_name(), "v1");
+        assert_eq!(f.fresh_name(), "v2");
     }
 
     #[test]
