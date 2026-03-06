@@ -223,6 +223,16 @@ cargo fmt --check            # check formatting
 cargo fmt                    # auto-format
 ```
 
+### Fuzzing
+
+```bash
+# Parser/optimizer/codegen fuzzing via llvm-stress corpus + cargo-fuzz
+./scripts/llvm_stress_fuzz.sh --iterations 10000 --max-total-time 300
+
+# Semantic differential fuzzing with CSmith (default 1000 programs)
+./scripts/csmith_test.sh --count 1000
+```
+
 ---
 
 ## Installation

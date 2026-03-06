@@ -1,0 +1,61 @@
+name: Fuzzing (LLVM-Stress + CSmith)
+
+on:
+  workflow_dispatch:
+    inputs:
+      csmith_count:
+        description: "Number of CSmith programs to run"
+        required: false
+        default: "1000"
+  schedule:
+    - cron: "0 6 * * *"
+
+jobs:
+  llvm_stress_fuzz:
+    name: LLVM-Stress parser/optimizer/codegen fuzz
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust nightly toolchain
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Install cargo-fuzz
+        run: cargo +nightly install cargo-fuzz --locked
+
+      - name: Install LLVM 19 tools
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y llvm-19 clang-19
+          sudo update-alternatives --install /usr/bin/llvm-stress llvm-stress \
+            /usr/lib/llvm-19/bin/llvm-stress 100
+          llvm-stress --version
+
+      - name: Seed 10k llvm-stress corpus and fuzz for 5m
+        run: ./scripts/llvm_stress_fuzz.sh --iterations 10000 --max-total-time 300
+
+  csmith_semantic:
+    name: CSmith semantic differential (1k cases)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install CSmith + Clang 19
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y csmith clang-19
+          sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-19 100
+          csmith --version
+          clang --version
+
+      - name: Run CSmith integration script
+        env:
+          COUNT: ${{ github.event.inputs.csmith_count || '1000' }}
+        run: ./scripts/csmith_test.sh --count "$COUNT"

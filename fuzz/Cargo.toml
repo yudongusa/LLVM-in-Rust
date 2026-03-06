@@ -1,0 +1,24 @@
+[package]
+name = "llvm-in-rust-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+license = "Apache-2.0"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+llvm-ir = { path = "../src/llvm-ir" }
+llvm-ir-parser = { path = "../src/llvm-ir-parser" }
+llvm-transforms = { path = "../src/llvm-transforms" }
+llvm-codegen = { path = "../src/llvm-codegen" }
+llvm-target-x86 = { path = "../src/llvm-target-x86" }
+
+[[bin]]
+name = "parser"
+path = "fuzz_targets/parser.rs"
+test = false
+doc = false
+bench = false
