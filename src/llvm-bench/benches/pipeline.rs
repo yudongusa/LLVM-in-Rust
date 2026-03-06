@@ -13,7 +13,7 @@ use llvm_target_x86::{
     instructions::{MOV_LOAD_MR, MOV_STORE_RM},
     X86Backend, X86Emitter,
 };
-use llvm_transforms::{pass::PassManager, DeadCodeElim, Mem2Reg};
+use llvm_transforms::{build_pipeline, pass::PassManager, DeadCodeElim, Mem2Reg, OptLevel};
 
 const FIXTURE: &str = include_str!("../fixtures/sample.ll");
 
@@ -111,6 +111,28 @@ fn bench_codegen_x86(c: &mut Criterion) {
     });
 }
 
+fn bench_opt_o0(c: &mut Criterion) {
+    c.bench_function("pipeline/opt_O0", |b| {
+        b.iter(|| {
+            let (mut ctx, mut module) = parsed_module();
+            let mut pm = build_pipeline(OptLevel::O0);
+            pm.run_until_fixed_point(black_box(&mut ctx), black_box(&mut module), 8);
+            black_box((ctx, module))
+        })
+    });
+}
+
+fn bench_opt_o2(c: &mut Criterion) {
+    c.bench_function("pipeline/opt_O2", |b| {
+        b.iter(|| {
+            let (mut ctx, mut module) = parsed_module();
+            let mut pm = build_pipeline(OptLevel::O2);
+            pm.run_until_fixed_point(black_box(&mut ctx), black_box(&mut module), 8);
+            black_box((ctx, module))
+        })
+    });
+}
+
 criterion_group!(
     pipeline,
     bench_parse,
@@ -118,6 +140,8 @@ criterion_group!(
     bench_build,
     bench_mem2reg,
     bench_dce,
-    bench_codegen_x86
+    bench_codegen_x86,
+    bench_opt_o0,
+    bench_opt_o2
 );
 criterion_main!(pipeline);

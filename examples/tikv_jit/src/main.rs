@@ -23,7 +23,7 @@
 //!
 //! 1. Programmatically build LLVM IR with the `Builder` API.
 //! 2. Print the IR to a `.ll` string (for inspection / logging).
-//! 3. Run optimization passes: `Mem2Reg` + `DeadCodeElim` + `ConstProp`.
+//! 3. Run an optimization preset pipeline selected by `--opt-level`.
 //! 4. Run the x86-64 instruction-selection + register-allocation + spill pipeline.
 //! 5. Emit an ELF `.o` file that can be linked into a Rust binary.
 
@@ -40,9 +40,31 @@ use llvm_target_x86::{
     instructions::{MOV_LOAD_MR, MOV_STORE_RM},
     X86Backend, X86Emitter,
 };
-use llvm_transforms::{pass::PassManager, ConstProp, DeadCodeElim, Mem2Reg};
+use llvm_transforms::{build_pipeline, OptLevel};
+
+fn parse_opt_level() -> OptLevel {
+    let mut args = std::env::args().skip(1);
+    let mut level = OptLevel::O2;
+    while let Some(arg) = args.next() {
+        if arg == "--opt-level" {
+            if let Some(v) = args.next() {
+                level = OptLevel::parse(&v).unwrap_or_else(|| {
+                    eprintln!("invalid --opt-level '{v}' (expected O0/O1/O2/O3 or 0/1/2/3)");
+                    std::process::exit(2);
+                });
+            } else {
+                eprintln!("missing value for --opt-level");
+                std::process::exit(2);
+            }
+        }
+    }
+    level
+}
 
 fn main() {
+    let opt_level = parse_opt_level();
+    println!("Using optimization level: {:?}", opt_level);
+
     // ── Step 1: Build IR ──────────────────────────────────────────────────────
 
     let mut ctx = Context::new();
@@ -105,11 +127,8 @@ fn main() {
 
     // ── Step 3: Optimise ──────────────────────────────────────────────────────
 
-    let mut pm = PassManager::new();
-    pm.add_function_pass(Mem2Reg);
-    pm.add_function_pass(ConstProp);
-    pm.add_function_pass(DeadCodeElim);
-    pm.run(&mut ctx, &mut module);
+    let mut pm = build_pipeline(opt_level);
+    pm.run_until_fixed_point(&mut ctx, &mut module, 8);
 
     let ir_opt = Printer::new(&ctx).print_module(&module);
     println!("=== LLVM IR (after optimisation) ===");
