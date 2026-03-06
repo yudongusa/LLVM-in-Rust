@@ -11,6 +11,7 @@
 //!    - Otherwise spill the interval with the largest end point.
 
 use crate::isel::{MInstr, MOpcode, MOperand, MachineFunction, PReg, VReg};
+pub use crate::regalloc_gc::graph_color;
 use std::collections::HashMap;
 
 // ── live intervals ─────────────────────────────────────────────────────────
@@ -83,6 +84,26 @@ pub struct RegAllocResult {
     pub vreg_to_preg: HashMap<VReg, PReg>,
     /// VRegs for which no physical register was available.
     pub spilled: Vec<VReg>,
+}
+
+/// Register allocation strategy used by [`allocate_registers`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum RegAllocStrategy {
+    #[default]
+    LinearScan,
+    GraphColor,
+}
+
+/// Allocate registers with the selected strategy.
+pub fn allocate_registers(
+    intervals: &[LiveInterval],
+    allocatable: &[PReg],
+    strategy: RegAllocStrategy,
+) -> RegAllocResult {
+    match strategy {
+        RegAllocStrategy::LinearScan => linear_scan(intervals, allocatable),
+        RegAllocStrategy::GraphColor => graph_color(intervals, allocatable),
+    }
 }
 
 // ── linear scan ────────────────────────────────────────────────────────────

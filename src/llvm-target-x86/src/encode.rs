@@ -1219,9 +1219,7 @@ mod tests {
         // contains the expected prologue bytes.
         use crate::instructions::{MOV_LOAD_MR, MOV_STORE_RM};
         use llvm_codegen::isel::MOpcode;
-        use llvm_codegen::regalloc::{
-            apply_allocation, compute_live_intervals, insert_spill_reloads, linear_scan,
-        };
+        use llvm_codegen::regalloc::{allocate_registers, apply_allocation, compute_live_intervals, insert_spill_reloads, RegAllocStrategy};
 
         let mut mf = MachineFunction::new("spill_e2e".into());
         // Only 1 allocatable register to guarantee spills.
@@ -1238,7 +1236,7 @@ mod tests {
         mf.push(b, MInstr::new(RET));
 
         let intervals = compute_live_intervals(&mf);
-        let mut result = linear_scan(&intervals, &mf.allocatable_pregs);
+        let mut result = allocate_registers(&intervals, &mf.allocatable_pregs, RegAllocStrategy::LinearScan);
         assert!(!result.spilled.is_empty(), "must have spills");
         insert_spill_reloads(&mut mf, &mut result, MOV_LOAD_MR, MOV_STORE_RM);
         apply_allocation(&mut mf, &result);

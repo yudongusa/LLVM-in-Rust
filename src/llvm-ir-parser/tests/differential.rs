@@ -14,7 +14,7 @@ use std::process::Command;
 use llvm_codegen::{
     emit_object,
     isel::IselBackend,
-    regalloc::{apply_allocation, compute_live_intervals, insert_spill_reloads, linear_scan},
+    regalloc::{allocate_registers, apply_allocation, compute_live_intervals, insert_spill_reloads, RegAllocStrategy},
     ObjectFormat,
 };
 use llvm_ir::{printer::Printer, Context, Module};
@@ -563,7 +563,7 @@ fn compile_and_run_ours(ctx: &Context, module: &Module, label: &str) -> (Option<
 
     let mut mf = backend.lower_function(ctx, module, main_func);
     let intervals = compute_live_intervals(&mf);
-    let mut result = linear_scan(&intervals, &mf.allocatable_pregs);
+    let mut result = allocate_registers(&intervals, &mf.allocatable_pregs, RegAllocStrategy::LinearScan);
     insert_spill_reloads(&mut mf, &mut result, MOV_LOAD_MR, MOV_STORE_RM);
     apply_allocation(&mut mf, &result);
     let mut emitter = X86Emitter::new(ObjectFormat::Elf);
