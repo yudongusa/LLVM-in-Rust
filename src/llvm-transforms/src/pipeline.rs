@@ -3,7 +3,10 @@
 //! These presets provide a stable public API for frontends/examples to avoid
 //! manually assembling pass sequences.
 
-use crate::{pass::PassManager, ConstProp, DeadCodeElim, Gvn, Inliner, LoopUnroll, Mem2Reg};
+use crate::{
+    pass::PassManager, ConstProp, DeadArgElim, DeadCodeElim, Gvn, Inliner, Ipcp, LoopUnroll,
+    Mem2Reg,
+};
 
 /// Optimization level preset.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,6 +59,8 @@ pub fn build_pipeline(level: OptLevel) -> PassManager {
         }
         OptLevel::O3 => {
             pm.add_function_pass(Mem2Reg);
+            pm.add_module_pass(Ipcp);
+            pm.add_module_pass(DeadArgElim);
             pm.add_module_pass(Inliner {
                 size_limit: 100,
                 max_inline_depth: 16,
