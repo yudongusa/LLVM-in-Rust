@@ -3,7 +3,7 @@
 //! These presets provide a stable public API for frontends/examples to avoid
 //! manually assembling pass sequences.
 
-use crate::{pass::PassManager, ConstProp, DeadCodeElim, Inliner, Mem2Reg};
+use crate::{pass::PassManager, ConstProp, DeadCodeElim, Gvn, Inliner, LoopUnroll, Mem2Reg};
 
 /// Optimization level preset.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -30,8 +30,6 @@ impl OptLevel {
 /// Build a pass pipeline for the requested optimization level.
 ///
 /// Current implementation uses passes available in this repository today.
-/// Future O2/O3-only passes (GVN/unroll/vectorize/IPA) can be added in-place
-/// without breaking the public API.
 pub fn build_pipeline(level: OptLevel) -> PassManager {
     let mut pm = PassManager::new();
 
@@ -47,18 +45,31 @@ pub fn build_pipeline(level: OptLevel) -> PassManager {
         OptLevel::O2 => {
             pm.add_function_pass(Mem2Reg);
             pm.add_module_pass(Inliner::default());
+            pm.add_function_pass(Gvn);
+            pm.add_function_pass(LoopUnroll::default());
             pm.add_function_pass(ConstProp);
             pm.add_function_pass(DeadCodeElim);
             // Clean up after inlining.
+            pm.add_function_pass(Gvn);
             pm.add_function_pass(ConstProp);
             pm.add_function_pass(DeadCodeElim);
         }
         OptLevel::O3 => {
             pm.add_function_pass(Mem2Reg);
-            pm.add_module_pass(Inliner { size_limit: 100 });
+            pm.add_module_pass(Inliner {
+                size_limit: 100,
+                max_inline_depth: 16,
+                hot_loop_bonus: 100,
+            });
+            pm.add_function_pass(Gvn);
+            pm.add_function_pass(LoopUnroll {
+                factor: 8,
+                max_trip_count: 16,
+            });
             pm.add_function_pass(ConstProp);
             pm.add_function_pass(DeadCodeElim);
             // Extra cleanup rounds as a placeholder for future aggressive O3.
+            pm.add_function_pass(Gvn);
             pm.add_function_pass(ConstProp);
             pm.add_function_pass(DeadCodeElim);
             pm.add_function_pass(ConstProp);
