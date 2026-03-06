@@ -9,27 +9,29 @@ throughout Phases 1–4.
 
 ## Development Lifecycle
 
-Every feature follows this five-stage cycle, executed end-to-end without
+Every feature follows this six-stage cycle, executed end-to-end without
 user prompts at each step:
 
 ```
-Plan → Implement → PR Review → Fix Review Findings → Merge
+Plan → Implement → PR Review → Test → Issue+Fix Loop → Merge
 ```
 
 | Stage | Slash skill | Description |
 |-------|-------------|-------------|
-| Implement a phase | `/implement-phase` | Branch → code → test → commit → PR |
-| Review implementation PR | `/review-and-fix` | Review diff/tests → post PR feedback → fix findings |
-| Fix one issue | `/fix-issue <N>` | Read issue → fix → test → PR → review feedback → merge |
+| Implement a phase | `/implement-phase` | Branch → code → targeted tests → commit → PR |
+| Review implementation PR | `/review-and-fix` | Review diff/tests → run full tests → post PR feedback |
+| Fix one issue | `/fix-issue <N>` | Read issue → fix in same PR branch → test → update PR |
 
-### Mandatory PR Review Feedback Step (for implementation PRs)
+### Mandatory PR Review/Test/Issue Loop (for implementation PRs)
 
 Before merging an implementation PR, the agent must:
 
 1. Review the PR diff and changed tests with a code-review mindset (correctness, regressions, missing tests).
-2. Post review feedback to the PR (`gh pr review --comment` or `gh pr comment`) with concrete findings.
-3. If any issue is found, push a fix commit, then post a follow-up comment summarizing what was fixed.
-4. Merge only when checks are green and no unresolved review findings remain.
+2. Run targeted tests plus a full test sweep (`cargo +stable test` unless blocked).
+3. If concrete problems are found, open GitHub issue(s) documenting them.
+4. Fix those problems in the **same PR branch** and push follow-up commits.
+5. Post PR feedback (`gh pr review --comment` or `gh pr comment`) summarizing findings, linked issues, and fixes.
+6. Merge only when checks are green and no unresolved review findings remain.
 
 ---
 
@@ -44,6 +46,7 @@ These rules prevent common mistakes in the multi-worktree setup:
 | Stage specific files, never `git add -A` | Avoids accidentally committing `target/` or secret files |
 | Never use `--no-verify` | Fix the hook failure instead |
 | Run `cargo test` before every commit | All tests must be green |
+| If review finds bugs, open issue(s) and fix them in the same PR branch | Preserves traceability and keeps context in one PR |
 | Post at least one PR review feedback comment before merge | Captures reviewer reasoning and findings in GitHub history |
 
 **Branch naming:**

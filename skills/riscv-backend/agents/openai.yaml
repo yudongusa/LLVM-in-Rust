@@ -1,4 +1,4 @@
 interface:
   display_name: "RISC-V Backend Agent"
-  short_description: "Issue #89 RV64GC backend implementation workflow"
-  default_prompt: "Use $riscv-backend to implement issue #89 by adding llvm-target-riscv (regs/abi/instructions/lowering/encoding), validating tests, and posting PR review feedback before merge."
+  short_description: "Issue #89 RV64GC backend workflow with review/test/issue-fix loop"
+  default_prompt: "Use $riscv-backend to implement issue #89 by adding llvm-target-riscv (regs/abi/instructions/lowering/encoding), reviewing and fully testing the PR, opening issues for findings, fixing them in the same PR branch, and posting PR review feedback before merge."
