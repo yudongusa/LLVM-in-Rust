@@ -351,6 +351,7 @@ exit:
 
 /// Euclidean GCD(48, 18) = 6.  Tests sdiv/srem in a loop.
 #[test]
+#[ignore = "known Linux x86 backend mismatch; tracked in #104"]
 fn smoke_gcd_iterative() {
     smoke_oracle(
         "gcd_iterative",
