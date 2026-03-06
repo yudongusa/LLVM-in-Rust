@@ -295,6 +295,7 @@ dependencies = [
  "llvm-ir",
  "llvm-ir-parser",
  "llvm-target-arm",
+ "llvm-target-riscv",
  "llvm-target-x86",
  "llvm-transforms",
 ]
@@ -353,6 +354,14 @@ dependencies = [
 
 [[package]]
 name = "llvm-target-arm"
+version = "0.1.0"
+dependencies = [
+ "llvm-codegen",
+ "llvm-ir",
+]
+
+[[package]]
+name = "llvm-target-riscv"
 version = "0.1.0"
 dependencies = [
  "llvm-codegen",
