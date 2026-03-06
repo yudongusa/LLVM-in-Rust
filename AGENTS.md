@@ -54,6 +54,26 @@ When:   Removing `#![feature(...)]`, migrating benches to stable,
 Skill:  skills/rust-stable-compat/SKILL.md
 ```
 
+### simd-vectorization agent
+Use for issue #86 and any x86 SIMD vector-lowering work.
+
+```
+Invoke: $simd-vectorization
+When:   Adding vector IR lowering, SSE4.2/AVX2 emission, and target-feature
+        gating in the x86 backend.
+Skill:  skills/simd-vectorization/SKILL.md
+```
+
+### ipa-optimizer agent
+Use for issue #87 and inter-procedural optimization work.
+
+```
+Invoke: $ipa-optimizer
+When:   Building call-graph analysis, IPCP/dead-argument module passes, and
+        integrating IPA into O3.
+Skill:  skills/ipa-optimizer/SKILL.md
+```
+
 ### Plan agent
 Use **before** starting a new phase or a non-trivial fix.
 

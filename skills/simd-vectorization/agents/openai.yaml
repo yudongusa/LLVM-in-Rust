@@ -1,0 +1,4 @@
+interface:
+  display_name: "SIMD Vectorization Agent"
+  short_description: "Issue #86 vector lowering and feature-gated SIMD workflow"
+  default_prompt: "Use $simd-vectorization to implement issue #86 from scalar-safe vector lowering through SSE4.2/AVX2 feature-gated codegen and end-to-end tests."
