@@ -33,6 +33,10 @@ impl Emitter for RiscVEmitter {
     fn object_format(&self) -> ObjectFormat {
         self.format
     }
+
+    fn elf_machine(&self) -> u16 {
+        243 // EM_RISCV
+    }
 }
 
 fn reg_of_dst(v: VReg) -> u8 {
@@ -149,7 +153,7 @@ fn encode_instr(instr: &MInstr) -> u32 {
         AUIPC => enc_u(imm_of_op(instr.operands.first()), rd, 0x17),
         ADDI => enc_i(imm_of_op(instr.operands.get(1)), rs1, 0x0, rd, 0x13),
 
-        _ => 0x00000013,
+        _ => panic!("unsupported RISC-V opcode {:?}", instr.opcode),
     }
 }
 
@@ -273,7 +277,10 @@ mod tests {
     #[test]
     fn enc_nop_opcode() { assert_eq!(encode_instr(&MInstr::new(NOP)), 0x00000013); }
     #[test]
-    fn enc_unknown_falls_back_to_nop() { assert_eq!(encode_instr(&MInstr::new(llvm_codegen::isel::MOpcode(0xFFFF))), 0x00000013); }
+    #[should_panic(expected = "unsupported RISC-V opcode")]
+    fn enc_unknown_opcode_panics() {
+        let _ = encode_instr(&MInstr::new(llvm_codegen::isel::MOpcode(0xFFFF)));
+    }
 
     #[test]
     fn helper_i_sign_wrap() { assert_eq!(enc_i(-1, 1, 0, 2, 0x13) >> 20, 0xFFF); }
@@ -306,5 +313,18 @@ mod tests {
         let mut e = RiscVEmitter::new(ObjectFormat::MachO);
         let sec = e.emit_function(&mf);
         assert_eq!(sec.data.len(), 4);
+    }
+
+    #[test]
+    fn elf_object_has_riscv_machine_type() {
+        use llvm_codegen::emit::emit_object;
+        let mut mf = MachineFunction::new("f".into());
+        let b = mf.add_block("entry");
+        mf.push(b, MInstr::new(NOP));
+        let mut e = RiscVEmitter::new(ObjectFormat::Elf);
+        let obj = emit_object(&mf, &mut e);
+        let bytes = obj.to_bytes();
+        let e_machine = u16::from_le_bytes([bytes[18], bytes[19]]);
+        assert_eq!(e_machine, 243, "EM_RISCV");
     }
 }
