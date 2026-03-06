@@ -44,6 +44,16 @@ These rules prevent common mistakes in the multi-worktree setup:
 
 ## Agent Usage Guide
 
+### rust-stable-compat agent
+Use for issue #90 and any nightly-to-stable migration work.
+
+```
+Invoke: $rust-stable-compat
+When:   Removing `#![feature(...)]`, migrating benches to stable,
+        updating CI/docs, and validating stable build/test commands.
+Skill:  skills/rust-stable-compat/SKILL.md
+```
+
 ### Plan agent
 Use **before** starting a new phase or a non-trivial fix.
 
