@@ -51,6 +51,13 @@ cargo +stable bench -p llvm-bench --no-run
 
 If any command cannot run in the environment, document exactly what was blocked and why.
 
+## Step 6: Review The PR And Post Feedback
+
+- Review your implementation PR with a code-review checklist: correctness, regressions, and missing tests.
+- Post review feedback directly on the PR (`gh pr review --comment` or `gh pr comment`) with concrete findings.
+- If findings exist, push fixes and post a follow-up PR comment describing what changed.
+- Merge only after checks are green and review findings are resolved.
+
 ## PR Checklist
 
 - No `#![feature(` remains in workspace.

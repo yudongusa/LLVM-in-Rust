@@ -50,6 +50,13 @@ cargo +stable test
 
 If native link/run smoke cannot execute in environment, document exact blocker and include parser/codegen-only evidence.
 
+## Step 6: Review The PR And Post Feedback
+
+- Review the PR diff and tests with focus on codegen correctness, feature-gating behavior, and fallback safety.
+- Post review feedback to the PR (`gh pr review --comment` or `gh pr comment`) before merge.
+- If problems are found, commit fixes and add a follow-up PR comment summarizing resolutions.
+- Merge only after green checks and no unresolved review findings.
+
 ## Resources
 
 - Use [`references/issue-86-plan.md`](references/issue-86-plan.md) for acceptance checklist and sequencing.

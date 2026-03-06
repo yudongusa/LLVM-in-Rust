@@ -51,6 +51,13 @@ cargo +stable test
 
 If benchmark environment is constrained, capture instruction-count deltas as deterministic proxy.
 
+## Step 6: Review The PR And Post Feedback
+
+- Review the implementation PR for semantic correctness, pass-pipeline safety, and missing coverage.
+- Post review feedback in the PR thread (`gh pr review --comment` or `gh pr comment`) with actionable items.
+- If any issue is found, fix it in follow-up commits and post a summary of resolved findings.
+- Merge only when required checks pass and review findings are closed.
+
 ## Resources
 
 - Use [`references/issue-87-plan.md`](references/issue-87-plan.md) for acceptance checklist.
