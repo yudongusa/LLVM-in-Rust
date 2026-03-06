@@ -1,4 +1,4 @@
 interface:
   display_name: "Rust Stable Compat Agent"
-  short_description: "Stable Rust migration workflow for issue #90 with PR review feedback"
-  default_prompt: "Use $rust-stable-compat to implement issue #90 from audit through stable CI/docs updates, then review the PR and post review feedback before merge."
+  short_description: "Stable Rust migration workflow with review/test/issue-fix loop"
+  default_prompt: "Use $rust-stable-compat to implement issue #90 from audit through stable CI/docs updates, then review and fully test the PR, open issues for findings, fix them in the same PR branch, and post PR review feedback before merge."

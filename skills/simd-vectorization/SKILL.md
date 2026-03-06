@@ -50,12 +50,20 @@ cargo +stable test
 
 If native link/run smoke cannot execute in environment, document exact blocker and include parser/codegen-only evidence.
 
-## Step 6: Review The PR And Post Feedback
+## Step 6: Review + Full Test
 
-- Review the PR diff and tests with focus on codegen correctness, feature-gating behavior, and fallback safety.
-- Post review feedback to the PR (`gh pr review --comment` or `gh pr comment`) before merge.
-- If problems are found, commit fixes and add a follow-up PR comment summarizing resolutions.
-- Merge only after green checks and no unresolved review findings.
+- Review implementation PR with focus on codegen correctness, gating behavior, and fallback safety.
+- Run targeted checks and full suite (`cargo +stable test`) unless blocked.
+
+## Step 7: Issue+Fix Loop (Same PR)
+
+- If concrete problems are found, open GitHub issue(s) documenting each.
+- Fix findings in the same PR branch and push follow-up commits.
+
+## Step 8: Post Review Summary
+
+- Post PR review feedback (`gh pr review --comment` or `gh pr comment`) summarizing findings and fixes.
+- Include issue links in the PR review summary.
 
 ## Resources
 

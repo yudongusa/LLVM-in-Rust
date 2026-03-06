@@ -14,7 +14,9 @@ Use this skill to execute issue #89 in incremental, test-first steps.
 3. Implement instruction opcodes + encoder with format-focused unit tests.
 4. Implement lowering for the same `InstrKind` coverage as x86/aarch64 backends.
 5. Validate object emission and end-to-end RISC-V ELF generation.
-6. Review PR and post review feedback before merge.
+6. Review PR + run full tests.
+7. If problems are found, open issue(s) and fix in the same PR.
+8. Post review feedback summary and merge.
 
 ## Step 1: Bootstrap
 
@@ -50,11 +52,20 @@ cargo +stable test
 
 If `riscv64-linux-gnu-objdump` is unavailable, document blocker and keep object-shape tests deterministic.
 
-## Step 6: Review PR Feedback
+## Step 6: Review + Full Test
 
 - Review implementation PR for correctness, ABI compliance, and missing tests.
-- Post PR review feedback (`gh pr review --comment` or `gh pr comment`).
-- Fix findings in follow-up commits before merge.
+- Run targeted tests and a full suite (`cargo +stable test` unless blocked).
+
+## Step 7: Issue+Fix Loop (Same PR)
+
+- If a concrete bug/regression is found, open a GitHub issue documenting it.
+- Fix findings in the same PR branch and push follow-up commits.
+
+## Step 8: Post Review Summary
+
+- Post PR review feedback (`gh pr review --comment` or `gh pr comment`) with findings and fixes.
+- Include issue links in the summary comment.
 
 ## Resources
 

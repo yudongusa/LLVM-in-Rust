@@ -51,12 +51,20 @@ cargo +stable test
 
 If benchmark environment is constrained, capture instruction-count deltas as deterministic proxy.
 
-## Step 6: Review The PR And Post Feedback
+## Step 6: Review + Full Test
 
-- Review the implementation PR for semantic correctness, pass-pipeline safety, and missing coverage.
-- Post review feedback in the PR thread (`gh pr review --comment` or `gh pr comment`) with actionable items.
-- If any issue is found, fix it in follow-up commits and post a summary of resolved findings.
-- Merge only when required checks pass and review findings are closed.
+- Review implementation PR for semantic correctness, pass-pipeline safety, and missing tests.
+- Run targeted checks and full suite (`cargo +stable test`) unless blocked.
+
+## Step 7: Issue+Fix Loop (Same PR)
+
+- If concrete problems are found, open GitHub issue(s) for traceability.
+- Fix them in the same PR branch and push follow-up commits.
+
+## Step 8: Post Review Summary
+
+- Post PR review feedback (`gh pr review --comment` or `gh pr comment`) summarizing findings and fixes.
+- Include links to issues opened during review.
 
 ## Resources
 

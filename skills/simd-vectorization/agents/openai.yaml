@@ -1,4 +1,4 @@
 interface:
   display_name: "SIMD Vectorization Agent"
-  short_description: "Issue #86 vector lowering workflow with PR review feedback"
-  default_prompt: "Use $simd-vectorization to implement issue #86 from scalar-safe lowering through SSE4.2/AVX2 feature-gated codegen and end-to-end tests, then post PR review feedback before merge."
+  short_description: "Issue #86 vector lowering workflow with review/test/issue-fix loop"
+  default_prompt: "Use $simd-vectorization to implement issue #86 from scalar-safe lowering through SSE4.2/AVX2 feature-gated codegen and end-to-end tests, then review and fully test the PR, open issues for findings, fix them in the same PR branch, and post PR review feedback before merge."
