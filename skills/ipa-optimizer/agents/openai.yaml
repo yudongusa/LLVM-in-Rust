@@ -1,4 +1,4 @@
 interface:
   display_name: "IPA Optimizer Agent"
-  short_description: "Issue #87 call-graph and inter-procedural optimization workflow"
-  default_prompt: "Use $ipa-optimizer to implement issue #87 by adding CallGraph/SCC analysis, IPCP and dead-argument passes, integrating into O3, and validating improvement."
+  short_description: "Issue #87 inter-procedural optimization workflow with PR review feedback"
+  default_prompt: "Use $ipa-optimizer to implement issue #87 by adding CallGraph/SCC analysis, IPCP/dead-argument passes, integrating into O3, validating impact, then posting PR review feedback before merge."
