@@ -7,3 +7,7 @@ license = "Apache-2.0"
 [dependencies]
 llvm-ir = { path = "../llvm-ir" }
 llvm-codegen = { path = "../llvm-codegen" }
+
+[dev-dependencies]
+llvm-ir-parser = { path = "../llvm-ir-parser" }
+llvm-transforms = { path = "../llvm-transforms" }
