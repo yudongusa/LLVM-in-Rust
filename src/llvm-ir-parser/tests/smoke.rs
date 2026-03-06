@@ -473,15 +473,16 @@ fn smoke_nested_loop() {
 entry:
   %sum = alloca i32
   %i = alloca i32
+  %j = alloca i32
   store i32 0, ptr %sum
   store i32 0, ptr %i
+  store i32 0, ptr %j
   br label %outer
 outer:
   %iv = load i32, ptr %i
   %ocmp = icmp slt i32 %iv, 3
   br i1 %ocmp, label %outer_body, label %exit
 outer_body:
-  %j = alloca i32
   store i32 0, ptr %j
   br label %inner
 inner:
