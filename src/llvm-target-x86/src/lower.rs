@@ -100,18 +100,20 @@ fn resolve(
     vmap: &mut HashMap<ValueRef, VReg>,
     vr: ValueRef,
 ) -> VReg {
-    if let Some(&existing) = vmap.get(&vr) {
-        return existing;
-    }
     match vr {
         ValueRef::Constant(cid) => {
+            // Constants must not be globally memoized across blocks: the first
+            // materialization site might not dominate all later uses.
+            // Emit a fresh vreg in the current block for each constant use.
             let vreg = mf.fresh_vreg();
-            vmap.insert(vr, vreg);
             let imm = const_to_imm(ctx.get_const(cid));
             mf.push(mblock, MInstr::new(MOV_RI).with_dst(vreg).with_imm(imm));
             vreg
         }
         _ => {
+            if let Some(&existing) = vmap.get(&vr) {
+                return existing;
+            }
             // Unknown reference — allocate a placeholder VReg.
             let vreg = mf.fresh_vreg();
             vmap.insert(vr, vreg);
@@ -216,10 +218,14 @@ fn lower_instr(
             let dst = new_dst!();
             let l = res!(*lhs);
             let r = res!(*rhs);
-            // mov rax, lhs; cqo; idiv rhs → rax = quotient (signed)
+            // mov rax, lhs; cqo; idiv rcx → rax = quotient (signed)
+            // Keep divisor out of clobbered regs (rax/rdx) to avoid
+            // self-clobbering when the allocator picks those registers.
+            emit_mov_to_preg(mf, mblock, RCX, r);
             emit_mov_to_preg(mf, mblock, SYSV_INT_RET, l);
             mf.push(mblock, MInstr::new(CQO));
-            let mut div_mi = MInstr::new(IDIV_R).with_vreg(r);
+            let mut div_mi = MInstr::new(IDIV_R).with_preg(RCX);
+            div_mi.phys_uses = vec![RCX];
             div_mi.clobbers = vec![SYSV_INT_RET, RDX];
             mf.push(mblock, div_mi);
             emit_mov_from_preg(mf, mblock, dst, SYSV_INT_RET);
@@ -229,12 +235,14 @@ fn lower_instr(
             let dst = new_dst!();
             let l = res!(*lhs);
             let r = res!(*rhs);
-            // mov rax, lhs; xor rdx, rdx; div rhs → rax = quotient (unsigned)
+            // mov rax, lhs; xor rdx, rdx; div rcx → rax = quotient (unsigned)
+            emit_mov_to_preg(mf, mblock, RCX, r);
             emit_mov_to_preg(mf, mblock, SYSV_INT_RET, l);
             let zero = mf.fresh_vreg();
             mf.push(mblock, MInstr::new(MOV_RI).with_dst(zero).with_imm(0));
             emit_mov_to_preg(mf, mblock, RDX, zero);
-            let mut div_mi = MInstr::new(DIV_R).with_vreg(r);
+            let mut div_mi = MInstr::new(DIV_R).with_preg(RCX);
+            div_mi.phys_uses = vec![RCX];
             div_mi.clobbers = vec![SYSV_INT_RET, RDX];
             mf.push(mblock, div_mi);
             emit_mov_from_preg(mf, mblock, dst, SYSV_INT_RET);
@@ -244,10 +252,12 @@ fn lower_instr(
             let dst = new_dst!();
             let l = res!(*lhs);
             let r = res!(*rhs);
-            // mov rax, lhs; cqo; idiv rhs → rdx = remainder (signed)
+            // mov rax, lhs; cqo; idiv rcx → rdx = remainder (signed)
+            emit_mov_to_preg(mf, mblock, RCX, r);
             emit_mov_to_preg(mf, mblock, SYSV_INT_RET, l);
             mf.push(mblock, MInstr::new(CQO));
-            let mut div_mi = MInstr::new(IDIV_R).with_vreg(r);
+            let mut div_mi = MInstr::new(IDIV_R).with_preg(RCX);
+            div_mi.phys_uses = vec![RCX];
             div_mi.clobbers = vec![SYSV_INT_RET, RDX];
             mf.push(mblock, div_mi);
             emit_mov_from_preg(mf, mblock, dst, RDX);
@@ -257,12 +267,14 @@ fn lower_instr(
             let dst = new_dst!();
             let l = res!(*lhs);
             let r = res!(*rhs);
-            // mov rax, lhs; xor rdx, rdx; div rhs → rdx = remainder (unsigned)
+            // mov rax, lhs; xor rdx, rdx; div rcx → rdx = remainder (unsigned)
+            emit_mov_to_preg(mf, mblock, RCX, r);
             emit_mov_to_preg(mf, mblock, SYSV_INT_RET, l);
             let zero = mf.fresh_vreg();
             mf.push(mblock, MInstr::new(MOV_RI).with_dst(zero).with_imm(0));
             emit_mov_to_preg(mf, mblock, RDX, zero);
-            let mut div_mi = MInstr::new(DIV_R).with_vreg(r);
+            let mut div_mi = MInstr::new(DIV_R).with_preg(RCX);
+            div_mi.phys_uses = vec![RCX];
             div_mi.clobbers = vec![SYSV_INT_RET, RDX];
             mf.push(mblock, div_mi);
             emit_mov_from_preg(mf, mblock, dst, RDX);
@@ -318,50 +330,51 @@ fn lower_instr(
             let c = res!(*cond);
             let tv = res!(*then_val);
             let fv = res!(*else_val);
-            // dst = fv; test cond; setne tmp; if cond != 0 → dst = tv.
-            // Emit: mov dst, fv; test c, c; jnz ⟨skip 1 instr⟩; mov dst, tv.
-            // Simplified: two MOVs + TEST + SETCC.
-            mf.push(mblock, MInstr::new(MOV_RR).with_dst(dst).with_vreg(fv));
             mf.push(mblock, MInstr::new(TEST_RR).with_vreg(c).with_vreg(c));
-            // We don't have CMOV yet; use a scratch vreg to hold the
-            // conditional: scratch = (c != 0) ? 0xFFFF…F : 0.
-            // Then: dst = (dst & ~scratch) | (tv & scratch).
+            // Build an all-ones/zero mask from cond, then select via bit ops:
+            //   mask = (cond != 0) ? -1 : 0
+            //   dst = (then & mask) | (else & ~mask)
             let scratch = mf.fresh_vreg();
             mf.push(mblock, MInstr::new(SETCC).with_dst(scratch).with_imm(CC_NE));
-            // Negate scratch: scratch = 0 - scratch (0→0, 1→-1 = all-ones).
             mf.push(
                 mblock,
                 MInstr::new(NEG_R).with_dst(scratch).with_vreg(scratch),
             );
-            // dst = (fv & ~scratch) | (tv & scratch)
-            let tmp1 = mf.fresh_vreg();
-            let tmp2 = mf.fresh_vreg();
-            mf.push(mblock, MInstr::new(MOV_RR).with_dst(tmp1).with_vreg(fv));
+            let then_masked = mf.fresh_vreg();
+            let else_masked = mf.fresh_vreg();
+            mf.push(
+                mblock,
+                MInstr::new(MOV_RR).with_dst(then_masked).with_vreg(tv),
+            );
             mf.push(
                 mblock,
                 MInstr::new(AND_RR)
-                    .with_dst(tmp1)
-                    .with_vreg(tmp1)
+                    .with_dst(then_masked)
                     .with_vreg(scratch),
             );
             mf.push(
                 mblock,
                 MInstr::new(NOT_R).with_dst(scratch).with_vreg(scratch),
             );
-            mf.push(mblock, MInstr::new(MOV_RR).with_dst(tmp2).with_vreg(tv));
+            mf.push(
+                mblock,
+                MInstr::new(MOV_RR).with_dst(else_masked).with_vreg(fv),
+            );
             mf.push(
                 mblock,
                 MInstr::new(AND_RR)
-                    .with_dst(tmp2)
-                    .with_vreg(tmp2)
+                    .with_dst(else_masked)
                     .with_vreg(scratch),
+            );
+            mf.push(
+                mblock,
+                MInstr::new(MOV_RR).with_dst(dst).with_vreg(then_masked),
             );
             mf.push(
                 mblock,
                 MInstr::new(OR_RR)
                     .with_dst(dst)
-                    .with_vreg(tmp1)
-                    .with_vreg(tmp2),
+                    .with_vreg(else_masked),
             );
         }
 
@@ -563,22 +576,33 @@ fn emit_phi_copies(
 ) {
     let dest_bb = &func.blocks[dest.0 as usize];
     let src_bid = BlockId(ir_src_block as u32);
-
+    let mut copies: Vec<(VReg, VReg)> = Vec::new();
     for &iid in &dest_bb.body {
         if let InstrKind::Phi { incoming, .. } = &func.instr(iid).kind {
-            // Find the incoming value from `src_bid`.
             if let Some((incoming_val, _)) = incoming.iter().find(|(_, bid)| *bid == src_bid) {
                 let phi_vreg = match vmap.get(&ValueRef::Instruction(iid)) {
                     Some(&v) => v,
                     None => continue,
                 };
                 let src_vreg = resolve(ctx, mf, emit_to_mblock, vmap, *incoming_val);
-                mf.push(
-                    emit_to_mblock,
-                    MInstr::new(MOV_RR).with_dst(phi_vreg).with_vreg(src_vreg),
-                );
+                if phi_vreg != src_vreg {
+                    copies.push((phi_vreg, src_vreg));
+                }
             }
         }
+    }
+
+    // Correct parallel-copy lowering: first snapshot all sources into temps,
+    // then assign destinations from those temps. This avoids all cycle/clobber
+    // hazards at the cost of extra moves.
+    let mut staged: Vec<(VReg, VReg)> = Vec::with_capacity(copies.len());
+    for (dst, src) in copies {
+        let tmp = mf.fresh_vreg();
+        mf.push(emit_to_mblock, MInstr::new(MOV_RR).with_dst(tmp).with_vreg(src));
+        staged.push((dst, tmp));
+    }
+    for (dst, tmp) in staged {
+        mf.push(emit_to_mblock, MInstr::new(MOV_RR).with_dst(dst).with_vreg(tmp));
     }
 }
 
@@ -1064,5 +1088,59 @@ mod tests {
                 target
             );
         }
+    }
+
+    #[test]
+    fn constants_are_materialized_in_non_dominated_blocks() {
+        // Regression for issue #106:
+        // if a constant is first used in `then` and reused in `merge`, `merge`
+        // must materialize it locally rather than reusing a VReg from `then`.
+        let mut ctx = Context::new();
+        let mut module = Module::new("test");
+        let mut b = Builder::new(&mut ctx, &mut module);
+        b.add_function(
+            "const_dom",
+            b.ctx.i64_ty,
+            vec![b.ctx.i1_ty],
+            vec!["cond".into()],
+            false,
+            Linkage::External,
+        );
+        let entry = b.add_block("entry");
+        let then_bb = b.add_block("then_bb");
+        let else_bb = b.add_block("else_bb");
+        let merge_bb = b.add_block("merge_bb");
+
+        b.position_at_end(entry);
+        let cond = b.get_arg(0);
+        b.build_cond_br(cond, then_bb, else_bb);
+
+        b.position_at_end(then_bb);
+        let c40 = b.const_int(b.ctx.i64_ty, 40);
+        let c1 = b.const_int(b.ctx.i64_ty, 1);
+        let from_then = b.build_add("from_then", c40, c1);
+        b.build_br(merge_bb);
+
+        b.position_at_end(else_bb);
+        b.build_br(merge_bb);
+
+        b.position_at_end(merge_bb);
+        let c0 = b.const_int(b.ctx.i64_ty, 0);
+        let phi = b.build_phi("phi", b.ctx.i64_ty, vec![(from_then, then_bb), (c0, else_bb)]);
+        let plus_one = b.build_add("plus_one", phi, c1);
+        b.build_ret(plus_one);
+
+        let mut be = X86Backend;
+        let mf = be.lower_function(&ctx, &module, &module.functions[0]);
+
+        // merge_bb is IR block index 3, so machine block 3 before edge splits.
+        let merge = &mf.blocks[3];
+        let has_local_imm1 = merge.instrs.iter().any(|mi| {
+            mi.opcode == MOV_RI && mi.operands.iter().any(|op| matches!(op, MOperand::Imm(1)))
+        });
+        assert!(
+            has_local_imm1,
+            "merge block must materialize constant 1 locally (cannot reuse branch-local VReg)"
+        );
     }
 }

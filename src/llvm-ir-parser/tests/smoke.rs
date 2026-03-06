@@ -112,6 +112,30 @@ struct RunResult {
     stdout: String,
 }
 
+fn run_binary(path: &Path, label: &str, which: &str) -> Option<std::process::Output> {
+    #[cfg(target_os = "linux")]
+    {
+        let out = Command::new("timeout")
+            .args(["5s"])
+            .arg(path)
+            .output()
+            .ok()?;
+        let code = out.status.code().unwrap_or(-1);
+        if code == 124 || code == 137 {
+            eprintln!("[smoke/{label}] {which} timed out after 5s");
+            return None;
+        }
+        Some(out)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Command::new(path).output().ok().or_else(|| {
+            eprintln!("[smoke/{label}] failed to run {which}");
+            None
+        })
+    }
+}
+
 // ── oracle path (Clang/LLVM 19) ───────────────────────────────────────────────
 
 /// Compile `ir` with Clang, execute the binary, and return its exit code + stdout.
@@ -132,7 +156,7 @@ fn run_oracle(clang: &Path, label: &str, ir: &str) -> Option<RunResult> {
             );
             return None;
         }
-        let run = Command::new(&bin_path).output().expect("run oracle binary");
+        let run = run_binary(&bin_path, label, "oracle binary")?;
         let _ = std::fs::remove_file(&bin_path);
         Some(RunResult {
             exit_code: run.status.code().unwrap_or(-1),
@@ -200,13 +224,7 @@ fn run_ours(ctx: &Context, module: &Module, label: &str) -> Option<RunResult> {
             );
             return None;
         }
-        let run = match Command::new(&bin_path).output() {
-            Ok(out) => out,
-            Err(e) => {
-                eprintln!("[smoke/{label}] failed to run linked binary: {e}");
-                return None;
-            }
-        };
+        let run = run_binary(&bin_path, label, "ours binary")?;
         let _ = std::fs::remove_file(&bin_path);
         Some(RunResult {
             exit_code: run.status.code().unwrap_or(-1),
@@ -315,7 +333,6 @@ exit:
 
 /// Iterative Fibonacci: fib(7) = 13.  Three loop variables; tests phi chains.
 #[test]
-#[ignore = "known Linux x86 backend mismatch; tracked in #102"]
 fn smoke_fibonacci_iterative() {
     smoke_oracle(
         "fibonacci_iterative",
@@ -351,7 +368,6 @@ exit:
 
 /// Euclidean GCD(48, 18) = 6.  Tests sdiv/srem in a loop.
 #[test]
-#[ignore = "known Linux x86 backend mismatch; tracked in #104"]
 fn smoke_gcd_iterative() {
     smoke_oracle(
         "gcd_iterative",
@@ -413,7 +429,6 @@ exit:
 
 /// max(11, 42, 17) = 42.  Tests a chain of `select` instructions.
 #[test]
-#[ignore = "known Linux x86 backend mismatch; tracked in #102"]
 fn smoke_max_select() {
     smoke_oracle(
         "max_select",
@@ -451,7 +466,6 @@ entry:
 /// 3×3 nested loop: sum of i*j for i,j in 0..2 = 9.
 /// Exercises nested phi chains and inner-loop reset.
 #[test]
-#[ignore = "known Linux x86 backend mismatch; tracked in #102"]
 fn smoke_nested_loop() {
     smoke_oracle(
         "nested_loop",
@@ -459,15 +473,16 @@ fn smoke_nested_loop() {
 entry:
   %sum = alloca i32
   %i = alloca i32
+  %j = alloca i32
   store i32 0, ptr %sum
   store i32 0, ptr %i
+  store i32 0, ptr %j
   br label %outer
 outer:
   %iv = load i32, ptr %i
   %ocmp = icmp slt i32 %iv, 3
   br i1 %ocmp, label %outer_body, label %exit
 outer_body:
-  %j = alloca i32
   store i32 0, ptr %j
   br label %inner
 inner:
@@ -528,7 +543,6 @@ exit:
 
 /// Collatz(6) reaches 1 in 8 steps.  Tests mixed even/odd branching with select.
 #[test]
-#[ignore = "known Linux x86 backend mismatch; tracked in #102"]
 fn smoke_collatz_steps() {
     smoke_oracle(
         "collatz_steps",
