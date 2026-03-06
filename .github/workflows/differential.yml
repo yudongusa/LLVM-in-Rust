@@ -57,3 +57,9 @@ jobs:
         env:
           REQUIRE_LLVM: "1"
         run: cargo test -p llvm-ir-parser --test smoke --no-fail-fast -- --nocapture
+
+      - name: Run quarantined smoke oracle tests (non-blocking observability)
+        continue-on-error: true
+        env:
+          REQUIRE_LLVM: "1"
+        run: cargo test -p llvm-ir-parser --test smoke -- --ignored --nocapture
