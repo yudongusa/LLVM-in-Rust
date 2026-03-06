@@ -7,4 +7,4 @@ pub mod lower;
 pub mod regs;
 
 pub use encode::X86Emitter;
-pub use lower::X86Backend;
+pub use lower::{TargetFeatures, X86Backend};

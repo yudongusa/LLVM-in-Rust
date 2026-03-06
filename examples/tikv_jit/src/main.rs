@@ -142,7 +142,7 @@ fn main() {
         .find(|f| !f.is_declaration)
         .expect("module has at least one function definition");
 
-    let mut backend = X86Backend;
+    let mut backend = X86Backend::default();
     let mut mf = backend.lower_function(&ctx, &module, func);
 
     let intervals = compute_live_intervals(&mf);

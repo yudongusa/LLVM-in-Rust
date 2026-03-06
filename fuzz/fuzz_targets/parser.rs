@@ -31,7 +31,7 @@ fn run_codegen(module: &Module, ctx: &llvm_ir::Context) {
         None => return,
     };
 
-    let mut backend = X86Backend;
+    let mut backend = X86Backend::default();
     for func in &module.functions {
         if func.is_declaration {
             continue;

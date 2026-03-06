@@ -768,6 +768,46 @@ impl<'a> Builder<'a> {
         )
     }
 
+    pub fn build_extractelement(
+        &mut self,
+        name: impl Into<String>,
+        vec: ValueRef,
+        idx: ValueRef,
+        result_ty: TypeId,
+    ) -> ValueRef {
+        self.append_instr(
+            Some(name.into()),
+            result_ty,
+            InstrKind::ExtractElement { vec, idx },
+        )
+    }
+
+    pub fn build_insertelement(
+        &mut self,
+        name: impl Into<String>,
+        vec: ValueRef,
+        val: ValueRef,
+        idx: ValueRef,
+    ) -> ValueRef {
+        let ty = self.type_of(vec);
+        self.append_instr(Some(name.into()), ty, InstrKind::InsertElement { vec, val, idx })
+    }
+
+    pub fn build_shufflevector(
+        &mut self,
+        name: impl Into<String>,
+        v1: ValueRef,
+        v2: ValueRef,
+        mask: Vec<i32>,
+        result_ty: TypeId,
+    ) -> ValueRef {
+        self.append_instr(
+            Some(name.into()),
+            result_ty,
+            InstrKind::ShuffleVector { v1, v2, mask },
+        )
+    }
+
     // --- Call ---
 
     pub fn build_call(
