@@ -31,6 +31,7 @@
 
 use crate::const_prop::subst_kind;
 use crate::pass::ModulePass;
+use llvm_analysis::{Cfg, DomTree, LoopInfo};
 use llvm_ir::{
     ArgId, BasicBlock, BlockId, Context, FunctionId, InstrId, InstrKind, Instruction, Module,
     ValueRef,
@@ -43,11 +44,19 @@ use std::collections::HashMap;
 /// non-terminator instructions) that will be inlined.  The default is 50.
 pub struct Inliner {
     pub size_limit: usize,
+    /// Maximum number of inlining rounds per module run.
+    pub max_inline_depth: usize,
+    /// Extra inline budget for callsites inside loop blocks.
+    pub hot_loop_bonus: usize,
 }
 
 impl Default for Inliner {
     fn default() -> Self {
-        Inliner { size_limit: 50 }
+        Inliner {
+            size_limit: 50,
+            max_inline_depth: 8,
+            hot_loop_bonus: 50,
+        }
     }
 }
 
@@ -58,10 +67,16 @@ impl ModulePass for Inliner {
 
     fn run_on_module(&mut self, ctx: &mut Context, module: &mut Module) -> bool {
         let mut changed = false;
+        let mut depth = 0usize;
         // Inline one call site at a time to keep indices stable.
-        while let Some(site) = find_inline_site(ctx, module, self.size_limit) {
+        while depth < self.max_inline_depth {
+            let Some(site) = find_inline_site(ctx, module, self.size_limit, self.hot_loop_bonus)
+            else {
+                break;
+            };
             do_inline(ctx, module, site);
             changed = true;
+            depth += 1;
         }
         changed
     }
@@ -78,12 +93,20 @@ struct CallSite {
     callee_id: FunctionId,
 }
 
-fn find_inline_site(ctx: &Context, module: &Module, size_limit: usize) -> Option<CallSite> {
+fn find_inline_site(
+    ctx: &Context,
+    module: &Module,
+    size_limit: usize,
+    hot_loop_bonus: usize,
+) -> Option<CallSite> {
     for (caller_idx, caller) in module.functions.iter().enumerate() {
         if caller.is_declaration {
             continue;
         }
         let caller_id = FunctionId(caller_idx as u32);
+        let cfg = Cfg::compute(caller);
+        let dom = DomTree::compute(caller, &cfg);
+        let loops = LoopInfo::compute(caller, &cfg, &dom);
 
         for (bi, bb) in caller.blocks.iter().enumerate() {
             for (pos, &iid) in bb.body.iter().enumerate() {
@@ -110,10 +133,7 @@ fn find_inline_site(ctx: &Context, module: &Module, size_limit: usize) -> Option
                     if callee_fn.is_declaration {
                         continue;
                     }
-                    if callee_fid == caller_id {
-                        continue;
-                    } // no self-recursion
-                      // Skip variadic callees.
+                    // Skip variadic callees.
                     if let llvm_ir::TypeData::Function(ft) = ctx.get_type(*callee_ty) {
                         if ft.variadic {
                             continue;
@@ -121,7 +141,11 @@ fn find_inline_site(ctx: &Context, module: &Module, size_limit: usize) -> Option
                     }
                     // Size limit.
                     let body_instrs: usize = callee_fn.blocks.iter().map(|b| b.body.len()).sum();
-                    if body_instrs > size_limit {
+                    let mut effective_size_limit = size_limit;
+                    if loops.depth(BlockId(bi as u32)) > 0 {
+                        effective_size_limit = effective_size_limit.saturating_add(hot_loop_bonus);
+                    }
+                    if body_instrs > effective_size_limit {
                         continue;
                     }
 
@@ -791,8 +815,121 @@ mod tests {
     fn inliner_respects_size_limit() {
         // Inliner with size_limit=0 should not inline @add (which has 1 body instruction).
         let (mut ctx, mut module) = make_add_module();
-        let mut pass = Inliner { size_limit: 0 };
+        let mut pass = Inliner {
+            size_limit: 0,
+            ..Default::default()
+        };
         let changed = pass.run_on_module(&mut ctx, &mut module);
         assert!(!changed, "should not inline when callee exceeds size limit");
+    }
+
+    #[test]
+    fn inliner_depth_limit_stops_recursive_growth() {
+        let mut ctx = Context::new();
+        let mut module = Module::new("test");
+        let mut b = Builder::new(&mut ctx, &mut module);
+
+        b.add_function(
+            "f",
+            b.ctx.i64_ty,
+            vec![b.ctx.i64_ty],
+            vec!["x".into()],
+            false,
+            Linkage::External,
+        );
+        let entry = b.add_block("entry");
+        b.position_at_end(entry);
+        let x = b.get_arg(0);
+        let fn_ty = b.ctx.mk_fn_type(b.ctx.i64_ty, vec![b.ctx.i64_ty], false);
+        let call = b.build_call(
+            "y",
+            b.ctx.i64_ty,
+            fn_ty,
+            ValueRef::Global(GlobalId(0)),
+            vec![x],
+        );
+        b.build_ret(call);
+
+        let before_instrs = module.functions[0].instructions.len();
+        let mut pass = Inliner {
+            size_limit: 20,
+            max_inline_depth: 1,
+            hot_loop_bonus: 0,
+        };
+        let changed = pass.run_on_module(&mut ctx, &mut module);
+        assert!(changed, "one recursive inline step should be allowed");
+        let after_instrs = module.functions[0].instructions.len();
+        assert!(after_instrs > before_instrs);
+    }
+
+    #[test]
+    fn inliner_hot_loop_bonus_allows_larger_callee() {
+        let mut ctx = Context::new();
+        let mut module = Module::new("test");
+        let mut b = Builder::new(&mut ctx, &mut module);
+
+        b.add_function(
+            "big",
+            b.ctx.i64_ty,
+            vec![b.ctx.i64_ty],
+            vec!["x".into()],
+            false,
+            Linkage::External,
+        );
+        let big_entry = b.add_block("big_entry");
+        b.position_at_end(big_entry);
+        let x = b.get_arg(0);
+        let c1 = b.const_int(b.ctx.i64_ty, 1);
+        let c2 = b.const_int(b.ctx.i64_ty, 2);
+        let c3 = b.const_int(b.ctx.i64_ty, 3);
+        let a = b.build_add("a", x, c1);
+        let c = b.build_add("c", a, c2);
+        let d = b.build_add("d", c, c3);
+        b.build_ret(d);
+
+        b.add_function(
+            "caller",
+            b.ctx.i64_ty,
+            vec![b.ctx.i64_ty, b.ctx.i1_ty],
+            vec!["x".into(), "cond".into()],
+            false,
+            Linkage::External,
+        );
+        let entry = b.add_block("entry");
+        let loop_bb = b.add_block("loop");
+        let exit = b.add_block("exit");
+        b.position_at_end(entry);
+        let xarg = b.get_arg(0);
+        let cond = b.get_arg(1);
+        b.build_br(loop_bb);
+        b.position_at_end(loop_bb);
+        let big_ty = b.ctx.mk_fn_type(b.ctx.i64_ty, vec![b.ctx.i64_ty], false);
+        let _v = b.build_call(
+            "v",
+            b.ctx.i64_ty,
+            big_ty,
+            ValueRef::Global(GlobalId(0)),
+            vec![xarg],
+        );
+        b.build_cond_br(cond, loop_bb, exit);
+        b.position_at_end(exit);
+        b.build_ret(xarg);
+
+        let caller_idx = module
+            .functions
+            .iter()
+            .position(|f| f.name == "caller")
+            .expect("caller exists");
+        let before = module.functions[caller_idx].instructions.len();
+
+        let mut pass = Inliner {
+            size_limit: 1,
+            max_inline_depth: 4,
+            hot_loop_bonus: 8,
+        };
+        let changed = pass.run_on_module(&mut ctx, &mut module);
+        assert!(changed, "hot-loop bonus should allow inlining in loop block");
+        let after = module.functions[caller_idx].instructions.len();
+        assert!(after > before);
     }
 }

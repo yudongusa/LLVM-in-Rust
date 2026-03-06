@@ -403,3 +403,89 @@ ret_c1:
 ret_c2:
   ret i64 %c
 }
+
+; ── redundant-expression stress (for O2 GVN effectiveness) ───────────────────
+
+define i64 @gvn_stress(i64 %a, i64 %b) {
+entry:
+  %x01 = add i64 %a, %b
+  %x02 = add i64 %a, %b
+  %s02 = add i64 %x01, %x02
+  %x03 = add i64 %a, %b
+  %s03 = add i64 %s02, %x03
+  %x04 = add i64 %a, %b
+  %s04 = add i64 %s03, %x04
+  %x05 = add i64 %a, %b
+  %s05 = add i64 %s04, %x05
+  %x06 = add i64 %a, %b
+  %s06 = add i64 %s05, %x06
+  %x07 = add i64 %a, %b
+  %s07 = add i64 %s06, %x07
+  %x08 = add i64 %a, %b
+  %s08 = add i64 %s07, %x08
+  %x09 = add i64 %a, %b
+  %s09 = add i64 %s08, %x09
+  %x10 = add i64 %a, %b
+  %s10 = add i64 %s09, %x10
+  %x11 = add i64 %a, %b
+  %s11 = add i64 %s10, %x11
+  %x12 = add i64 %a, %b
+  %s12 = add i64 %s11, %x12
+  %x13 = add i64 %a, %b
+  %s13 = add i64 %s12, %x13
+  %x14 = add i64 %a, %b
+  %s14 = add i64 %s13, %x14
+  %x15 = add i64 %a, %b
+  %s15 = add i64 %s14, %x15
+  %x16 = add i64 %a, %b
+  %s16 = add i64 %s15, %x16
+  %x17 = add i64 %a, %b
+  %s17 = add i64 %s16, %x17
+  %x18 = add i64 %a, %b
+  %s18 = add i64 %s17, %x18
+  %x19 = add i64 %a, %b
+  %s19 = add i64 %s18, %x19
+  %x20 = add i64 %a, %b
+  %s20 = add i64 %s19, %x20
+  %x21 = add i64 %a, %b
+  %s21 = add i64 %s20, %x21
+  %x22 = add i64 %a, %b
+  %s22 = add i64 %s21, %x22
+  %x23 = add i64 %a, %b
+  %s23 = add i64 %s22, %x23
+  %x24 = add i64 %a, %b
+  %s24 = add i64 %s23, %x24
+  %x25 = add i64 %a, %b
+  %s25 = add i64 %s24, %x25
+  %x26 = add i64 %a, %b
+  %s26 = add i64 %s25, %x26
+  %x27 = add i64 %a, %b
+  %s27 = add i64 %s26, %x27
+  %x28 = add i64 %a, %b
+  %s28 = add i64 %s27, %x28
+  %x29 = add i64 %a, %b
+  %s29 = add i64 %s28, %x29
+  %x30 = add i64 %a, %b
+  %s30 = add i64 %s29, %x30
+  %x31 = add i64 %a, %b
+  %s31 = add i64 %s30, %x31
+  %x32 = add i64 %a, %b
+  %s32 = add i64 %s31, %x32
+  %x33 = add i64 %a, %b
+  %s33 = add i64 %s32, %x33
+  %x34 = add i64 %a, %b
+  %s34 = add i64 %s33, %x34
+  %x35 = add i64 %a, %b
+  %s35 = add i64 %s34, %x35
+  %x36 = add i64 %a, %b
+  %s36 = add i64 %s35, %x36
+  %x37 = add i64 %a, %b
+  %s37 = add i64 %s36, %x37
+  %x38 = add i64 %a, %b
+  %s38 = add i64 %s37, %x38
+  %x39 = add i64 %a, %b
+  %s39 = add i64 %s38, %x39
+  %x40 = add i64 %a, %b
+  %s40 = add i64 %s39, %x40
+  ret i64 %s40
+}
