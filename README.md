@@ -31,6 +31,8 @@ Run the benchmarks yourself:
 cargo bench -p llvm-bench
 ```
 
+Benchmarks use Criterion and run on stable Rust; no nightly-only bench harness is required.
+
 ### Results (x86_64 macOS, Apple M-series, release build)
 
 | Pipeline stage | This project | LLVM 19 tool | LLVM 19 (processing only¹) |
