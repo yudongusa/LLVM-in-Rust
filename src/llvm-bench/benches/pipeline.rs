@@ -23,7 +23,7 @@ fn parsed_module() -> (Context, Module) {
 
 /// Run the full codegen pipeline for every function in the module.
 fn codegen_module(ctx: &Context, module: &Module) {
-    let mut backend = X86Backend;
+    let mut backend = X86Backend::default();
     for func in &module.functions {
         if func.is_declaration {
             continue;

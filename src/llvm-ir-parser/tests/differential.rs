@@ -555,7 +555,7 @@ fn compile_and_run_llvm(clang: &Path, label: &str, printed_ir: &str) -> Option<i
 /// Compile `ctx`/`module` with our x86 codegen, link with `cc`, and run.
 /// Returns `(exit_code, obj_bytes)`, or `(None, bytes)` if linking fails.
 fn compile_and_run_ours(ctx: &Context, module: &Module, label: &str) -> (Option<i32>, Vec<u8>) {
-    let mut backend = X86Backend;
+    let mut backend = X86Backend::default();
     let main_func = match module.functions.iter().find(|f| f.name == "main") {
         Some(f) => f,
         None => return (None, vec![]),

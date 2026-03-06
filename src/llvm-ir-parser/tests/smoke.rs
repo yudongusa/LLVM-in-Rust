@@ -185,7 +185,7 @@ fn run_ours(ctx: &Context, module: &Module, label: &str) -> Option<RunResult> {
         .iter()
         .find(|f| f.name == "main" && !f.is_declaration)?;
 
-    let mut backend = X86Backend;
+    let mut backend = X86Backend::default();
     let mut mf = backend.lower_function(ctx, module, main_func);
     let intervals = compute_live_intervals(&mf);
     let mut result = linear_scan(&intervals, &mf.allocatable_pregs);

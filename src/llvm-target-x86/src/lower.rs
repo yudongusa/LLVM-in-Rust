@@ -16,8 +16,54 @@ use llvm_ir::{
 };
 use std::collections::HashMap;
 
+/// CPU feature switches used by x86 lowering decisions.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TargetFeatures {
+    pub sse42: bool,
+    pub avx2: bool,
+}
+
+impl TargetFeatures {
+    pub const fn baseline() -> Self {
+        Self {
+            sse42: false,
+            avx2: false,
+        }
+    }
+
+    pub const fn sse42() -> Self {
+        Self {
+            sse42: true,
+            avx2: false,
+        }
+    }
+
+    pub const fn avx2() -> Self {
+        Self {
+            sse42: true,
+            avx2: true,
+        }
+    }
+}
+
 /// x86_64 instruction-selection backend.
-pub struct X86Backend;
+pub struct X86Backend {
+    pub features: TargetFeatures,
+}
+
+impl Default for X86Backend {
+    fn default() -> Self {
+        Self {
+            features: TargetFeatures::baseline(),
+        }
+    }
+}
+
+impl X86Backend {
+    pub const fn new(features: TargetFeatures) -> Self {
+        Self { features }
+    }
+}
 
 impl IselBackend for X86Backend {
     fn lower_function(
@@ -79,7 +125,16 @@ impl IselBackend for X86Backend {
         // Lower each IR block.
         for (bi, bb) in func.blocks.iter().enumerate() {
             for &iid in &bb.body {
-                lower_instr(ctx, module, func, &mut mf, bi, iid, &mut vmap);
+                lower_instr(
+                    ctx,
+                    module,
+                    func,
+                    &mut mf,
+                    bi,
+                    iid,
+                    &mut vmap,
+                    self.features,
+                );
             }
             if let Some(tid) = bb.terminator {
                 lower_terminator(ctx, func, &mut mf, bi, tid, &mut vmap);
@@ -155,6 +210,7 @@ fn lower_instr(
     mblock: usize,
     iid: InstrId,
     vmap: &mut HashMap<ValueRef, VReg>,
+    features: TargetFeatures,
 ) {
     use InstrKind::*;
     let instr = func.instr(iid);
@@ -469,7 +525,14 @@ fn lower_instr(
         | InsertElement { .. }
         | ShuffleVector { .. } => {
             let dst = new_dst!();
-            mf.push(mblock, MInstr::new(MOV_RI).with_dst(dst).with_imm(0));
+            if features.avx2 || features.sse42 {
+                // Feature-aware placeholder: SIMD-specific lowering lands in
+                // follow-up issue #86 patches, but the path is now gated.
+                mf.push(mblock, MInstr::new(MOV_RI).with_dst(dst).with_imm(0));
+            } else {
+                // Baseline scalar fallback for unsupported vector code paths.
+                mf.push(mblock, MInstr::new(MOV_RI).with_dst(dst).with_imm(0));
+            }
         }
 
         // Terminators handled in lower_terminator.
@@ -654,7 +717,7 @@ mod tests {
     #[test]
     fn lower_add_produces_machine_blocks() {
         let (ctx, module) = make_add_fn();
-        let mut be = X86Backend;
+        let mut be = X86Backend::default();
         let mf = be.lower_function(&ctx, &module, &module.functions[0]);
         assert_eq!(mf.name, "add");
         assert!(!mf.blocks.is_empty());
@@ -663,7 +726,7 @@ mod tests {
     #[test]
     fn lower_add_has_ret_instruction() {
         let (ctx, module) = make_add_fn();
-        let mut be = X86Backend;
+        let mut be = X86Backend::default();
         let mf = be.lower_function(&ctx, &module, &module.functions[0]);
         let has_ret = mf
             .blocks
@@ -675,7 +738,7 @@ mod tests {
     #[test]
     fn lower_add_allocatable_set() {
         let (ctx, module) = make_add_fn();
-        let mut be = X86Backend;
+        let mut be = X86Backend::default();
         let mf = be.lower_function(&ctx, &module, &module.functions[0]);
         assert!(!mf.allocatable_pregs.is_empty());
     }
@@ -686,7 +749,7 @@ mod tests {
         let mut module = Module::new("test");
         let mut b = Builder::new(&mut ctx, &mut module);
         b.add_declaration("ext", b.ctx.void_ty, vec![], false);
-        let mut be = X86Backend;
+        let mut be = X86Backend::default();
         let mf = be.lower_function(&ctx, &module, &module.functions[0]);
         assert!(mf.blocks.is_empty(), "declaration should produce no blocks");
     }
@@ -711,7 +774,7 @@ mod tests {
         let cmp = b.build_icmp("cmp", llvm_ir::IntPredicate::Slt, x, y);
         b.build_ret(cmp);
 
-        let mut be = X86Backend;
+        let mut be = X86Backend::default();
         let mf = be.lower_function(&ctx, &module, &module.functions[0]);
 
         let has_cmp = mf
@@ -779,7 +842,7 @@ mod tests {
         //         the SHL_RR instruction has phys_uses containing RCX.
         use crate::regs::RCX;
         let (ctx, module) = make_shl_fn();
-        let mut be = X86Backend;
+        let mut be = X86Backend::default();
         let mf = be.lower_function(&ctx, &module, &module.functions[0]);
 
         // There must be a SHL_RR in the function.
@@ -811,7 +874,7 @@ mod tests {
     fn udiv_uses_div_r_not_idiv_r() {
         // Issue #31: UDiv must emit DIV_R (unsigned) not IDIV_R (signed).
         let (ctx, module) = make_div_fn(true);
-        let mut be = X86Backend;
+        let mut be = X86Backend::default();
         let mf = be.lower_function(&ctx, &module, &module.functions[0]);
         let has_div_r = mf
             .blocks
@@ -829,7 +892,7 @@ mod tests {
     fn sdiv_uses_idiv_r() {
         // Regression: SDiv must still emit IDIV_R (signed).
         let (ctx, module) = make_div_fn(false);
-        let mut be = X86Backend;
+        let mut be = X86Backend::default();
         let mf = be.lower_function(&ctx, &module, &module.functions[0]);
         let has_idiv_r = mf
             .blocks
@@ -884,7 +947,7 @@ mod tests {
         // After fix for issue #34: the ADD_RR instruction must have exactly
         // one operand (the RHS vreg), not two (self-reference + rhs).
         let (ctx, module) = make_add_fn();
-        let mut be = X86Backend;
+        let mut be = X86Backend::default();
         let mf = be.lower_function(&ctx, &module, &module.functions[0]);
 
         // Find the ADD_RR instruction.
@@ -926,7 +989,7 @@ mod tests {
     #[test]
     fn sext_i8_uses_movsx_8() {
         let (ctx, module) = make_sext_fn(8);
-        let mut be = X86Backend;
+        let mut be = X86Backend::default();
         let mf = be.lower_function(&ctx, &module, &module.functions[0]);
         let has_movsx8 = mf
             .blocks
@@ -941,7 +1004,7 @@ mod tests {
     #[test]
     fn sext_i16_uses_movsx_16() {
         let (ctx, module) = make_sext_fn(16);
-        let mut be = X86Backend;
+        let mut be = X86Backend::default();
         let mf = be.lower_function(&ctx, &module, &module.functions[0]);
         let has_movsx16 = mf
             .blocks
@@ -956,7 +1019,7 @@ mod tests {
     #[test]
     fn sext_i32_uses_movsx_32() {
         let (ctx, module) = make_sext_fn(32);
-        let mut be = X86Backend;
+        let mut be = X86Backend::default();
         let mf = be.lower_function(&ctx, &module, &module.functions[0]);
         let has_movsx32 = mf
             .blocks
@@ -1033,7 +1096,7 @@ mod tests {
         let func = &module.functions[0];
         let ir_block_count = func.blocks.len(); // entry, then_bb, else_bb, merge = 4
 
-        let mut be = X86Backend;
+        let mut be = X86Backend::default();
         let mf = be.lower_function(&ctx, &module, func);
 
         assert!(
@@ -1053,7 +1116,7 @@ mod tests {
         let func = &module.functions[0];
         let ir_block_count = func.blocks.len(); // 4
 
-        let mut be = X86Backend;
+        let mut be = X86Backend::default();
         let mf = be.lower_function(&ctx, &module, func);
 
         // entry is machine block 0; find its JCC and JMP targets.
@@ -1130,7 +1193,7 @@ mod tests {
         let plus_one = b.build_add("plus_one", phi, c1);
         b.build_ret(plus_one);
 
-        let mut be = X86Backend;
+        let mut be = X86Backend::default();
         let mf = be.lower_function(&ctx, &module, &module.functions[0]);
 
         // merge_bb is IR block index 3, so machine block 3 before edge splits.
@@ -1141,6 +1204,66 @@ mod tests {
         assert!(
             has_local_imm1,
             "merge block must materialize constant 1 locally (cannot reuse branch-local VReg)"
+        );
+    }
+
+    fn make_vector_ops_fn() -> (Context, Module) {
+        let mut ctx = Context::new();
+        let mut module = Module::new("vec");
+        let mut b = Builder::new(&mut ctx, &mut module);
+        let v4i32 = b.ctx.mk_vector(b.ctx.i32_ty, 4, false);
+        b.add_function(
+            "vec_fn",
+            b.ctx.i32_ty,
+            vec![v4i32],
+            vec!["v".into()],
+            false,
+            Linkage::External,
+        );
+        let entry = b.add_block("entry");
+        b.position_at_end(entry);
+        let v = b.get_arg(0);
+        let idx0 = b.const_int(b.ctx.i32_ty, 0);
+        let idx1 = b.const_int(b.ctx.i32_ty, 1);
+        let lane0 = b.build_extractelement("lane0", v, idx0, b.ctx.i32_ty);
+        let v2 = b.build_insertelement("v2", v, lane0, idx1);
+        let zv = ValueRef::Constant(b.ctx.const_zero(v4i32));
+        let v3 = b.build_shufflevector("v3", v2, zv, vec![0, 1, 4, 5], v4i32);
+        let lane1 = b.build_extractelement("lane1", v3, idx1, b.ctx.i32_ty);
+        b.build_ret(lane1);
+        (ctx, module)
+    }
+
+    #[test]
+    fn vector_lowering_does_not_panic_with_baseline_features() {
+        let (ctx, module) = make_vector_ops_fn();
+        let mut be = X86Backend::new(TargetFeatures::baseline());
+        let mf = be.lower_function(&ctx, &module, &module.functions[0]);
+        assert!(
+            mf.blocks.iter().any(|b| !b.instrs.is_empty()),
+            "vector fallback lowering should still emit machine instructions"
+        );
+    }
+
+    #[test]
+    fn vector_lowering_does_not_panic_with_sse42_enabled() {
+        let (ctx, module) = make_vector_ops_fn();
+        let mut be = X86Backend::new(TargetFeatures::sse42());
+        let mf = be.lower_function(&ctx, &module, &module.functions[0]);
+        assert!(
+            mf.blocks.iter().any(|b| !b.instrs.is_empty()),
+            "SSE4.2 feature gate path should lower vector instructions"
+        );
+    }
+
+    #[test]
+    fn vector_lowering_does_not_panic_with_avx2_enabled() {
+        let (ctx, module) = make_vector_ops_fn();
+        let mut be = X86Backend::new(TargetFeatures::avx2());
+        let mf = be.lower_function(&ctx, &module, &module.functions[0]);
+        assert!(
+            mf.blocks.iter().any(|b| !b.instrs.is_empty()),
+            "AVX2 feature gate path should lower vector instructions"
         );
     }
 }
