@@ -366,6 +366,8 @@ version = "0.1.0"
 dependencies = [
  "llvm-codegen",
  "llvm-ir",
+ "llvm-ir-parser",
+ "llvm-transforms",
 ]
 
 [[package]]
