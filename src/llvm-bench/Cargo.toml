@@ -12,3 +12,10 @@ llvm-analysis   = { path = "../llvm-analysis" }
 llvm-transforms = { path = "../llvm-transforms" }
 llvm-codegen    = { path = "../llvm-codegen" }
 llvm-target-x86 = { path = "../llvm-target-x86" }
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "pipeline"
+harness = false
