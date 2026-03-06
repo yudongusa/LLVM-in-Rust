@@ -609,15 +609,23 @@ fn emit_phi_copies(
             continue;
         }
 
-        // Cycle break: save one source in a temp and rewrite users.
-        let cycle_src = copies[0].1;
+        // Cycle break: preserve the old destination value, perform one move,
+        // then rewrite remaining uses of that old destination.
+        let (cycle_dst, cycle_src) = copies[0];
         let tmp = mf.fresh_vreg();
         mf.push(
             emit_to_mblock,
-            MInstr::new(MOV_RR).with_dst(tmp).with_vreg(cycle_src),
+            MInstr::new(MOV_RR).with_dst(tmp).with_vreg(cycle_dst),
         );
+        mf.push(
+            emit_to_mblock,
+            MInstr::new(MOV_RR)
+                .with_dst(cycle_dst)
+                .with_vreg(cycle_src),
+        );
+        copies.remove(0);
         for (_, src) in &mut copies {
-            if *src == cycle_src {
+            if *src == cycle_dst {
                 *src = tmp;
             }
         }
