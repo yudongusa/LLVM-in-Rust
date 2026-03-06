@@ -112,6 +112,30 @@ struct RunResult {
     stdout: String,
 }
 
+fn run_binary(path: &Path, label: &str, which: &str) -> Option<std::process::Output> {
+    #[cfg(target_os = "linux")]
+    {
+        let out = Command::new("timeout")
+            .args(["5s"])
+            .arg(path)
+            .output()
+            .ok()?;
+        let code = out.status.code().unwrap_or(-1);
+        if code == 124 || code == 137 {
+            eprintln!("[smoke/{label}] {which} timed out after 5s");
+            return None;
+        }
+        Some(out)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Command::new(path).output().ok().or_else(|| {
+            eprintln!("[smoke/{label}] failed to run {which}");
+            None
+        })
+    }
+}
+
 // ── oracle path (Clang/LLVM 19) ───────────────────────────────────────────────
 
 /// Compile `ir` with Clang, execute the binary, and return its exit code + stdout.
@@ -132,7 +156,7 @@ fn run_oracle(clang: &Path, label: &str, ir: &str) -> Option<RunResult> {
             );
             return None;
         }
-        let run = Command::new(&bin_path).output().expect("run oracle binary");
+        let run = run_binary(&bin_path, label, "oracle binary")?;
         let _ = std::fs::remove_file(&bin_path);
         Some(RunResult {
             exit_code: run.status.code().unwrap_or(-1),
@@ -200,13 +224,7 @@ fn run_ours(ctx: &Context, module: &Module, label: &str) -> Option<RunResult> {
             );
             return None;
         }
-        let run = match Command::new(&bin_path).output() {
-            Ok(out) => out,
-            Err(e) => {
-                eprintln!("[smoke/{label}] failed to run linked binary: {e}");
-                return None;
-            }
-        };
+        let run = run_binary(&bin_path, label, "ours binary")?;
         let _ = std::fs::remove_file(&bin_path);
         Some(RunResult {
             exit_code: run.status.code().unwrap_or(-1),
