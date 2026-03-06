@@ -1,5 +1,6 @@
 [workspace]
 resolver = "2"
+exclude = ["fuzz"]
 members = [
     "src/llvm-ir",
     "src/llvm-ir-parser",
