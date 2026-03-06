@@ -100,18 +100,20 @@ fn resolve(
     vmap: &mut HashMap<ValueRef, VReg>,
     vr: ValueRef,
 ) -> VReg {
-    if let Some(&existing) = vmap.get(&vr) {
-        return existing;
-    }
     match vr {
         ValueRef::Constant(cid) => {
+            // Constants must not be globally memoized across blocks: the first
+            // materialization site might not dominate all later uses.
+            // Emit a fresh vreg in the current block for each constant use.
             let vreg = mf.fresh_vreg();
-            vmap.insert(vr, vreg);
             let imm = const_to_imm(ctx.get_const(cid));
             mf.push(mblock, MInstr::new(MOV_RI).with_dst(vreg).with_imm(imm));
             vreg
         }
         _ => {
+            if let Some(&existing) = vmap.get(&vr) {
+                return existing;
+            }
             // Unknown reference — allocate a placeholder VReg.
             let vreg = mf.fresh_vreg();
             vmap.insert(vr, vreg);
@@ -1086,5 +1088,59 @@ mod tests {
                 target
             );
         }
+    }
+
+    #[test]
+    fn constants_are_materialized_in_non_dominated_blocks() {
+        // Regression for issue #106:
+        // if a constant is first used in `then` and reused in `merge`, `merge`
+        // must materialize it locally rather than reusing a VReg from `then`.
+        let mut ctx = Context::new();
+        let mut module = Module::new("test");
+        let mut b = Builder::new(&mut ctx, &mut module);
+        b.add_function(
+            "const_dom",
+            b.ctx.i64_ty,
+            vec![b.ctx.i1_ty],
+            vec!["cond".into()],
+            false,
+            Linkage::External,
+        );
+        let entry = b.add_block("entry");
+        let then_bb = b.add_block("then_bb");
+        let else_bb = b.add_block("else_bb");
+        let merge_bb = b.add_block("merge_bb");
+
+        b.position_at_end(entry);
+        let cond = b.get_arg(0);
+        b.build_cond_br(cond, then_bb, else_bb);
+
+        b.position_at_end(then_bb);
+        let c40 = b.const_int(b.ctx.i64_ty, 40);
+        let c1 = b.const_int(b.ctx.i64_ty, 1);
+        let from_then = b.build_add("from_then", c40, c1);
+        b.build_br(merge_bb);
+
+        b.position_at_end(else_bb);
+        b.build_br(merge_bb);
+
+        b.position_at_end(merge_bb);
+        let c0 = b.const_int(b.ctx.i64_ty, 0);
+        let phi = b.build_phi("phi", b.ctx.i64_ty, vec![(from_then, then_bb), (c0, else_bb)]);
+        let plus_one = b.build_add("plus_one", phi, c1);
+        b.build_ret(plus_one);
+
+        let mut be = X86Backend;
+        let mf = be.lower_function(&ctx, &module, &module.functions[0]);
+
+        // merge_bb is IR block index 3, so machine block 3 before edge splits.
+        let merge = &mf.blocks[3];
+        let has_local_imm1 = merge.instrs.iter().any(|mi| {
+            mi.opcode == MOV_RI && mi.operands.iter().any(|op| matches!(op, MOperand::Imm(1)))
+        });
+        assert!(
+            has_local_imm1,
+            "merge block must materialize constant 1 locally (cannot reuse branch-local VReg)"
+        );
     }
 }
