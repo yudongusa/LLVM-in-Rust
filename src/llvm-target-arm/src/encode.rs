@@ -140,6 +140,10 @@ impl Emitter for AArch64Emitter {
     fn object_format(&self) -> ObjectFormat {
         self.format
     }
+
+    fn elf_machine(&self) -> u16 {
+        183 // EM_AARCH64
+    }
 }
 
 // ── encoding context ──────────────────────────────────────────────────────
@@ -662,11 +666,8 @@ mod tests {
         let bytes = obj.to_bytes();
         // ELF header: e_machine is at bytes [18..20], EM_AARCH64 = 183 = 0xB7
         let e_machine = u16::from_le_bytes([bytes[18], bytes[19]]);
-        // Note: our emit_object uses the shared serialize_elf which has EM_X86_64=62.
-        // The AArch64 emitter doesn't override the ELF serializer (it's shared).
-        // Verify at minimum the ELF magic is present.
         assert_eq!(&bytes[0..4], b"\x7fELF", "ELF magic must be present");
-        let _ = e_machine; // AArch64 emitter reuses existing ELF serializer
+        assert_eq!(e_machine, 183, "EM_AARCH64");
     }
 
     #[test]

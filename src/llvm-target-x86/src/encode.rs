@@ -150,6 +150,10 @@ impl Emitter for X86Emitter {
     fn object_format(&self) -> ObjectFormat {
         self.format
     }
+
+    fn elf_machine(&self) -> u16 {
+        62 // EM_X86_64
+    }
 }
 
 // ── encoding context ──────────────────────────────────────────────────────

@@ -12,4 +12,5 @@ llvm-transforms = { path = "../llvm-transforms" }
 llvm-codegen = { path = "../llvm-codegen" }
 llvm-target-x86 = { path = "../llvm-target-x86" }
 llvm-target-arm = { path = "../llvm-target-arm" }
+llvm-target-riscv = { path = "../llvm-target-riscv" }
 llvm-bitcode = { path = "../llvm-bitcode" }

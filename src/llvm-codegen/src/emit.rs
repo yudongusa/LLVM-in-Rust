@@ -58,6 +58,9 @@ pub struct Symbol {
 #[derive(Clone, Debug)]
 pub struct ObjectFile {
     pub format: ObjectFormat,
+    /// ELF e_machine value when `format == ObjectFormat::Elf`.
+    /// Ignored for Mach-O.
+    pub elf_machine: u16,
     pub sections: Vec<Section>,
     pub symbols: Vec<Symbol>,
 }
@@ -83,6 +86,11 @@ pub trait Emitter {
 
     /// The object format this emitter targets.
     fn object_format(&self) -> ObjectFormat;
+
+    /// ELF `e_machine` field for this target.
+    fn elf_machine(&self) -> u16 {
+        62 // EM_X86_64
+    }
 }
 
 /// Build a complete [`ObjectFile`] from a [`MachineFunction`] using `emitter`.
@@ -98,6 +106,7 @@ pub fn emit_object(mf: &MachineFunction, emitter: &mut dyn Emitter) -> ObjectFil
     };
     ObjectFile {
         format: emitter.object_format(),
+        elf_machine: emitter.elf_machine(),
         sections: vec![section],
         symbols: vec![sym],
     }
@@ -174,7 +183,7 @@ fn serialize_elf(obj: &ObjectFile) -> Vec<u8> {
     buf.push(0); // EI_OSABI: System V
     buf.extend_from_slice(&[0u8; 8]); // padding
     w16(&mut buf, 1); // e_type: ET_REL
-    w16(&mut buf, 62); // e_machine: EM_X86_64
+    w16(&mut buf, obj.elf_machine); // e_machine: target-specific
     w32(&mut buf, 1); // e_version
     w64(&mut buf, 0); // e_entry
     w64(&mut buf, 0); // e_phoff
@@ -512,6 +521,7 @@ mod tests {
         };
         ObjectFile {
             format: fmt,
+            elf_machine: 62,
             sections: vec![Section {
                 name: section_name.into(),
                 data: code,
@@ -605,5 +615,6 @@ mod tests {
         let obj = emit_object(&mf, &mut NopEmitter);
         assert_eq!(obj.symbols[0].name, "test");
         assert_eq!(obj.sections[0].data, vec![0x90]);
+        assert_eq!(obj.elf_machine, 62);
     }
 }

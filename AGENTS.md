@@ -84,6 +84,16 @@ When:   Building call-graph analysis, IPCP/dead-argument module passes, and
 Skill:  skills/ipa-optimizer/SKILL.md
 ```
 
+### riscv-backend agent
+Use for issue #89 and RV64GC backend implementation work.
+
+```
+Invoke: $riscv-backend
+When:   Adding the `llvm-target-riscv` crate, implementing regs/ABI/lowering/
+        encoding, and validating RISC-V object generation tests.
+Skill:  skills/riscv-backend/SKILL.md
+```
+
 ### Plan agent
 Use **before** starting a new phase or a non-trivial fix.
 
