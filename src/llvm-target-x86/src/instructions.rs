@@ -94,6 +94,20 @@ pub const MOV_LOAD_MR: MOpcode = MOpcode(0x72);
 /// `mov [rbp + disp], src`  — spill store.  `dst` = None, `operands[0]` = `Imm(slot)`, `operands[1]` = VReg/PReg(src).
 pub const MOV_STORE_RM: MOpcode = MOpcode(0x73);
 
+// ── SIMD / vector (SSE4.2 baseline for vector lowering) ───────────────────
+pub const PADDD_RR: MOpcode = MOpcode(0x80);
+pub const PSUBD_RR: MOpcode = MOpcode(0x81);
+pub const PMULLD_RR: MOpcode = MOpcode(0x82);
+pub const ADDPS_RR: MOpcode = MOpcode(0x83);
+pub const MULPS_RR: MOpcode = MOpcode(0x84);
+pub const DIVPS_RR: MOpcode = MOpcode(0x85);
+pub const ADDPD_RR: MOpcode = MOpcode(0x86);
+pub const MULPD_RR: MOpcode = MOpcode(0x87);
+pub const MOVAPS_RR: MOpcode = MOpcode(0x88);
+pub const MOVDQU_LOAD_MR: MOpcode = MOpcode(0x89);
+pub const MOVDQU_STORE_RM: MOpcode = MOpcode(0x8A);
+pub const MOVAPS_LOAD_MR: MOpcode = MOpcode(0x8B);
+
 // ── condition codes (used as Imm operands with JCC / SETCC) ────────────────
 pub const CC_EQ: i64 = 0; // je  / jz
 pub const CC_NE: i64 = 1; // jne / jnz

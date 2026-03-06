@@ -11,8 +11,8 @@ use crate::{
 };
 use llvm_codegen::isel::{IselBackend, MInstr, MachineFunction, PReg, VReg};
 use llvm_ir::{
-    ArgId, BlockId, ConstantData, Context, Function, InstrId, InstrKind, IntPredicate, Module,
-    TypeData, ValueRef,
+    ArgId, BlockId, ConstantData, Context, FloatKind, Function, InstrId, InstrKind, IntPredicate,
+    Module, TypeData, ValueRef,
 };
 use std::collections::HashMap;
 
@@ -200,6 +200,87 @@ fn pred_to_cc(pred: IntPredicate) -> i64 {
     }
 }
 
+#[derive(Clone, Copy)]
+enum VecIntOp {
+    Add,
+    Sub,
+    Mul,
+}
+
+fn vector_int_opcode(
+    ctx: &Context,
+    ty: llvm_ir::TypeId,
+    op: VecIntOp,
+    features: TargetFeatures,
+) -> Option<llvm_codegen::isel::MOpcode> {
+    if !features.sse42 {
+        return None;
+    }
+    let TypeData::Vector {
+        element,
+        len,
+        scalable: false,
+    } = ctx.get_type(ty)
+    else {
+        return None;
+    };
+    if *len != 4 {
+        return None;
+    }
+    let TypeData::Integer(32) = ctx.get_type(*element) else {
+        return None;
+    };
+    Some(match op {
+        VecIntOp::Add => PADDD_RR,
+        VecIntOp::Sub => PSUBD_RR,
+        VecIntOp::Mul => PMULLD_RR,
+    })
+}
+
+#[derive(Clone, Copy)]
+enum VecFpOp {
+    Add,
+    Mul,
+    Div,
+}
+
+fn vector_fp_opcode(
+    ctx: &Context,
+    ty: llvm_ir::TypeId,
+    op: VecFpOp,
+    features: TargetFeatures,
+) -> Option<llvm_codegen::isel::MOpcode> {
+    if !features.sse42 {
+        return None;
+    }
+    let TypeData::Vector {
+        element,
+        len,
+        scalable: false,
+    } = ctx.get_type(ty)
+    else {
+        return None;
+    };
+    match (ctx.get_type(*element), *len, op) {
+        (TypeData::Float(FloatKind::Single), 4, VecFpOp::Add) => Some(ADDPS_RR),
+        (TypeData::Float(FloatKind::Single), 4, VecFpOp::Mul) => Some(MULPS_RR),
+        (TypeData::Float(FloatKind::Single), 4, VecFpOp::Div) => Some(DIVPS_RR),
+        (TypeData::Float(FloatKind::Double), 2, VecFpOp::Add) => Some(ADDPD_RR),
+        (TypeData::Float(FloatKind::Double), 2, VecFpOp::Mul) => Some(MULPD_RR),
+        _ => None,
+    }
+}
+
+fn const_u64(ctx: &Context, v: ValueRef) -> Option<u64> {
+    let ValueRef::Constant(cid) = v else {
+        return None;
+    };
+    match ctx.get_const(cid) {
+        ConstantData::Int { val, .. } => Some(*val),
+        _ => None,
+    }
+}
+
 // ── instruction lowering ──────────────────────────────────────────────────
 
 fn lower_instr(
@@ -261,13 +342,25 @@ fn lower_instr(
     match &instr.kind {
         // ── arithmetic ─────────────────────────────────────────────────────
         Add { lhs, rhs, .. } => {
-            emit_binop!(ADD_RR, *lhs, *rhs);
+            if let Some(vop) = vector_int_opcode(ctx, instr.ty, VecIntOp::Add, features) {
+                emit_binop!(vop, *lhs, *rhs);
+            } else {
+                emit_binop!(ADD_RR, *lhs, *rhs);
+            }
         }
         Sub { lhs, rhs, .. } => {
-            emit_binop!(SUB_RR, *lhs, *rhs);
+            if let Some(vop) = vector_int_opcode(ctx, instr.ty, VecIntOp::Sub, features) {
+                emit_binop!(vop, *lhs, *rhs);
+            } else {
+                emit_binop!(SUB_RR, *lhs, *rhs);
+            }
         }
         Mul { lhs, rhs, .. } => {
-            emit_binop!(IMUL_RR, *lhs, *rhs);
+            if let Some(vop) = vector_int_opcode(ctx, instr.ty, VecIntOp::Mul, features) {
+                emit_binop!(vop, *lhs, *rhs);
+            } else {
+                emit_binop!(IMUL_RR, *lhs, *rhs);
+            }
         }
 
         SDiv { lhs, rhs, .. } => {
@@ -506,14 +599,59 @@ fn lower_instr(
         }
 
         // ── memory (placeholder NOP — mem2reg removes most alloca/load/store) ──
-        Alloca { .. } | Load { .. } | Store { .. } | GetElementPtr { .. } => {
+        Alloca { .. } | GetElementPtr { .. } => {
             let dst = new_dst!();
             mf.push(mblock, MInstr::new(NOP));
             let _ = dst;
         }
+        Load { ty, .. } => {
+            let dst = new_dst!();
+            if matches!(ctx.get_type(*ty), TypeData::Vector { .. }) && features.sse42 {
+                mf.push(mblock, MInstr::new(MOVDQU_LOAD_MR).with_dst(dst).with_imm(0));
+            } else {
+                mf.push(mblock, MInstr::new(NOP));
+            }
+        }
+        Store { val, .. } => {
+            if let Some(ty) = func.type_of_value(*val) {
+                if matches!(ctx.get_type(ty), TypeData::Vector { .. }) && features.sse42 {
+                    let src = res!(*val);
+                    mf.push(
+                        mblock,
+                        MInstr::new(MOVDQU_STORE_RM).with_imm(0).with_vreg(src),
+                    );
+                    return;
+                }
+            }
+            mf.push(mblock, MInstr::new(NOP));
+        }
 
         // ── FP arithmetic (not yet supported) ──────────────────────────────
-        FAdd { .. } | FSub { .. } | FMul { .. } | FDiv { .. } | FRem { .. } | FNeg { .. } => {
+        FAdd { lhs, rhs, .. } => {
+            if let Some(vop) = vector_fp_opcode(ctx, instr.ty, VecFpOp::Add, features) {
+                emit_binop!(vop, *lhs, *rhs);
+            } else {
+                let dst = new_dst!();
+                mf.push(mblock, MInstr::new(MOV_RI).with_dst(dst).with_imm(0));
+            }
+        }
+        FMul { lhs, rhs, .. } => {
+            if let Some(vop) = vector_fp_opcode(ctx, instr.ty, VecFpOp::Mul, features) {
+                emit_binop!(vop, *lhs, *rhs);
+            } else {
+                let dst = new_dst!();
+                mf.push(mblock, MInstr::new(MOV_RI).with_dst(dst).with_imm(0));
+            }
+        }
+        FDiv { lhs, rhs, .. } => {
+            if let Some(vop) = vector_fp_opcode(ctx, instr.ty, VecFpOp::Div, features) {
+                emit_binop!(vop, *lhs, *rhs);
+            } else {
+                let dst = new_dst!();
+                mf.push(mblock, MInstr::new(MOV_RI).with_dst(dst).with_imm(0));
+            }
+        }
+        FSub { .. } | FRem { .. } | FNeg { .. } => {
             let dst = new_dst!();
             mf.push(mblock, MInstr::new(MOV_RI).with_dst(dst).with_imm(0));
         }
@@ -521,8 +659,6 @@ fn lower_instr(
         // ── aggregate / vector ops (not yet supported) ─────────────────────
         ExtractValue { .. }
         | InsertValue { .. }
-        | ExtractElement { .. }
-        | InsertElement { .. }
         | ShuffleVector { .. } => {
             let dst = new_dst!();
             if features.avx2 || features.sse42 {
@@ -532,6 +668,29 @@ fn lower_instr(
             } else {
                 // Baseline scalar fallback for unsupported vector code paths.
                 mf.push(mblock, MInstr::new(MOV_RI).with_dst(dst).with_imm(0));
+            }
+        }
+        ExtractElement { vec, idx } => {
+            let dst = new_dst!();
+            if features.sse42 && const_u64(ctx, *idx) == Some(0) {
+                let src = res!(*vec);
+                mf.push(mblock, MInstr::new(MOV_RR).with_dst(dst).with_vreg(src));
+            } else {
+                mf.push(mblock, MInstr::new(MOV_RI).with_dst(dst).with_imm(0));
+            }
+        }
+        InsertElement { vec, val, idx } => {
+            let dst = new_dst!();
+            if features.sse42 && const_u64(ctx, *idx) == Some(0) {
+                let src = res!(*val);
+                mf.push(mblock, MInstr::new(MOV_RR).with_dst(dst).with_vreg(src));
+            } else {
+                let src = res!(*vec);
+                if features.sse42 {
+                    mf.push(mblock, MInstr::new(MOVAPS_RR).with_dst(dst).with_vreg(src));
+                } else {
+                    mf.push(mblock, MInstr::new(MOV_RI).with_dst(dst).with_imm(0));
+                }
             }
         }
 
@@ -1232,6 +1391,80 @@ mod tests {
         let lane1 = b.build_extractelement("lane1", v3, idx1, b.ctx.i32_ty);
         b.build_ret(lane1);
         (ctx, module)
+    }
+
+    fn make_vec_add_i32_fn() -> (Context, Module) {
+        let mut ctx = Context::new();
+        let mut module = Module::new("vec_i32");
+        let mut b = Builder::new(&mut ctx, &mut module);
+        let v4i32 = b.ctx.mk_vector(b.ctx.i32_ty, 4, false);
+        b.add_function(
+            "main",
+            b.ctx.i32_ty,
+            vec![],
+            vec![],
+            false,
+            Linkage::External,
+        );
+        let entry = b.add_block("entry");
+        b.position_at_end(entry);
+        let z = ValueRef::Constant(b.ctx.const_zero(v4i32));
+        let s = b.build_add("s", z, z);
+        let i0 = ValueRef::Constant(b.ctx.const_int(b.ctx.i32_ty, 0));
+        let lane0 = b.build_extractelement("lane0", s, i0, b.ctx.i32_ty);
+        b.build_ret(lane0);
+        (ctx, module)
+    }
+
+    fn make_vec_fadd_f32_fn() -> (Context, Module) {
+        let mut ctx = Context::new();
+        let mut module = Module::new("vec_f32");
+        let mut b = Builder::new(&mut ctx, &mut module);
+        let v4f32 = b.ctx.mk_vector(b.ctx.f32_ty, 4, false);
+        b.add_function(
+            "main",
+            b.ctx.i32_ty,
+            vec![],
+            vec![],
+            false,
+            Linkage::External,
+        );
+        let entry = b.add_block("entry");
+        b.position_at_end(entry);
+        let z = ValueRef::Constant(b.ctx.const_zero(v4f32));
+        let s = b.build_fadd("s", z, z);
+        let i0 = ValueRef::Constant(b.ctx.const_int(b.ctx.i32_ty, 0));
+        let lane0 = b.build_extractelement("lane0", s, i0, b.ctx.i32_ty);
+        b.build_ret(lane0);
+        (ctx, module)
+    }
+
+    #[test]
+    fn vector_i32_add_uses_paddd_when_sse42_enabled() {
+        let (ctx, module) = make_vec_add_i32_fn();
+        let mut be = X86Backend::new(TargetFeatures::sse42());
+        let mf = be.lower_function(&ctx, &module, &module.functions[0]);
+        assert!(
+            mf.blocks
+                .iter()
+                .flat_map(|b| &b.instrs)
+                .any(|i| i.opcode == PADDD_RR),
+            "expected PADDD lowering for <4 x i32> add under SSE4.2"
+        );
+    }
+
+    #[test]
+    fn vector_f32_add_uses_addps_when_sse42_enabled() {
+        let (ctx, module) = make_vec_fadd_f32_fn();
+        let mut be = X86Backend::new(TargetFeatures::sse42());
+        let mf = be.lower_function(&ctx, &module, &module.functions[0]);
+        assert!(
+            mf.blocks
+                .iter()
+                .flat_map(|b| &b.instrs)
+                .any(|i| i.opcode == ADDPS_RR),
+            "expected ADDPS lowering for <4 x float> fadd under SSE4.2"
+        );
     }
 
     #[test]

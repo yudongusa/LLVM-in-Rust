@@ -565,6 +565,71 @@ fn encode_instr(instr: &MInstr, ctx: &mut EncodeCtx) {
             }
         }
 
+        // ── SIMD reg-reg operations (XMM) ─────────────────────────────────
+        PADDD_RR => encode_simd_rr(ctx, instr, Some(0x66), &[0x0F, 0xFE]),
+        PSUBD_RR => encode_simd_rr(ctx, instr, Some(0x66), &[0x0F, 0xFA]),
+        PMULLD_RR => encode_simd_rr(ctx, instr, Some(0x66), &[0x0F, 0x38, 0x40]),
+        ADDPS_RR => encode_simd_rr(ctx, instr, None, &[0x0F, 0x58]),
+        MULPS_RR => encode_simd_rr(ctx, instr, None, &[0x0F, 0x59]),
+        DIVPS_RR => encode_simd_rr(ctx, instr, None, &[0x0F, 0x5E]),
+        ADDPD_RR => encode_simd_rr(ctx, instr, Some(0x66), &[0x0F, 0x58]),
+        MULPD_RR => encode_simd_rr(ctx, instr, Some(0x66), &[0x0F, 0x59]),
+        MOVAPS_RR => encode_simd_rr(ctx, instr, None, &[0x0F, 0x28]),
+
+        // ── SIMD pseudo loads/stores using rbp+disp32 addressing ──────────
+        MOVDQU_LOAD_MR => {
+            if let (Some(dst), Some(MOperand::Imm(slot))) = (instr.dst, instr.operands.first()) {
+                let dst_r = PReg(dst.0 as u8);
+                let disp = -((ctx.callee_save_bytes as i32) + (*slot as i32 + 1) * 8);
+                ctx.emit(0xF3);
+                if is_extended(dst_r) {
+                    ctx.emit(0x44); // REX.R
+                }
+                ctx.emit(0x0F);
+                ctx.emit(0x6F);
+                ctx.emit(0x80 | (reg_enc(dst_r) << 3) | 5);
+                ctx.emit32(disp);
+            } else {
+                ctx.emit(0x90);
+            }
+        }
+        MOVAPS_LOAD_MR => {
+            if let (Some(dst), Some(MOperand::Imm(slot))) = (instr.dst, instr.operands.first()) {
+                let dst_r = PReg(dst.0 as u8);
+                let disp = -((ctx.callee_save_bytes as i32) + (*slot as i32 + 1) * 8);
+                if is_extended(dst_r) {
+                    ctx.emit(0x44); // REX.R
+                }
+                ctx.emit(0x0F);
+                ctx.emit(0x28);
+                ctx.emit(0x80 | (reg_enc(dst_r) << 3) | 5);
+                ctx.emit32(disp);
+            } else {
+                ctx.emit(0x90);
+            }
+        }
+        MOVDQU_STORE_RM => {
+            if let (Some(MOperand::Imm(slot)), Some(src)) = (
+                instr.operands.first(),
+                instr.operands.get(1).and_then(|op| match op {
+                    MOperand::PReg(r) => Some(*r),
+                    _ => None,
+                }),
+            ) {
+                let disp = -((ctx.callee_save_bytes as i32) + (*slot as i32 + 1) * 8);
+                ctx.emit(0xF3);
+                if is_extended(src) {
+                    ctx.emit(0x44); // REX.R
+                }
+                ctx.emit(0x0F);
+                ctx.emit(0x7F);
+                ctx.emit(0x80 | (reg_enc(src) << 3) | 5);
+                ctx.emit32(disp);
+            } else {
+                ctx.emit(0x90);
+            }
+        }
+
         // ── LEA (placeholder: encode as MOV_RI 0) ────────────────────────
         LEA_RI => {
             // Simplified: emit xor reg, reg (zero the register).
@@ -606,6 +671,23 @@ fn encode_shift_cl(ctx: &mut EncodeCtx, instr: &MInstr, ext: u8) {
         maybe_rex(ctx, true, PReg(0), r);
         ctx.emit(0xD3);
         ctx.emit(0xC0 | (ext << 3) | reg_enc(r));
+    } else {
+        ctx.emit(0x90);
+    }
+}
+
+fn encode_simd_rr(ctx: &mut EncodeCtx, instr: &MInstr, legacy_prefix: Option<u8>, opcode: &[u8]) {
+    if let (Some(dst), Some(src)) = get_dst_src(instr) {
+        if let Some(pfx) = legacy_prefix {
+            ctx.emit(pfx);
+        }
+        if is_extended(dst) || is_extended(src) {
+            ctx.emit(0x40 | (if is_extended(dst) { 0x04 } else { 0 }) | (if is_extended(src) { 0x01 } else { 0 }));
+        }
+        for b in opcode {
+            ctx.emit(*b);
+        }
+        ctx.emit(modrm_rr(dst, src));
     } else {
         ctx.emit(0x90);
     }
@@ -965,6 +1047,130 @@ mod tests {
         assert_eq!(sec.data[1], 0x89, "MOV r/m64, r64 opcode");
         assert_eq!(sec.data[2], 0x85, "ModRM(mod=10, reg=RAX=0, rm=RBP=5)");
         assert_eq!(&sec.data[3..7], &[0xF8, 0xFF, 0xFF, 0xFF], "disp32 = -8");
+    }
+
+    fn expect_simd_prefix(instr: MInstr, expected: &[u8]) {
+        let mf = single_block_mf("simd", vec![instr]);
+        let mut e = X86Emitter::new(ObjectFormat::Elf);
+        let sec = e.emit_function(&mf);
+        assert_eq!(&sec.data[..expected.len()], expected);
+    }
+
+    #[test]
+    fn paddd_rr_encodes_correctly() {
+        expect_simd_prefix(
+            MInstr::new(PADDD_RR).with_dst(VReg(RAX.0 as u32)).with_preg(RSI),
+            &[0x66, 0x0F, 0xFE, 0xC6],
+        );
+    }
+
+    #[test]
+    fn psubd_rr_encodes_correctly() {
+        expect_simd_prefix(
+            MInstr::new(PSUBD_RR).with_dst(VReg(RAX.0 as u32)).with_preg(RSI),
+            &[0x66, 0x0F, 0xFA, 0xC6],
+        );
+    }
+
+    #[test]
+    fn pmulld_rr_encodes_correctly() {
+        expect_simd_prefix(
+            MInstr::new(PMULLD_RR).with_dst(VReg(RAX.0 as u32)).with_preg(RSI),
+            &[0x66, 0x0F, 0x38, 0x40, 0xC6],
+        );
+    }
+
+    #[test]
+    fn addps_rr_encodes_correctly() {
+        expect_simd_prefix(
+            MInstr::new(ADDPS_RR).with_dst(VReg(RAX.0 as u32)).with_preg(RSI),
+            &[0x0F, 0x58, 0xC6],
+        );
+    }
+
+    #[test]
+    fn mulps_rr_encodes_correctly() {
+        expect_simd_prefix(
+            MInstr::new(MULPS_RR).with_dst(VReg(RAX.0 as u32)).with_preg(RSI),
+            &[0x0F, 0x59, 0xC6],
+        );
+    }
+
+    #[test]
+    fn divps_rr_encodes_correctly() {
+        expect_simd_prefix(
+            MInstr::new(DIVPS_RR).with_dst(VReg(RAX.0 as u32)).with_preg(RSI),
+            &[0x0F, 0x5E, 0xC6],
+        );
+    }
+
+    #[test]
+    fn addpd_rr_encodes_correctly() {
+        expect_simd_prefix(
+            MInstr::new(ADDPD_RR).with_dst(VReg(RAX.0 as u32)).with_preg(RSI),
+            &[0x66, 0x0F, 0x58, 0xC6],
+        );
+    }
+
+    #[test]
+    fn mulpd_rr_encodes_correctly() {
+        expect_simd_prefix(
+            MInstr::new(MULPD_RR).with_dst(VReg(RAX.0 as u32)).with_preg(RSI),
+            &[0x66, 0x0F, 0x59, 0xC6],
+        );
+    }
+
+    #[test]
+    fn movaps_rr_encodes_correctly() {
+        expect_simd_prefix(
+            MInstr::new(MOVAPS_RR).with_dst(VReg(RAX.0 as u32)).with_preg(RSI),
+            &[0x0F, 0x28, 0xC6],
+        );
+    }
+
+    #[test]
+    fn movdqu_load_mr_encodes_correctly() {
+        let mi = MInstr {
+            opcode: MOVDQU_LOAD_MR,
+            dst: Some(VReg(RAX.0 as u32)),
+            operands: vec![MOperand::Imm(0)],
+            phys_uses: vec![],
+            clobbers: vec![],
+        };
+        let mf = single_block_mf("simd_ld", vec![mi]);
+        let mut e = X86Emitter::new(ObjectFormat::Elf);
+        let sec = e.emit_function(&mf);
+        assert_eq!(&sec.data[..7], &[0xF3, 0x0F, 0x6F, 0x85, 0xF8, 0xFF, 0xFF]);
+    }
+
+    #[test]
+    fn movdqu_store_rm_encodes_correctly() {
+        let mi = MInstr {
+            opcode: MOVDQU_STORE_RM,
+            dst: None,
+            operands: vec![MOperand::Imm(0), MOperand::PReg(RSI)],
+            phys_uses: vec![],
+            clobbers: vec![],
+        };
+        let mf = single_block_mf("simd_st", vec![mi]);
+        let mut e = X86Emitter::new(ObjectFormat::Elf);
+        let sec = e.emit_function(&mf);
+        assert_eq!(&sec.data[..7], &[0xF3, 0x0F, 0x7F, 0xB5, 0xF8, 0xFF, 0xFF]);
+    }
+
+    #[test]
+    fn movaps_load_mr_encodes_correctly() {
+        let mi = MInstr {
+            opcode: MOVAPS_LOAD_MR,
+            dst: Some(VReg(RAX.0 as u32)),
+            operands: vec![MOperand::Imm(0)],
+            phys_uses: vec![],
+            clobbers: vec![],
+        };
+        let mf = single_block_mf("simd_ld_aligned", vec![mi]);
+        let mut e = X86Emitter::new(ObjectFormat::Elf);
+        let sec = e.emit_function(&mf);
+        assert_eq!(&sec.data[..7], &[0x0F, 0x28, 0x85, 0xF8, 0xFF, 0xFF, 0xFF]);
     }
 
     #[test]
