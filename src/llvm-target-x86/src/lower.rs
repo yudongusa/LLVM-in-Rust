@@ -590,45 +590,17 @@ fn emit_phi_copies(
         }
     }
 
-    // Resolve parallel copies so cycles (e.g. swaps in loop-carried phis)
-    // do not clobber source values.
-    while !copies.is_empty() {
-        let mut progressed = false;
-        for i in 0..copies.len() {
-            let (dst, src) = copies[i];
-            let src_is_overwritten = copies.iter().any(|(d, _)| *d == src);
-            if !src_is_overwritten {
-                mf.push(emit_to_mblock, MInstr::new(MOV_RR).with_dst(dst).with_vreg(src));
-                copies.remove(i);
-                progressed = true;
-                break;
-            }
-        }
-
-        if progressed {
-            continue;
-        }
-
-        // Cycle break: preserve the old destination value, perform one move,
-        // then rewrite remaining uses of that old destination.
-        let (cycle_dst, cycle_src) = copies[0];
+    // Correct parallel-copy lowering: first snapshot all sources into temps,
+    // then assign destinations from those temps. This avoids all cycle/clobber
+    // hazards at the cost of extra moves.
+    let mut staged: Vec<(VReg, VReg)> = Vec::with_capacity(copies.len());
+    for (dst, src) in copies {
         let tmp = mf.fresh_vreg();
-        mf.push(
-            emit_to_mblock,
-            MInstr::new(MOV_RR).with_dst(tmp).with_vreg(cycle_dst),
-        );
-        mf.push(
-            emit_to_mblock,
-            MInstr::new(MOV_RR)
-                .with_dst(cycle_dst)
-                .with_vreg(cycle_src),
-        );
-        copies.remove(0);
-        for (_, src) in &mut copies {
-            if *src == cycle_dst {
-                *src = tmp;
-            }
-        }
+        mf.push(emit_to_mblock, MInstr::new(MOV_RR).with_dst(tmp).with_vreg(src));
+        staged.push((dst, tmp));
+    }
+    for (dst, tmp) in staged {
+        mf.push(emit_to_mblock, MInstr::new(MOV_RR).with_dst(dst).with_vreg(tmp));
     }
 }
 
