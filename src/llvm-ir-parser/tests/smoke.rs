@@ -613,3 +613,21 @@ exit:
 "#,
     );
 }
+
+/// Vector smoke: simple `<4 x i32>` pipeline through insert/shuffle/extract.
+/// This validates parse -> backend -> link -> run on a vector-IR module.
+#[test]
+fn smoke_vector_lane0_roundtrip() {
+    smoke_oracle(
+        "vector_lane0_roundtrip",
+        r#"define i32 @main() {
+entry:
+  %v0 = insertelement <4 x i32> zeroinitializer, i32 0, i32 0
+  %v1 = insertelement <4 x i32> %v0, i32 0, i32 1
+  %v2 = shufflevector <4 x i32> %v1, <4 x i32> zeroinitializer, <4 x i32> <i32 0, i32 1, i32 4, i32 5>
+  %lane = extractelement <4 x i32> %v2, i32 0
+  ret i32 %lane
+}
+"#,
+    );
+}
