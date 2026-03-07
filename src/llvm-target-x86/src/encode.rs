@@ -13,7 +13,7 @@ use crate::{
     regs::{is_extended, reg_enc},
 };
 use llvm_codegen::{
-    emit::{Emitter, ObjectFormat, Reloc, Section},
+    emit::{DebugLineRow, Emitter, ObjectFormat, Reloc, Section},
     isel::{MInstr, MOperand, MachineFunction, PReg},
 };
 use std::collections::HashMap;
@@ -32,6 +32,7 @@ impl X86Emitter {
 impl Emitter for X86Emitter {
     fn emit_function(&mut self, mf: &MachineFunction) -> Section {
         let mut ctx = EncodeCtx::default();
+        let mut debug_rows: Vec<DebugLineRow> = Vec::new();
 
         let n_callee = mf.used_callee_saved.len();
         let needs_frame = mf.frame_size > 0 || n_callee > 0;
@@ -95,6 +96,7 @@ impl Emitter for X86Emitter {
         for (bi, block) in mf.blocks.iter().enumerate() {
             ctx.block_offsets.insert(bi, ctx.code.len());
             for instr in &block.instrs {
+                let instr_addr = ctx.code.len() as u64;
                 // Emit epilogue before any RET instruction when we have a frame.
                 if instr.opcode == RET && needs_frame {
                     // add rsp, sub_rsp
@@ -122,6 +124,13 @@ impl Emitter for X86Emitter {
                     ctx.emit(0x5D);
                 }
                 encode_instr(instr, &mut ctx);
+                if let Some(loc) = instr.debug_loc {
+                    debug_rows.push(DebugLineRow {
+                        address: instr_addr,
+                        line: loc.line,
+                        column: loc.column,
+                    });
+                }
             }
         }
 
@@ -144,6 +153,7 @@ impl Emitter for X86Emitter {
             name: section_name.into(),
             data: ctx.code,
             relocs: ctx.relocs,
+            debug_rows,
         }
     }
 
@@ -815,6 +825,7 @@ mod tests {
             operands: vec![MOperand::PReg(RSI)],
             phys_uses: vec![],
             clobbers: vec![],
+        debug_loc: None,
         };
         let mf = single_block_mf("mov_fn", vec![mi2]);
         let mut e = X86Emitter::new(ObjectFormat::Elf);
@@ -837,6 +848,7 @@ mod tests {
             operands: vec![MOperand::Imm(CC_EQ)],
             phys_uses: vec![],
             clobbers: vec![],
+        debug_loc: None,
         };
         let mf = single_block_mf("setcc_fn", vec![mi]);
         let mut e = X86Emitter::new(ObjectFormat::Elf);
@@ -861,6 +873,7 @@ mod tests {
             operands: vec![MOperand::Imm(CC_EQ)],
             phys_uses: vec![],
             clobbers: vec![],
+        debug_loc: None,
         };
         let mf = single_block_mf("setcc_rax_fn", vec![mi]);
         let mut e = X86Emitter::new(ObjectFormat::Elf);
@@ -882,6 +895,7 @@ mod tests {
             operands: vec![MOperand::PReg(RCX)],
             phys_uses: vec![],
             clobbers: vec![],
+        debug_loc: None,
         };
         let mf = single_block_mf("div_fn", vec![mi]);
         let mut e = X86Emitter::new(ObjectFormat::Elf);
@@ -904,6 +918,7 @@ mod tests {
             operands: vec![MOperand::PReg(RCX)],
             phys_uses: vec![],
             clobbers: vec![],
+        debug_loc: None,
         };
         let mf = single_block_mf("idiv_fn", vec![mi]);
         let mut e = X86Emitter::new(ObjectFormat::Elf);
@@ -928,6 +943,7 @@ mod tests {
             operands: vec![MOperand::PReg(RAX), MOperand::PReg(RSI)],
             phys_uses: vec![],
             clobbers: vec![],
+        debug_loc: None,
         };
         let mf = single_block_mf("mov_pr_fn", vec![mi]);
         let mut e = X86Emitter::new(ObjectFormat::Elf);
@@ -951,6 +967,7 @@ mod tests {
             operands: vec![MOperand::PReg(R8), MOperand::PReg(RDI)],
             phys_uses: vec![],
             clobbers: vec![],
+        debug_loc: None,
         };
         let mf = single_block_mf("mov_pr_ext_fn", vec![mi]);
         let mut e = X86Emitter::new(ObjectFormat::Elf);
@@ -1017,6 +1034,7 @@ mod tests {
             operands: vec![MOperand::Imm(0)], // slot 0
             phys_uses: vec![],
             clobbers: vec![],
+        debug_loc: None,
         };
         let mf = single_block_mf("load_fn", vec![mi]);
         let mut e = X86Emitter::new(ObjectFormat::Elf);
@@ -1043,6 +1061,7 @@ mod tests {
             operands: vec![MOperand::Imm(0), MOperand::PReg(RAX)], // slot 0, src=RAX
             phys_uses: vec![],
             clobbers: vec![],
+        debug_loc: None,
         };
         let mf = single_block_mf("store_fn", vec![mi]);
         let mut e = X86Emitter::new(ObjectFormat::Elf);
@@ -1140,6 +1159,7 @@ mod tests {
             operands: vec![MOperand::Imm(0)],
             phys_uses: vec![],
             clobbers: vec![],
+        debug_loc: None,
         };
         let mf = single_block_mf("simd_ld", vec![mi]);
         let mut e = X86Emitter::new(ObjectFormat::Elf);
@@ -1155,6 +1175,7 @@ mod tests {
             operands: vec![MOperand::Imm(0), MOperand::PReg(RSI)],
             phys_uses: vec![],
             clobbers: vec![],
+        debug_loc: None,
         };
         let mf = single_block_mf("simd_st", vec![mi]);
         let mut e = X86Emitter::new(ObjectFormat::Elf);
@@ -1170,6 +1191,7 @@ mod tests {
             operands: vec![MOperand::Imm(0)],
             phys_uses: vec![],
             clobbers: vec![],
+        debug_loc: None,
         };
         let mf = single_block_mf("simd_ld_aligned", vec![mi]);
         let mut e = X86Emitter::new(ObjectFormat::Elf);

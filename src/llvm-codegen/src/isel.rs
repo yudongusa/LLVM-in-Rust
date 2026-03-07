@@ -20,6 +20,13 @@ pub struct PReg(pub u8);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct MOpcode(pub u32);
 
+/// Source-level debug location carried with machine instructions.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DebugLoc {
+    pub line: u32,
+    pub column: u32,
+}
+
 // ── machine operand ────────────────────────────────────────────────────────
 
 /// An operand in a machine instruction.
@@ -52,6 +59,8 @@ pub struct MInstr {
     /// Physical registers whose values are destroyed by this instruction
     /// (e.g. caller-saved regs clobbered by a call).
     pub clobbers: Vec<PReg>,
+    /// Source debug location associated with this machine instruction.
+    pub debug_loc: Option<DebugLoc>,
 }
 
 impl MInstr {
@@ -62,6 +71,7 @@ impl MInstr {
             operands: Vec::new(),
             phys_uses: Vec::new(),
             clobbers: Vec::new(),
+            debug_loc: None,
         }
     }
 
@@ -126,6 +136,8 @@ pub struct MachineFunction {
     pub debug_source: Option<String>,
     /// First source line observed from IR `!dbg` metadata.
     pub debug_line_start: Option<u32>,
+    /// Debug location automatically attached by [`MachineFunction::push`].
+    pub current_debug_loc: Option<DebugLoc>,
 }
 
 impl MachineFunction {
@@ -142,6 +154,7 @@ impl MachineFunction {
             next_slot: 0,
             debug_source: None,
             debug_line_start: None,
+            current_debug_loc: None,
         }
     }
 
@@ -180,7 +193,10 @@ impl MachineFunction {
     }
 
     /// Append `instr` to block `block_idx`.
-    pub fn push(&mut self, block_idx: usize, instr: MInstr) {
+    pub fn push(&mut self, block_idx: usize, mut instr: MInstr) {
+        if instr.debug_loc.is_none() {
+            instr.debug_loc = self.current_debug_loc;
+        }
         self.blocks[block_idx].instrs.push(instr);
     }
 }
