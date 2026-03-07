@@ -17,6 +17,8 @@ pub struct Function {
     pub blocks: Vec<BasicBlock>,
     /// Flat instruction pool; `InstrId(i)` indexes `instructions[i]`.
     pub instructions: Vec<Instruction>,
+    /// Optional `!dbg !N` attachment for each instruction id.
+    pub instr_dbg_locs: HashMap<InstrId, u32>,
     /// Maps result name → InstrId.
     pub value_names: HashMap<String, InstrId>,
     /// Maps argument name → ArgId.
@@ -36,6 +38,7 @@ impl Function {
             args: Vec::new(),
             blocks: Vec::new(),
             instructions: Vec::new(),
+            instr_dbg_locs: HashMap::new(),
             value_names: HashMap::new(),
             arg_names: HashMap::new(),
             is_declaration: false,
@@ -118,6 +121,14 @@ impl Function {
 
     pub fn num_instrs(&self) -> usize {
         self.instructions.len()
+    }
+
+    pub fn set_instr_dbg_loc(&mut self, id: InstrId, loc_id: u32) {
+        self.instr_dbg_locs.insert(id, loc_id);
+    }
+
+    pub fn instr_dbg_loc(&self, id: InstrId) -> Option<u32> {
+        self.instr_dbg_locs.get(&id).copied()
     }
 
     // -----------------------------------------------------------------------

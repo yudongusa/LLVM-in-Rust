@@ -21,7 +21,7 @@ pub use instruction::{
     ExactFlag, FastMathFlags, FloatPredicate, InstrKind, Instruction, IntArithFlags, IntPredicate,
     TailCallKind,
 };
-pub use module::Module;
+pub use module::{DebugLocation, Module};
 pub use printer::Printer;
 pub use types::{FloatKind, FunctionType, StructType, TypeData};
 pub use value::{Argument, ConstantData, GlobalVariable, Linkage};

@@ -29,6 +29,7 @@ impl IselBackend for AArch64Backend {
         let mut mf = MachineFunction::new(func.name.clone());
         mf.allocatable_pregs = ALLOCATABLE.to_vec();
         mf.callee_saved_pregs = CALLEE_SAVED.to_vec();
+        mf.debug_source = module.source_filename.clone();
 
         if func.is_declaration || func.blocks.is_empty() {
             return mf;
@@ -79,9 +80,19 @@ impl IselBackend for AArch64Backend {
         // Lower each IR block.
         for (bi, bb) in func.blocks.iter().enumerate() {
             for &iid in &bb.body {
+                if mf.debug_line_start.is_none() {
+                    if let Some(loc_id) = func.instr_dbg_loc(iid) {
+                        mf.debug_line_start = module.debug_location(loc_id).map(|loc| loc.line);
+                    }
+                }
                 lower_instr(ctx, module, func, &mut mf, bi, iid, &mut vmap);
             }
             if let Some(tid) = bb.terminator {
+                if mf.debug_line_start.is_none() {
+                    if let Some(loc_id) = func.instr_dbg_loc(tid) {
+                        mf.debug_line_start = module.debug_location(loc_id).map(|loc| loc.line);
+                    }
+                }
                 lower_terminator(ctx, func, &mut mf, bi, tid, &mut vmap);
             }
         }

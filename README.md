@@ -560,6 +560,16 @@ ld -r /tmp/eval_predicate.o -o /tmp/eval_predicate.linked.o
 cc /tmp/eval_predicate.o -o /tmp/eval_predicate_bin
 ```
 
+### Debug line tables (`.debug_line`)
+
+When LLVM IR carries `!dbg` / `!DILocation` metadata, ELF object emission now
+adds a `.debug_line` section. Quick checks:
+
+```bash
+readelf -S /tmp/eval_predicate.o | grep debug_line
+llvm-dwarfdump --debug-line /tmp/eval_predicate.o
+```
+
 ### Adding to your own project
 
 Add the crates you need to your `Cargo.toml`. For a local checkout use path dependencies:

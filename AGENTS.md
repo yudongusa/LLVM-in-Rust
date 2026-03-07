@@ -107,6 +107,16 @@ When:   Adding linker/tool integration tests, fixing ELF/Mach-O object
 Skill:  skills/linker-compat/SKILL.md
 ```
 
+### dwarf-debug agent
+Use for issue #92 and DWARF debug metadata/line-table implementation work.
+
+```
+Invoke: $dwarf-debug
+When:   Threading `!dbg` metadata through parser/codegen, emitting
+        `.debug_line`, and validating debug output with toolchain utilities.
+Skill:  skills/dwarf-debug/SKILL.md
+```
+
 ### Plan agent
 Use **before** starting a new phase or a non-trivial fix.
 
