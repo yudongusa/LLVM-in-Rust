@@ -560,6 +560,17 @@ ld -r /tmp/eval_predicate.o -o /tmp/eval_predicate.linked.o
 cc /tmp/eval_predicate.o -o /tmp/eval_predicate_bin
 ```
 
+Windows (COFF):
+
+```powershell
+# Produce COFF object by selecting ObjectFormat::Coff in the emitter.
+# Then inspect sections:
+llvm-readobj --sections .\eval_predicate.obj
+
+# Future milestone: link with debug info to PDB
+lld-link /DEBUG /ENTRY:main /SUBSYSTEM:CONSOLE /OUT:eval_predicate.exe .\eval_predicate.obj
+```
+
 ### DWARF debug sections (`.debug_line` / `.debug_info` / `.debug_abbrev`)
 
 When LLVM IR carries `!dbg` / `!DILocation` metadata, ELF object emission adds
@@ -576,6 +587,15 @@ Current limitations:
 - Single compile unit per object/function emission path
 - Single source-file path per function (`source_filename`)
 - Minimal CU attributes (enough for valid line mapping and section coherence)
+
+### Windows debug milestone (`.debug$S` / CodeView)
+
+COFF emission now supports a first Windows debug milestone: when debug metadata
+is present, emitted COFF objects include `.debug$S` with `CV_SIGNATURE_C13`
+and a minimal `DEBUG_S_SYMBOLS` subsection carrying source/line hints.
+
+For architecture and staged roadmap details, see:
+`docs/windows_debug_codeview.md`.
 
 ### Adding to your own project
 

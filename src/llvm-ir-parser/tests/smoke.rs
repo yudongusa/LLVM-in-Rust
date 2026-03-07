@@ -173,6 +173,8 @@ fn run_oracle(clang: &Path, label: &str, ir: &str) -> Option<RunResult> {
 fn host_object_format() -> Option<ObjectFormat> {
     if cfg!(target_os = "macos") {
         Some(ObjectFormat::MachO)
+    } else if cfg!(target_os = "windows") {
+        Some(ObjectFormat::Coff)
     } else if cfg!(target_os = "linux") {
         Some(ObjectFormat::Elf)
     } else {

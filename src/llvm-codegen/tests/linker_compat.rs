@@ -23,6 +23,8 @@ fn have_tool(name: &str) -> bool {
 fn host_object_format() -> Option<ObjectFormat> {
     if cfg!(target_os = "linux") {
         Some(ObjectFormat::Elf)
+    } else if cfg!(target_os = "windows") {
+        Some(ObjectFormat::Coff)
     } else if cfg!(target_os = "macos") {
         Some(ObjectFormat::MachO)
     } else {
@@ -169,10 +171,7 @@ fn elf_readelf_and_nm_show_expected_entries() {
         assert!(re.contains(".text"));
         assert!(re.contains("Symbol table"));
 
-        let nm = Command::new("nm")
-            .arg(obj_path)
-            .output()
-            .expect("run nm");
+        let nm = Command::new("nm").arg(obj_path).output().expect("run nm");
         assert!(nm.status.success());
         let nm_out = String::from_utf8_lossy(&nm.stdout);
         assert!(nm_out.contains(" main"), "nm output: {nm_out}");
@@ -213,10 +212,7 @@ fn macho_nm_lists_main() {
 
     with_temp_file("linker_compat_nm", "o", |obj_path| {
         emit_host_obj(MAIN_RET42_LL, obj_path);
-        let nm = Command::new("nm")
-            .arg(obj_path)
-            .output()
-            .expect("run nm");
+        let nm = Command::new("nm").arg(obj_path).output().expect("run nm");
         assert!(nm.status.success());
         let out = String::from_utf8_lossy(&nm.stdout);
         assert!(

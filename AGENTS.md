@@ -127,6 +127,16 @@ When:   Adding mem2reg correctness invariants, Alive2 before/after corpus,
 Skill:  skills/mem2reg-verification/SKILL.md
 ```
 
+### windows-debug-pdb agent
+Use for issue #133 and Windows debug info pipeline work.
+
+```
+Invoke: $windows-debug-pdb
+When:   Adding COFF object emission, CodeView `.debug$S` milestones, and
+        Windows/PDB validation documentation/tests.
+Skill:  skills/windows-debug-pdb/SKILL.md
+```
+
 ### Plan agent
 Use **before** starting a new phase or a non-trivial fix.
 

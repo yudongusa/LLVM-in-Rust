@@ -137,6 +137,7 @@ impl Emitter for AArch64Emitter {
         let section_name = match self.format {
             ObjectFormat::Elf => ".text",
             ObjectFormat::MachO => "__text",
+            ObjectFormat::Coff => ".text",
         };
 
         Section {
@@ -611,7 +612,7 @@ mod tests {
             operands: vec![MOperand::Imm(42)],
             phys_uses: vec![],
             clobbers: vec![],
-        debug_loc: None,
+            debug_loc: None,
         };
         let mf = single_block_mf("mov_imm_fn", vec![mi]);
         let mut e = AArch64Emitter::new(ObjectFormat::Elf);
@@ -629,7 +630,7 @@ mod tests {
             operands: vec![MOperand::PReg(X1), MOperand::PReg(X2)],
             phys_uses: vec![],
             clobbers: vec![],
-        debug_loc: None,
+            debug_loc: None,
         };
         let mf = single_block_mf("add_fn", vec![mi]);
         let mut e = AArch64Emitter::new(ObjectFormat::Elf);
@@ -706,7 +707,7 @@ mod tests {
             operands: vec![MOperand::Imm(0)],
             phys_uses: vec![],
             clobbers: vec![],
-        debug_loc: None,
+            debug_loc: None,
         };
         let mf = single_block_mf("ldr_fp_fn", vec![mi]);
         let mut e = AArch64Emitter::new(ObjectFormat::Elf);
@@ -728,7 +729,7 @@ mod tests {
             operands: vec![MOperand::Imm(0), MOperand::PReg(X1)],
             phys_uses: vec![],
             clobbers: vec![],
-        debug_loc: None,
+            debug_loc: None,
         };
         let mf = single_block_mf("str_fp_fn", vec![mi]);
         let mut e = AArch64Emitter::new(ObjectFormat::Elf);
@@ -810,7 +811,10 @@ mod tests {
         use crate::instructions::{LDR_FP, STR_FP};
         use crate::regs::X0;
         use llvm_codegen::isel::MOpcode;
-        use llvm_codegen::regalloc::{allocate_registers, apply_allocation, compute_live_intervals, insert_spill_reloads, RegAllocStrategy};
+        use llvm_codegen::regalloc::{
+            allocate_registers, apply_allocation, compute_live_intervals, insert_spill_reloads,
+            RegAllocStrategy,
+        };
 
         let mut mf = MachineFunction::new("spill_e2e_arm".into());
         // Only 1 allocatable register → forces a spill.
@@ -824,7 +828,11 @@ mod tests {
         mf.push(b, MInstr::new(RET));
 
         let intervals = compute_live_intervals(&mf);
-        let mut result = allocate_registers(&intervals, &mf.allocatable_pregs, RegAllocStrategy::LinearScan);
+        let mut result = allocate_registers(
+            &intervals,
+            &mf.allocatable_pregs,
+            RegAllocStrategy::LinearScan,
+        );
         assert!(!result.spilled.is_empty(), "must have spills");
         insert_spill_reloads(&mut mf, &mut result, LDR_FP, STR_FP);
         apply_allocation(&mut mf, &result);
@@ -862,7 +870,7 @@ mod tests {
             operands: vec![MOperand::Imm(val)],
             phys_uses: vec![],
             clobbers: vec![],
-        debug_loc: None,
+            debug_loc: None,
         };
         let mf = single_block_mf("mov_wide_fn", vec![mi]);
         let mut e = AArch64Emitter::new(ObjectFormat::Elf);
@@ -927,7 +935,7 @@ mod tests {
             operands: vec![MOperand::Imm(CC_EQ)],
             phys_uses: vec![],
             clobbers: vec![],
-        debug_loc: None,
+            debug_loc: None,
         };
         let mf = single_block_mf("cset_fn", vec![mi]);
         let mut e = AArch64Emitter::new(ObjectFormat::Elf);
@@ -960,7 +968,7 @@ mod tests {
             operands: vec![MOperand::Imm(CC_LT)],
             phys_uses: vec![],
             clobbers: vec![],
-        debug_loc: None,
+            debug_loc: None,
         };
         let mf = single_block_mf("cset_lt_fn", vec![mi]);
         let mut e = AArch64Emitter::new(ObjectFormat::Elf);
@@ -996,7 +1004,11 @@ mod tests {
         let sec = e.emit_function(&mf);
 
         // Layout: stp(4) + add(4) + str_x19(4) + ldr_x19(4) + ldp(4) + ret(4) = 24 bytes
-        assert_eq!(sec.data.len(), 24, "must have prologue + cs saves + epilogue + ret");
+        assert_eq!(
+            sec.data.len(),
+            24,
+            "must have prologue + cs saves + epilogue + ret"
+        );
 
         // Word 0: STP pre-index
         let w0 = u32::from_le_bytes([sec.data[0], sec.data[1], sec.data[2], sec.data[3]]);
@@ -1041,7 +1053,10 @@ mod tests {
         let sec = e.emit_function(&mf);
 
         // Must have more than just RET (prologue must be present).
-        assert!(sec.data.len() > 4, "must emit prologue even with no spill slots");
+        assert!(
+            sec.data.len() > 4,
+            "must emit prologue even with no spill slots"
+        );
         let w0 = u32::from_le_bytes([sec.data[0], sec.data[1], sec.data[2], sec.data[3]]);
         assert_eq!(
             w0 & 0xFFC00000,
@@ -1069,7 +1084,7 @@ mod tests {
                 operands: vec![MOperand::Imm(0)], // slot 0
                 phys_uses: vec![],
                 clobbers: vec![],
-            debug_loc: None,
+                debug_loc: None,
             },
         );
         mf.push(b, MInstr::new(RET));
@@ -1080,8 +1095,7 @@ mod tests {
         // Find the LDR_FP instruction.  Layout:
         //   stp(4) + add(4) + str_x19(4) + ldr_fp(4) + ldr_x19(4) + ldp(4) + ret(4) = 28B
         // LDR_FP is at byte offset 12.
-        let ldr_word =
-            u32::from_le_bytes([sec.data[12], sec.data[13], sec.data[14], sec.data[15]]);
+        let ldr_word = u32::from_le_bytes([sec.data[12], sec.data[13], sec.data[14], sec.data[15]]);
         // imm12 should be 3 (= 2 + cs_save_count=1 + slot=0)
         // ldr x_reg, [x29, #24]: 0xF9400000 | (3 << 10) | (29 << 5) | rd
         let imm12_actual = (ldr_word >> 10) & 0xFFF;
@@ -1102,7 +1116,7 @@ mod tests {
             operands: vec![MOperand::Imm(val)],
             phys_uses: vec![],
             clobbers: vec![],
-        debug_loc: None,
+            debug_loc: None,
         };
         let mf = single_block_mf("mov_wide_32_fn", vec![mi]);
         let mut e = AArch64Emitter::new(ObjectFormat::Elf);

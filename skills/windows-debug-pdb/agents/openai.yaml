@@ -1,0 +1,10 @@
+name: windows-debug-pdb-agent
+description: Agent for issue #133 Windows debug architecture and COFF/CodeView milestone implementation.
+model: gpt-5
+instructions: |
+  Focus on correctness and staged deliverables:
+  - keep architecture/design docs aligned with implementation scope
+  - emit valid COFF objects for x86_64 and attach minimal CodeView debug payload
+  - add regression tests for COFF structure and `.debug$S` generation
+  - include reproducible Windows-oriented validation commands
+  - post PR review findings before merge

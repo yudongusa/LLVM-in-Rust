@@ -147,6 +147,7 @@ impl Emitter for X86Emitter {
         let section_name = match self.format {
             ObjectFormat::Elf => ".text",
             ObjectFormat::MachO => "__text",
+            ObjectFormat::Coff => ".text",
         };
 
         Section {
@@ -696,7 +697,10 @@ fn encode_simd_rr(ctx: &mut EncodeCtx, instr: &MInstr, legacy_prefix: Option<u8>
             ctx.emit(pfx);
         }
         if is_extended(dst) || is_extended(src) {
-            ctx.emit(0x40 | (if is_extended(dst) { 0x04 } else { 0 }) | (if is_extended(src) { 0x01 } else { 0 }));
+            ctx.emit(
+                0x40 | (if is_extended(dst) { 0x04 } else { 0 })
+                    | (if is_extended(src) { 0x01 } else { 0 }),
+            );
         }
         for b in opcode {
             ctx.emit(*b);
@@ -825,7 +829,7 @@ mod tests {
             operands: vec![MOperand::PReg(RSI)],
             phys_uses: vec![],
             clobbers: vec![],
-        debug_loc: None,
+            debug_loc: None,
         };
         let mf = single_block_mf("mov_fn", vec![mi2]);
         let mut e = X86Emitter::new(ObjectFormat::Elf);
@@ -848,7 +852,7 @@ mod tests {
             operands: vec![MOperand::Imm(CC_EQ)],
             phys_uses: vec![],
             clobbers: vec![],
-        debug_loc: None,
+            debug_loc: None,
         };
         let mf = single_block_mf("setcc_fn", vec![mi]);
         let mut e = X86Emitter::new(ObjectFormat::Elf);
@@ -873,7 +877,7 @@ mod tests {
             operands: vec![MOperand::Imm(CC_EQ)],
             phys_uses: vec![],
             clobbers: vec![],
-        debug_loc: None,
+            debug_loc: None,
         };
         let mf = single_block_mf("setcc_rax_fn", vec![mi]);
         let mut e = X86Emitter::new(ObjectFormat::Elf);
@@ -895,7 +899,7 @@ mod tests {
             operands: vec![MOperand::PReg(RCX)],
             phys_uses: vec![],
             clobbers: vec![],
-        debug_loc: None,
+            debug_loc: None,
         };
         let mf = single_block_mf("div_fn", vec![mi]);
         let mut e = X86Emitter::new(ObjectFormat::Elf);
@@ -918,7 +922,7 @@ mod tests {
             operands: vec![MOperand::PReg(RCX)],
             phys_uses: vec![],
             clobbers: vec![],
-        debug_loc: None,
+            debug_loc: None,
         };
         let mf = single_block_mf("idiv_fn", vec![mi]);
         let mut e = X86Emitter::new(ObjectFormat::Elf);
@@ -943,7 +947,7 @@ mod tests {
             operands: vec![MOperand::PReg(RAX), MOperand::PReg(RSI)],
             phys_uses: vec![],
             clobbers: vec![],
-        debug_loc: None,
+            debug_loc: None,
         };
         let mf = single_block_mf("mov_pr_fn", vec![mi]);
         let mut e = X86Emitter::new(ObjectFormat::Elf);
@@ -967,7 +971,7 @@ mod tests {
             operands: vec![MOperand::PReg(R8), MOperand::PReg(RDI)],
             phys_uses: vec![],
             clobbers: vec![],
-        debug_loc: None,
+            debug_loc: None,
         };
         let mf = single_block_mf("mov_pr_ext_fn", vec![mi]);
         let mut e = X86Emitter::new(ObjectFormat::Elf);
@@ -1034,7 +1038,7 @@ mod tests {
             operands: vec![MOperand::Imm(0)], // slot 0
             phys_uses: vec![],
             clobbers: vec![],
-        debug_loc: None,
+            debug_loc: None,
         };
         let mf = single_block_mf("load_fn", vec![mi]);
         let mut e = X86Emitter::new(ObjectFormat::Elf);
@@ -1061,7 +1065,7 @@ mod tests {
             operands: vec![MOperand::Imm(0), MOperand::PReg(RAX)], // slot 0, src=RAX
             phys_uses: vec![],
             clobbers: vec![],
-        debug_loc: None,
+            debug_loc: None,
         };
         let mf = single_block_mf("store_fn", vec![mi]);
         let mut e = X86Emitter::new(ObjectFormat::Elf);
@@ -1082,7 +1086,9 @@ mod tests {
     #[test]
     fn paddd_rr_encodes_correctly() {
         expect_simd_prefix(
-            MInstr::new(PADDD_RR).with_dst(VReg(RAX.0 as u32)).with_preg(RSI),
+            MInstr::new(PADDD_RR)
+                .with_dst(VReg(RAX.0 as u32))
+                .with_preg(RSI),
             &[0x66, 0x0F, 0xFE, 0xC6],
         );
     }
@@ -1090,7 +1096,9 @@ mod tests {
     #[test]
     fn psubd_rr_encodes_correctly() {
         expect_simd_prefix(
-            MInstr::new(PSUBD_RR).with_dst(VReg(RAX.0 as u32)).with_preg(RSI),
+            MInstr::new(PSUBD_RR)
+                .with_dst(VReg(RAX.0 as u32))
+                .with_preg(RSI),
             &[0x66, 0x0F, 0xFA, 0xC6],
         );
     }
@@ -1098,7 +1106,9 @@ mod tests {
     #[test]
     fn pmulld_rr_encodes_correctly() {
         expect_simd_prefix(
-            MInstr::new(PMULLD_RR).with_dst(VReg(RAX.0 as u32)).with_preg(RSI),
+            MInstr::new(PMULLD_RR)
+                .with_dst(VReg(RAX.0 as u32))
+                .with_preg(RSI),
             &[0x66, 0x0F, 0x38, 0x40, 0xC6],
         );
     }
@@ -1106,7 +1116,9 @@ mod tests {
     #[test]
     fn addps_rr_encodes_correctly() {
         expect_simd_prefix(
-            MInstr::new(ADDPS_RR).with_dst(VReg(RAX.0 as u32)).with_preg(RSI),
+            MInstr::new(ADDPS_RR)
+                .with_dst(VReg(RAX.0 as u32))
+                .with_preg(RSI),
             &[0x0F, 0x58, 0xC6],
         );
     }
@@ -1114,7 +1126,9 @@ mod tests {
     #[test]
     fn mulps_rr_encodes_correctly() {
         expect_simd_prefix(
-            MInstr::new(MULPS_RR).with_dst(VReg(RAX.0 as u32)).with_preg(RSI),
+            MInstr::new(MULPS_RR)
+                .with_dst(VReg(RAX.0 as u32))
+                .with_preg(RSI),
             &[0x0F, 0x59, 0xC6],
         );
     }
@@ -1122,7 +1136,9 @@ mod tests {
     #[test]
     fn divps_rr_encodes_correctly() {
         expect_simd_prefix(
-            MInstr::new(DIVPS_RR).with_dst(VReg(RAX.0 as u32)).with_preg(RSI),
+            MInstr::new(DIVPS_RR)
+                .with_dst(VReg(RAX.0 as u32))
+                .with_preg(RSI),
             &[0x0F, 0x5E, 0xC6],
         );
     }
@@ -1130,7 +1146,9 @@ mod tests {
     #[test]
     fn addpd_rr_encodes_correctly() {
         expect_simd_prefix(
-            MInstr::new(ADDPD_RR).with_dst(VReg(RAX.0 as u32)).with_preg(RSI),
+            MInstr::new(ADDPD_RR)
+                .with_dst(VReg(RAX.0 as u32))
+                .with_preg(RSI),
             &[0x66, 0x0F, 0x58, 0xC6],
         );
     }
@@ -1138,7 +1156,9 @@ mod tests {
     #[test]
     fn mulpd_rr_encodes_correctly() {
         expect_simd_prefix(
-            MInstr::new(MULPD_RR).with_dst(VReg(RAX.0 as u32)).with_preg(RSI),
+            MInstr::new(MULPD_RR)
+                .with_dst(VReg(RAX.0 as u32))
+                .with_preg(RSI),
             &[0x66, 0x0F, 0x59, 0xC6],
         );
     }
@@ -1146,7 +1166,9 @@ mod tests {
     #[test]
     fn movaps_rr_encodes_correctly() {
         expect_simd_prefix(
-            MInstr::new(MOVAPS_RR).with_dst(VReg(RAX.0 as u32)).with_preg(RSI),
+            MInstr::new(MOVAPS_RR)
+                .with_dst(VReg(RAX.0 as u32))
+                .with_preg(RSI),
             &[0x0F, 0x28, 0xC6],
         );
     }
@@ -1159,7 +1181,7 @@ mod tests {
             operands: vec![MOperand::Imm(0)],
             phys_uses: vec![],
             clobbers: vec![],
-        debug_loc: None,
+            debug_loc: None,
         };
         let mf = single_block_mf("simd_ld", vec![mi]);
         let mut e = X86Emitter::new(ObjectFormat::Elf);
@@ -1175,7 +1197,7 @@ mod tests {
             operands: vec![MOperand::Imm(0), MOperand::PReg(RSI)],
             phys_uses: vec![],
             clobbers: vec![],
-        debug_loc: None,
+            debug_loc: None,
         };
         let mf = single_block_mf("simd_st", vec![mi]);
         let mut e = X86Emitter::new(ObjectFormat::Elf);
@@ -1191,7 +1213,7 @@ mod tests {
             operands: vec![MOperand::Imm(0)],
             phys_uses: vec![],
             clobbers: vec![],
-        debug_loc: None,
+            debug_loc: None,
         };
         let mf = single_block_mf("simd_ld_aligned", vec![mi]);
         let mut e = X86Emitter::new(ObjectFormat::Elf);
@@ -1245,7 +1267,10 @@ mod tests {
         // contains the expected prologue bytes.
         use crate::instructions::{MOV_LOAD_MR, MOV_STORE_RM};
         use llvm_codegen::isel::MOpcode;
-        use llvm_codegen::regalloc::{allocate_registers, apply_allocation, compute_live_intervals, insert_spill_reloads, RegAllocStrategy};
+        use llvm_codegen::regalloc::{
+            allocate_registers, apply_allocation, compute_live_intervals, insert_spill_reloads,
+            RegAllocStrategy,
+        };
 
         let mut mf = MachineFunction::new("spill_e2e".into());
         // Only 1 allocatable register to guarantee spills.
@@ -1262,7 +1287,11 @@ mod tests {
         mf.push(b, MInstr::new(RET));
 
         let intervals = compute_live_intervals(&mf);
-        let mut result = allocate_registers(&intervals, &mf.allocatable_pregs, RegAllocStrategy::LinearScan);
+        let mut result = allocate_registers(
+            &intervals,
+            &mf.allocatable_pregs,
+            RegAllocStrategy::LinearScan,
+        );
         assert!(!result.spilled.is_empty(), "must have spills");
         insert_spill_reloads(&mut mf, &mut result, MOV_LOAD_MR, MOV_STORE_RM);
         apply_allocation(&mut mf, &result);
