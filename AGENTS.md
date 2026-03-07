@@ -127,6 +127,16 @@ When:   Adding mem2reg correctness invariants, Alive2 before/after corpus,
 Skill:  skills/mem2reg-verification/SKILL.md
 ```
 
+### smoke-oracle-triage agent
+Use for issue #102 and temporary smoke mismatch quarantine work.
+
+```
+Invoke: $smoke-oracle-triage
+When:   Quarantining known smoke oracle mismatches with narrow platform-gated
+        ignores while preserving maximum test coverage.
+Skill:  skills/smoke-oracle-triage/SKILL.md
+```
+
 ### Plan agent
 Use **before** starting a new phase or a non-trivial fix.
 

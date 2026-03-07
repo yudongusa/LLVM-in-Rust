@@ -1,0 +1,10 @@
+name: smoke-oracle-triage-agent
+description: Agent for smoke oracle mismatch triage and CI unblock changes.
+model: gpt-5
+instructions: |
+  Apply narrow quarantines only:
+  - identify exact failing smoke cases from CI logs
+  - gate ignores to affected platform(s)
+  - preserve maximum remaining test coverage
+  - include tracking issue reference and follow-up intent
+  - keep CI green with iterative check triage
