@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use llvm_codegen::{
@@ -33,8 +33,32 @@ else:
 !12 = !DILocation(line: 30, column: 5, scope: !1)
 "#;
 
-fn have_tool(name: &str) -> bool {
-    Command::new(name).arg("--version").output().is_ok()
+fn find_tool(candidates: &[&str]) -> Option<PathBuf> {
+    for cand in candidates {
+        let path = PathBuf::from(cand);
+        let probe = if path.components().count() > 1 {
+            Command::new(&path).arg("--version").output()
+        } else {
+            Command::new(cand).arg("--version").output()
+        };
+        if probe.is_ok() {
+            return Some(path);
+        }
+    }
+    None
+}
+
+fn require_llvm_tool(candidates: &[&str], display_name: &str) -> Option<PathBuf> {
+    if let Some(path) = find_tool(candidates) {
+        return Some(path);
+    }
+    if std::env::var("REQUIRE_LLVM").is_ok() {
+        panic!(
+            "REQUIRE_LLVM is set but '{}' was not found. Install LLVM 19 and ensure it is on PATH.",
+            display_name
+        );
+    }
+    None
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -65,6 +89,8 @@ fn emit_dbg_elf_obj_from_ir(src: &str, out: &Path) -> ObjectFile {
     let obj = emit_object(&mf, &mut emitter);
 
     assert!(obj.sections.iter().any(|s| s.name == ".debug_line"));
+    assert!(obj.sections.iter().any(|s| s.name == ".debug_info"));
+    assert!(obj.sections.iter().any(|s| s.name == ".debug_abbrev"));
     std::fs::write(out, obj.to_bytes()).expect("write object");
     obj
 }
@@ -98,6 +124,8 @@ fn emit_dbg_elf_obj_from_ir(src: &str, out: &Path) -> ObjectFile {
     let obj = emit_object(&mf, &mut emitter);
 
     assert!(obj.sections.iter().any(|s| s.name == ".debug_line"));
+    assert!(obj.sections.iter().any(|s| s.name == ".debug_info"));
+    assert!(obj.sections.iter().any(|s| s.name == ".debug_abbrev"));
     std::fs::write(out, obj.to_bytes()).expect("write object");
     obj
 }
@@ -112,8 +140,8 @@ fn emits_debug_line_when_dbg_metadata_present() {
     let obj_path = std::env::temp_dir().join("llvm_codegen_dbg_line.o");
     let _ = emit_dbg_elf_obj_from_ir(DBG_LL, &obj_path);
 
-    if have_tool("readelf") {
-        let out = Command::new("readelf")
+    if let Some(tool) = find_tool(&["readelf"]) {
+        let out = Command::new(&tool)
             .arg("-S")
             .arg(&obj_path)
             .output()
@@ -121,10 +149,19 @@ fn emits_debug_line_when_dbg_metadata_present() {
         assert!(out.status.success());
         let text = String::from_utf8_lossy(&out.stdout);
         assert!(text.contains(".debug_line"), "readelf output: {text}");
+        assert!(text.contains(".debug_info"), "readelf output: {text}");
+        assert!(text.contains(".debug_abbrev"), "readelf output: {text}");
     }
 
-    if have_tool("llvm-dwarfdump") {
-        let out = Command::new("llvm-dwarfdump")
+    if let Some(tool) = require_llvm_tool(
+        &[
+            "llvm-dwarfdump",
+            "llvm-dwarfdump-19",
+            "/usr/lib/llvm-19/bin/llvm-dwarfdump",
+        ],
+        "llvm-dwarfdump",
+    ) {
+        let out = Command::new(&tool)
             .arg("--debug-line")
             .arg(&obj_path)
             .output()
@@ -132,6 +169,17 @@ fn emits_debug_line_when_dbg_metadata_present() {
         assert!(out.status.success());
         let text = String::from_utf8_lossy(&out.stdout);
         assert!(text.contains("dbg_test.c") || text.contains("line"), "dwarfdump output: {text}");
+
+        let verify = Command::new(&tool)
+            .arg("--verify")
+            .arg(&obj_path)
+            .output()
+            .expect("run llvm-dwarfdump --verify");
+        assert!(
+            verify.status.success(),
+            "llvm-dwarfdump --verify failed: {}",
+            String::from_utf8_lossy(&verify.stderr)
+        );
     }
 
     let _ = std::fs::remove_file(&obj_path);

@@ -116,26 +116,35 @@ pub fn emit_object(mf: &MachineFunction, emitter: &mut dyn Emitter) -> ObjectFil
     };
     let mut sections = vec![section];
     if emitter.object_format() == ObjectFormat::Elf {
-        if !sections[0].debug_rows.is_empty() {
-            let source = mf.debug_source.as_deref().unwrap_or("unknown");
+        if !sections[0].debug_rows.is_empty() || mf.debug_line_start.is_some() {
+            let source = mf.debug_source.as_deref().unwrap_or("unknown.c");
+            let rows = if !sections[0].debug_rows.is_empty() {
+                sections[0].debug_rows.clone()
+            } else {
+                vec![DebugLineRow {
+                    address: 0,
+                    line: mf.debug_line_start.unwrap_or(1),
+                    column: 0,
+                }]
+            };
+            let line = build_debug_line(source, &rows);
+            let abbrev = build_debug_abbrev();
+            let info = build_debug_info(source, 0);
             sections.push(Section {
-                name: ".debug_line".into(),
-                data: build_debug_line(source, &sections[0].debug_rows),
+                name: ".debug_abbrev".into(),
+                data: abbrev,
                 relocs: Vec::new(),
                 debug_rows: Vec::new(),
             });
-        } else if let Some(line) = mf.debug_line_start {
-            let source = mf.debug_source.as_deref().unwrap_or("unknown");
+            sections.push(Section {
+                name: ".debug_info".into(),
+                data: info,
+                relocs: Vec::new(),
+                debug_rows: Vec::new(),
+            });
             sections.push(Section {
                 name: ".debug_line".into(),
-                data: build_debug_line(
-                    source,
-                    &[DebugLineRow {
-                        address: 0,
-                        line,
-                        column: 0,
-                    }],
-                ),
+                data: line,
                 relocs: Vec::new(),
                 debug_rows: Vec::new(),
             });
@@ -457,6 +466,66 @@ fn build_debug_line(source_file: &str, rows: &[DebugLineRow]) -> Vec<u8> {
     w32(&mut out, header_body.len() as u32);
     out.extend_from_slice(&header_body);
     out.extend_from_slice(&program);
+    out
+}
+
+fn build_debug_abbrev() -> Vec<u8> {
+    const DW_TAG_COMPILE_UNIT: u8 = 0x11;
+    const DW_CHILDREN_NO: u8 = 0x00;
+    const DW_AT_NAME: u8 = 0x03;
+    const DW_AT_STMT_LIST: u8 = 0x10;
+    const DW_AT_COMP_DIR: u8 = 0x1b;
+    const DW_FORM_STRING: u8 = 0x08;
+    const DW_FORM_DATA4: u8 = 0x06;
+
+    let mut out = Vec::new();
+    // Abbrev code 1: compile_unit with name + stmt_list + comp_dir
+    out.push(1);
+    out.push(DW_TAG_COMPILE_UNIT);
+    out.push(DW_CHILDREN_NO);
+    out.push(DW_AT_NAME);
+    out.push(DW_FORM_STRING);
+    out.push(DW_AT_STMT_LIST);
+    out.push(DW_FORM_DATA4);
+    out.push(DW_AT_COMP_DIR);
+    out.push(DW_FORM_STRING);
+    out.push(0);
+    out.push(0);
+    // End of abbrev table
+    out.push(0);
+    out
+}
+
+fn build_debug_info(source_file: &str, stmt_list_off: u32) -> Vec<u8> {
+    const DWARF_VERSION: u16 = 2;
+    let file = source_file.rsplit('/').next().unwrap_or(source_file);
+    let comp_dir = source_file
+        .rfind('/')
+        .map(|i| &source_file[..i])
+        .filter(|s| !s.is_empty())
+        .unwrap_or(".");
+
+    let mut body = Vec::new();
+    // Abbrev code for CU DIE.
+    write_uleb128(&mut body, 1);
+    // DW_AT_name (DW_FORM_string)
+    body.extend_from_slice(file.as_bytes());
+    body.push(0);
+    // DW_AT_stmt_list (DW_FORM_data4), offset in .debug_line section.
+    w32(&mut body, stmt_list_off);
+    // DW_AT_comp_dir (DW_FORM_string)
+    body.extend_from_slice(comp_dir.as_bytes());
+    body.push(0);
+    // Null DIE terminator.
+    body.push(0);
+
+    let mut out = Vec::new();
+    let unit_length = (2 + 4 + 1 + body.len()) as u32;
+    w32(&mut out, unit_length);
+    w16(&mut out, DWARF_VERSION);
+    w32(&mut out, 0); // abbrev offset
+    out.push(8); // address size
+    out.extend_from_slice(&body);
     out
 }
 
@@ -807,7 +876,11 @@ mod tests {
 
         let obj = emit_object(&mf, &mut NopEmitter);
         assert!(obj.sections.iter().any(|s| s.name == ".debug_line"));
+        assert!(obj.sections.iter().any(|s| s.name == ".debug_info"));
+        assert!(obj.sections.iter().any(|s| s.name == ".debug_abbrev"));
         let bytes = obj.to_bytes();
         assert!(bytes.windows(11).any(|w| w == b".debug_line"));
+        assert!(bytes.windows(11).any(|w| w == b".debug_info"));
+        assert!(bytes.windows(13).any(|w| w == b".debug_abbrev"));
     }
 }

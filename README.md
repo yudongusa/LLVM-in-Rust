@@ -560,15 +560,22 @@ ld -r /tmp/eval_predicate.o -o /tmp/eval_predicate.linked.o
 cc /tmp/eval_predicate.o -o /tmp/eval_predicate_bin
 ```
 
-### Debug line tables (`.debug_line`)
+### DWARF debug sections (`.debug_line` / `.debug_info` / `.debug_abbrev`)
 
-When LLVM IR carries `!dbg` / `!DILocation` metadata, ELF object emission now
-adds a `.debug_line` section. Quick checks:
+When LLVM IR carries `!dbg` / `!DILocation` metadata, ELF object emission adds
+coherent DWARF sections: `.debug_line`, `.debug_info`, and `.debug_abbrev`.
+Quick checks:
 
 ```bash
-readelf -S /tmp/eval_predicate.o | grep debug_line
+readelf -S /tmp/eval_predicate.o | grep -E 'debug_(line|info|abbrev)'
+llvm-dwarfdump --verify /tmp/eval_predicate.o
 llvm-dwarfdump --debug-line /tmp/eval_predicate.o
 ```
+
+Current limitations:
+- Single compile unit per object/function emission path
+- Single source-file path per function (`source_filename`)
+- Minimal CU attributes (enough for valid line mapping and section coherence)
 
 ### Adding to your own project
 

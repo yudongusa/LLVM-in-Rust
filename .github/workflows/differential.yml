@@ -88,3 +88,8 @@ jobs:
         env:
           REQUIRE_LLVM: "1"
         run: cargo test -p llvm-ir-parser --test smoke --no-fail-fast -- --nocapture
+
+      - name: Verify DWARF sections with llvm-dwarfdump
+        env:
+          REQUIRE_LLVM: "1"
+        run: cargo +stable test -p llvm-codegen --test dwarf_line -- --nocapture
