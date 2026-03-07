@@ -104,10 +104,21 @@ pub fn emit_object(mf: &MachineFunction, emitter: &mut dyn Emitter) -> ObjectFil
         size,
         global: true,
     };
+    let mut sections = vec![section];
+    if emitter.object_format() == ObjectFormat::Elf {
+        if let Some(line) = mf.debug_line_start {
+            let source = mf.debug_source.as_deref().unwrap_or("unknown");
+            sections.push(Section {
+                name: ".debug_line".into(),
+                data: build_minimal_debug_line(source, line),
+                relocs: Vec::new(),
+            });
+        }
+    }
     ObjectFile {
         format: emitter.object_format(),
         elf_machine: emitter.elf_machine(),
-        sections: vec![section],
+        sections,
         symbols: vec![sym],
     }
 }
@@ -126,20 +137,25 @@ pub fn emit_object(mf: &MachineFunction, emitter: &mut dyn Emitter) -> ObjectFil
 //   Section data: .text, .symtab, .strtab, .shstrtab, .rela.text
 
 fn serialize_elf(obj: &ObjectFile) -> Vec<u8> {
-    // ── string tables ───────────────────────────────────────────────────────
-    let mut shstrtab: Vec<u8> = vec![0u8]; // index 0 = empty string
+    let text_sec = obj.sections.first();
+    let text_data = text_sec.map_or(&[][..], |s| s.data.as_slice());
+    let text_relocs = text_sec.map_or(&[][..], |s| s.relocs.as_slice());
+    let extra_secs = if obj.sections.len() > 1 {
+        &obj.sections[1..]
+    } else {
+        &[][..]
+    };
+    let has_relocs = !text_relocs.is_empty();
+
+    let mut shstrtab: Vec<u8> = vec![0u8];
     let text_name_off = push_str(&mut shstrtab, b".text");
+    let extra_name_offs: Vec<u32> = extra_secs
+        .iter()
+        .map(|s| push_str(&mut shstrtab, s.name.as_bytes()))
+        .collect();
     let symtab_name_off = push_str(&mut shstrtab, b".symtab");
     let strtab_name_off = push_str(&mut shstrtab, b".strtab");
     let shstrtab_name_off = push_str(&mut shstrtab, b".shstrtab");
-
-    let text_data = obj.sections.first().map_or(&[][..], |s| s.data.as_slice());
-    let text_relocs = obj
-        .sections
-        .first()
-        .map_or(&[][..], |s| s.relocs.as_slice());
-    let has_relocs = !text_relocs.is_empty();
-
     let relatext_name_off = if has_relocs {
         push_str(&mut shstrtab, b".rela.text")
     } else {
@@ -153,50 +169,70 @@ fn serialize_elf(obj: &ObjectFile) -> Vec<u8> {
         .map(|s| push_str(&mut strtab, s.name.as_bytes()))
         .collect();
 
-    // ── layout ─────────────────────────────────────────────────────────────
     const ELF_HDR: u64 = 64;
     const SH_ENT: u64 = 64;
     const SYM_ENT: u64 = 24;
     const RELA_ENT: u64 = 24;
+    const SHT_PROGBITS: u32 = 1;
+    const SHT_SYMTAB: u32 = 2;
+    const SHT_STRTAB: u32 = 3;
+    const SHT_RELA: u32 = 4;
 
-    let num_sections: u16 = if has_relocs { 6 } else { 5 };
+    let idx_text = 1u16;
+    let idx_extra_start = idx_text + 1;
+    let idx_symtab = idx_extra_start + extra_secs.len() as u16;
+    let idx_strtab = idx_symtab + 1;
+    let idx_shstrtab = idx_strtab + 1;
+    let idx_rela = idx_shstrtab + 1;
+
+    let num_sections: u16 = if has_relocs { idx_rela + 1 } else { idx_shstrtab + 1 };
     let sh_table_size = num_sections as u64 * SH_ENT;
 
-    let text_off = ELF_HDR + sh_table_size;
+    let mut cursor = ELF_HDR + sh_table_size;
+    let text_off = cursor;
     let text_size = text_data.len() as u64;
-    let sym_count = 1 + obj.symbols.len() as u64; // null + symbols
-    let symtab_off = text_off + text_size;
+    cursor += text_size;
+
+    let mut extra_offs = Vec::with_capacity(extra_secs.len());
+    for sec in extra_secs {
+        extra_offs.push(cursor);
+        cursor += sec.data.len() as u64;
+    }
+
+    let sym_count = 1 + obj.symbols.len() as u64;
+    let symtab_off = cursor;
     let symtab_size = sym_count * SYM_ENT;
-    let strtab_off = symtab_off + symtab_size;
-    let shstrtab_off = strtab_off + strtab.len() as u64;
-    let relatext_off = shstrtab_off + shstrtab.len() as u64;
+    cursor += symtab_size;
+
+    let strtab_off = cursor;
+    cursor += strtab.len() as u64;
+    let shstrtab_off = cursor;
+    cursor += shstrtab.len() as u64;
+
+    let relatext_off = cursor;
     let relatext_size = text_relocs.len() as u64 * RELA_ENT;
 
-    // ── buffer ─────────────────────────────────────────────────────────────
     let mut buf = Vec::<u8>::new();
+    buf.extend_from_slice(b"\x7fELF");
+    buf.push(2);
+    buf.push(1);
+    buf.push(1);
+    buf.push(0);
+    buf.extend_from_slice(&[0u8; 8]);
+    w16(&mut buf, 1);
+    w16(&mut buf, obj.elf_machine);
+    w32(&mut buf, 1);
+    w64(&mut buf, 0);
+    w64(&mut buf, 0);
+    w64(&mut buf, ELF_HDR);
+    w32(&mut buf, 0);
+    w16(&mut buf, ELF_HDR as u16);
+    w16(&mut buf, 0);
+    w16(&mut buf, 0);
+    w16(&mut buf, SH_ENT as u16);
+    w16(&mut buf, num_sections);
+    w16(&mut buf, idx_shstrtab);
 
-    // ELF header
-    buf.extend_from_slice(b"\x7fELF"); // magic
-    buf.push(2); // EI_CLASS: 64-bit
-    buf.push(1); // EI_DATA: little-endian
-    buf.push(1); // EI_VERSION
-    buf.push(0); // EI_OSABI: System V
-    buf.extend_from_slice(&[0u8; 8]); // padding
-    w16(&mut buf, 1); // e_type: ET_REL
-    w16(&mut buf, obj.elf_machine); // e_machine: target-specific
-    w32(&mut buf, 1); // e_version
-    w64(&mut buf, 0); // e_entry
-    w64(&mut buf, 0); // e_phoff
-    w64(&mut buf, ELF_HDR); // e_shoff
-    w32(&mut buf, 0); // e_flags
-    w16(&mut buf, ELF_HDR as u16); // e_ehsize
-    w16(&mut buf, 0); // e_phentsize
-    w16(&mut buf, 0); // e_phnum
-    w16(&mut buf, SH_ENT as u16); // e_shentsize
-    w16(&mut buf, num_sections); // e_shnum
-    w16(&mut buf, 4); // e_shstrndx (.shstrtab at index 4)
-
-    // Helper: write a 64-byte section header entry
     let write_shdr = |buf: &mut Vec<u8>,
                       name: u32,
                       sh_type: u32,
@@ -220,13 +256,12 @@ fn serialize_elf(obj: &ObjectFile) -> Vec<u8> {
         w64(buf, entsize);
     };
 
-    // Section headers
-    write_shdr(&mut buf, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0); // [0] null
+    write_shdr(&mut buf, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
     write_shdr(
         &mut buf,
         text_name_off,
-        1,
-        6, // [1] .text  SHF_ALLOC|SHF_EXECINSTR
+        SHT_PROGBITS,
+        6,
         0,
         text_off,
         text_size,
@@ -235,15 +270,32 @@ fn serialize_elf(obj: &ObjectFile) -> Vec<u8> {
         16,
         0,
     );
+
+    for (i, sec) in extra_secs.iter().enumerate() {
+        write_shdr(
+            &mut buf,
+            extra_name_offs[i],
+            SHT_PROGBITS,
+            0,
+            0,
+            extra_offs[i],
+            sec.data.len() as u64,
+            0,
+            0,
+            1,
+            0,
+        );
+    }
+
     write_shdr(
         &mut buf,
         symtab_name_off,
-        2,
-        0, // [2] .symtab link=3 info=first_global(1)
+        SHT_SYMTAB,
+        0,
         0,
         symtab_off,
         symtab_size,
-        3,
+        idx_strtab as u32,
         1,
         8,
         SYM_ENT,
@@ -251,8 +303,8 @@ fn serialize_elf(obj: &ObjectFile) -> Vec<u8> {
     write_shdr(
         &mut buf,
         strtab_name_off,
-        3,
-        0, // [3] .strtab
+        SHT_STRTAB,
+        0,
         0,
         strtab_off,
         strtab.len() as u64,
@@ -264,8 +316,8 @@ fn serialize_elf(obj: &ObjectFile) -> Vec<u8> {
     write_shdr(
         &mut buf,
         shstrtab_name_off,
-        3,
-        0, // [4] .shstrtab
+        SHT_STRTAB,
+        0,
         0,
         shstrtab_off,
         shstrtab.len() as u64,
@@ -278,47 +330,44 @@ fn serialize_elf(obj: &ObjectFile) -> Vec<u8> {
         write_shdr(
             &mut buf,
             relatext_name_off,
-            4,
-            0, // [5] .rela.text link=2 info=1
+            SHT_RELA,
+            0,
             0,
             relatext_off,
             relatext_size,
-            2,
-            1,
+            idx_symtab as u32,
+            idx_text as u32,
             8,
             RELA_ENT,
         );
     }
 
-    // Section data: .text
     buf.extend_from_slice(text_data);
+    for sec in extra_secs {
+        buf.extend_from_slice(&sec.data);
+    }
 
-    // .symtab: null entry then symbols
     buf.extend_from_slice(&[0u8; 24]);
     for (i, sym) in obj.symbols.iter().enumerate() {
-        let st_info: u8 = (1u8 << 4) | 2u8; // STB_GLOBAL | STT_FUNC
-        let st_shndx: u16 = (sym.section + 1) as u16; // +1 for null section header
+        let st_info: u8 = (1u8 << 4) | 2u8;
+        let st_shndx: u16 = (sym.section + 1) as u16;
         w32(&mut buf, sym_name_offs[i]);
         buf.push(st_info);
-        buf.push(0); // st_other
+        buf.push(0);
         w16(&mut buf, st_shndx);
         w64(&mut buf, sym.offset);
         w64(&mut buf, sym.size);
     }
 
-    // .strtab
     buf.extend_from_slice(&strtab);
-
-    // .shstrtab
     buf.extend_from_slice(&shstrtab);
 
-    // .rela.text
     if has_relocs {
         for reloc in text_relocs {
             let sym_idx = (reloc.symbol + 1) as u64;
             let r_type: u64 = match reloc.kind {
-                RelocKind::Pc32 => 2,  // R_X86_64_PC32
-                RelocKind::Abs64 => 1, // R_X86_64_64
+                RelocKind::Pc32 => 2,
+                RelocKind::Abs64 => 1,
             };
             let r_info = (sym_idx << 32) | r_type;
             w64(&mut buf, reloc.offset);
@@ -326,9 +375,45 @@ fn serialize_elf(obj: &ObjectFile) -> Vec<u8> {
             buf.extend_from_slice(&reloc.addend.to_le_bytes());
         }
     }
-
-    let _ = relatext_name_off;
     buf
+}
+
+fn build_minimal_debug_line(source_file: &str, line: u32) -> Vec<u8> {
+    let file = source_file.rsplit('/').next().unwrap_or(source_file);
+
+    let mut header_body = Vec::<u8>::new();
+    header_body.push(1); // minimum_instruction_length
+    header_body.push(1); // default_is_stmt
+    header_body.push((-5i8) as u8); // line_base
+    header_body.push(14); // line_range
+    header_body.push(13); // opcode_base
+    header_body.extend_from_slice(&[0, 1, 1, 1, 1, 0, 0, 0, 1, 0, 0, 1]); // std opcode lengths
+    header_body.push(0); // include_directories terminator
+    header_body.extend_from_slice(file.as_bytes());
+    header_body.push(0); // file name terminator
+    write_uleb128(&mut header_body, 0); // dir index
+    write_uleb128(&mut header_body, 0); // mtime
+    write_uleb128(&mut header_body, 0); // size
+    header_body.push(0); // file_names terminator
+
+    let mut program = Vec::<u8>::new();
+    if line > 1 {
+        program.push(3); // DW_LNS_advance_line
+        write_sleb128(&mut program, (line - 1) as i64);
+    }
+    program.push(1); // DW_LNS_copy
+    program.push(0);
+    program.push(1);
+    program.push(1); // DW_LNE_end_sequence
+
+    let unit_length = (2 + 4 + header_body.len() + program.len()) as u32;
+    let mut out = Vec::<u8>::new();
+    w32(&mut out, unit_length);
+    w16(&mut out, 2); // DWARF v2 line table
+    w32(&mut out, header_body.len() as u32);
+    out.extend_from_slice(&header_body);
+    out.extend_from_slice(&program);
+    out
 }
 
 // ── Mach-O 64-bit serialization ────────────────────────────────────────────
@@ -501,6 +586,34 @@ fn w64(buf: &mut Vec<u8>, v: u64) {
     buf.extend_from_slice(&v.to_le_bytes());
 }
 
+fn write_uleb128(buf: &mut Vec<u8>, mut v: u64) {
+    loop {
+        let mut byte = (v & 0x7f) as u8;
+        v >>= 7;
+        if v != 0 {
+            byte |= 0x80;
+        }
+        buf.push(byte);
+        if v == 0 {
+            break;
+        }
+    }
+}
+
+fn write_sleb128(buf: &mut Vec<u8>, mut v: i64) {
+    loop {
+        let byte = (v as u8) & 0x7f;
+        let sign = (byte & 0x40) != 0;
+        v >>= 7;
+        let done = (v == 0 && !sign) || (v == -1 && sign);
+        if done {
+            buf.push(byte);
+            break;
+        }
+        buf.push(byte | 0x80);
+    }
+}
+
 /// Append a null-terminated string to `table` and return its start offset.
 fn push_str(table: &mut Vec<u8>, s: &[u8]) -> u32 {
     let off = table.len() as u32;
@@ -617,5 +730,37 @@ mod tests {
         assert_eq!(obj.symbols[0].name, "test");
         assert_eq!(obj.sections[0].data, vec![0x90]);
         assert_eq!(obj.elf_machine, 62);
+    }
+
+    #[test]
+    fn emit_object_adds_debug_line_section_for_elf() {
+        use crate::isel::{MachineBlock, MachineFunction};
+
+        struct NopEmitter;
+        impl Emitter for NopEmitter {
+            fn emit_function(&mut self, _mf: &MachineFunction) -> Section {
+                Section {
+                    name: ".text".into(),
+                    data: vec![0x90],
+                    relocs: vec![],
+                }
+            }
+            fn object_format(&self) -> ObjectFormat {
+                ObjectFormat::Elf
+            }
+        }
+
+        let mut mf = MachineFunction::new("dbg".into());
+        mf.blocks.push(MachineBlock {
+            label: "entry".into(),
+            instrs: vec![],
+        });
+        mf.debug_source = Some("foo.c".into());
+        mf.debug_line_start = Some(17);
+
+        let obj = emit_object(&mf, &mut NopEmitter);
+        assert!(obj.sections.iter().any(|s| s.name == ".debug_line"));
+        let bytes = obj.to_bytes();
+        assert!(bytes.windows(11).any(|w| w == b".debug_line"));
     }
 }

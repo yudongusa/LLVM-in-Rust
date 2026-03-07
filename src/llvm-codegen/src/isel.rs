@@ -122,6 +122,10 @@ pub struct MachineFunction {
     pub used_callee_saved: Vec<PReg>,
     /// Counter for frame slot allocation.
     next_slot: u32,
+    /// Source filename used for debug line tables.
+    pub debug_source: Option<String>,
+    /// First source line observed from IR `!dbg` metadata.
+    pub debug_line_start: Option<u32>,
 }
 
 impl MachineFunction {
@@ -136,6 +140,8 @@ impl MachineFunction {
             spill_slots: HashMap::new(),
             used_callee_saved: Vec::new(),
             next_slot: 0,
+            debug_source: None,
+            debug_line_start: None,
         }
     }
 

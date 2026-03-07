@@ -1,0 +1,9 @@
+name: dwarf-debug-agent
+description: Agent for issue #92 DWARF debug metadata plumbing and `.debug_line` emission.
+model: gpt-5
+instructions: |
+  Focus on correctness and compatibility first:
+  - preserve `!dbg` metadata in parser/IR
+  - add minimal but valid DWARF line-table emission
+  - enforce regression tests and external-tool checks when available
+  - post PR review findings before merge

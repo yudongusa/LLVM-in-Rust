@@ -120,7 +120,7 @@ impl<'src> Parser<'src> {
                     self.parse_function(true)?;
                 }
                 Token::Bang => {
-                    self.skip_metadata_line()?;
+                    self.parse_metadata_definition_or_skip()?;
                 }
                 _ => {
                     let t = self.lex.next()?;
@@ -627,11 +627,15 @@ impl<'src> Parser<'src> {
         };
 
         let (kind, ty) = self.parse_instr_kind()?;
+        let dbg_loc = self.parse_optional_dbg_attachment()?;
         let is_term = kind.is_terminator();
 
         let instr_name = result_name.clone();
         let instr = Instruction::new(instr_name, ty, kind);
         let iid = self.module.functions[fid].alloc_instr(instr);
+        if let Some(loc_id) = dbg_loc {
+            self.module.functions[fid].set_instr_dbg_loc(iid, loc_id);
+        }
 
         if is_term {
             self.module.functions[fid]
@@ -1628,7 +1632,7 @@ impl<'src> Parser<'src> {
                     self.lex.next()?;
                 }
                 Token::Bang => {
-                    self.skip_metadata_line()?;
+                    self.parse_metadata_definition_or_skip()?;
                     break;
                 }
                 _ => {
@@ -1660,17 +1664,147 @@ impl<'src> Parser<'src> {
         Ok(())
     }
 
-    fn skip_metadata_line(&mut self) -> Result<(), ParseError> {
-        while !matches!(self.lex.peek()?, Token::Eof) {
-            // Consume tokens until newline-ish heuristic: next top-level token.
-            // We approximate: consume until we see a GlobalIdent, Kw(Define), etc.
-            let tok = self.lex.next()?;
-            if matches!(tok, Token::Eof) {
+    fn parse_optional_dbg_attachment(&mut self) -> Result<Option<u32>, ParseError> {
+        let mut dbg = None;
+        while self.lex.eat(&Token::Comma) {
+            if !self.lex.eat(&Token::Bang) {
                 break;
             }
-            // Metadata lines end at things that look like module-level items.
-            // Heuristic: stop when we've consumed something that looks complete.
-            // For now we consume an entire "statement" by stopping at Eof.
+            let key = self.lex.expect_local_ident()?;
+            if key == "dbg" {
+                self.lex.expect(&Token::Bang)?;
+                let id = self.lex.expect_uint_lit()? as u32;
+                dbg = Some(id);
+            } else {
+                self.skip_one_metadata_value()?;
+            }
+        }
+        Ok(dbg)
+    }
+
+    fn parse_metadata_definition_or_skip(&mut self) -> Result<(), ParseError> {
+        // Optional form: !<id> = !DILocation(line: N, column: M, ...)
+        self.lex.expect(&Token::Bang)?;
+        let id = match self.lex.peek()? {
+            Token::IntLit(_) | Token::UIntLit(_) => self.lex.expect_uint_lit()? as u32,
+            _ => {
+                self.skip_one_metadata_value()?;
+                return Ok(());
+            }
+        };
+        if !self.lex.eat(&Token::Equal) {
+            self.skip_one_metadata_value()?;
+            return Ok(());
+        }
+        self.lex.expect(&Token::Bang)?;
+        let head = match self.lex.peek()? {
+            Token::LocalIdent(_) => self.lex.expect_local_ident()?,
+            _ => {
+                self.skip_one_metadata_value()?;
+                return Ok(());
+            }
+        };
+
+        if head == "DILocation" {
+            if let Some(loc) = self.parse_dilocation_body()? {
+                self.module.set_debug_location(id, loc);
+            }
+        } else {
+            self.skip_balanced_payload()?;
+        }
+        Ok(())
+    }
+
+    fn parse_dilocation_body(&mut self) -> Result<Option<llvm_ir::DebugLocation>, ParseError> {
+        if !self.lex.eat(&Token::LParen) {
+            return Ok(None);
+        }
+        let mut depth = 1usize;
+        let mut line: Option<u32> = None;
+        let mut column: Option<u32> = None;
+        while depth > 0 {
+            match self.lex.peek()? {
+                Token::LParen | Token::LBrace | Token::LBracket | Token::LAngle => {
+                    depth += 1;
+                    let _ = self.lex.next()?;
+                }
+                Token::RParen | Token::RBrace | Token::RBracket | Token::RAngle => {
+                    depth -= 1;
+                    let _ = self.lex.next()?;
+                }
+                Token::LocalIdent(ref s) if depth == 1 && s == "line" => {
+                    let _ = self.lex.next()?;
+                    self.lex.expect(&Token::Colon)?;
+                    line = Some(self.lex.expect_uint_lit()? as u32);
+                }
+                Token::LocalIdent(ref s) if depth == 1 && s == "column" => {
+                    let _ = self.lex.next()?;
+                    self.lex.expect(&Token::Colon)?;
+                    column = Some(self.lex.expect_uint_lit()? as u32);
+                }
+                Token::Eof => break,
+                _ => {
+                    let _ = self.lex.next()?;
+                }
+            }
+        }
+        if let Some(line) = line {
+            Ok(Some(llvm_ir::DebugLocation {
+                line,
+                column: column.unwrap_or(0),
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn skip_one_metadata_value(&mut self) -> Result<(), ParseError> {
+        // Skip a single metadata value after a key, e.g. `!12`, `"foo"`, or
+        // a balanced tuple/list.
+        match self.lex.peek()? {
+            Token::Bang => {
+                let _ = self.lex.next()?;
+                if matches!(self.lex.peek()?, Token::IntLit(_) | Token::UIntLit(_)) {
+                    let _ = self.lex.next()?;
+                } else if matches!(self.lex.peek()?, Token::LocalIdent(_)) {
+                    let _ = self.lex.next()?;
+                    self.skip_balanced_payload()?;
+                }
+            }
+            Token::LParen | Token::LBrace | Token::LBracket | Token::LAngle => {
+                self.skip_balanced_payload()?;
+            }
+            _ => {
+                let _ = self.lex.next()?;
+            }
+        }
+        Ok(())
+    }
+
+    fn skip_balanced_payload(&mut self) -> Result<(), ParseError> {
+        if !matches!(
+            self.lex.peek()?,
+            Token::LParen | Token::LBrace | Token::LBracket | Token::LAngle
+        ) {
+            return Ok(());
+        }
+        let mut depth = 0usize;
+        loop {
+            let tok = self.lex.next()?;
+            match tok {
+                Token::LParen | Token::LBrace | Token::LBracket | Token::LAngle => depth += 1,
+                Token::RParen | Token::RBrace | Token::RBracket | Token::RAngle => {
+                    if depth == 0 {
+                        break;
+                    }
+                    depth -= 1;
+                    if depth == 0 {
+                        break;
+                    }
+                }
+                Token::Eof => break,
+                _ => {}
+            }
         }
         Ok(())
     }
@@ -1771,5 +1905,24 @@ else:
         let (_ctx, module) = parse(src).expect("parse failed");
         let f = &module.functions[0];
         assert_eq!(f.blocks.len(), 3);
+    }
+
+    #[test]
+    fn parse_dbg_attachment_and_dilocation() {
+        let src = r#"
+source_filename = "dbg.ll"
+define i32 @f() {
+entry:
+  ret i32 0, !dbg !12
+}
+!12 = !DILocation(line: 27, column: 3, scope: !1)
+"#;
+        let (_ctx, module) = parse(src).expect("parse failed");
+        let f = &module.functions[0];
+        let tid = f.blocks[0].terminator.expect("terminator");
+        assert_eq!(f.instr_dbg_loc(tid), Some(12));
+        let loc = module.debug_location(12).expect("dilocation");
+        assert_eq!(loc.line, 27);
+        assert_eq!(loc.column, 3);
     }
 }

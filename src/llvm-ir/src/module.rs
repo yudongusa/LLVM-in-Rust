@@ -5,6 +5,12 @@ use crate::function::Function;
 use crate::value::GlobalVariable;
 use std::collections::HashMap;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DebugLocation {
+    pub line: u32,
+    pub column: u32,
+}
+
 /// Top-level IR module.
 pub struct Module {
     pub name: String,
@@ -17,6 +23,8 @@ pub struct Module {
     pub global_names: HashMap<String, GlobalId>,
     /// Named type definitions in declaration order (for printing).
     pub named_types: Vec<(String, TypeId)>,
+    /// `!N = !DILocation(...)` records keyed by metadata id `N`.
+    pub debug_locations: HashMap<u32, DebugLocation>,
 }
 
 impl Module {
@@ -31,6 +39,7 @@ impl Module {
             function_names: HashMap::new(),
             global_names: HashMap::new(),
             named_types: Vec::new(),
+            debug_locations: HashMap::new(),
         }
     }
 
@@ -111,6 +120,14 @@ impl Module {
         if !self.named_types.iter().any(|(n, _)| n == &name) {
             self.named_types.push((name, ty));
         }
+    }
+
+    pub fn set_debug_location(&mut self, id: u32, loc: DebugLocation) {
+        self.debug_locations.insert(id, loc);
+    }
+
+    pub fn debug_location(&self, id: u32) -> Option<DebugLocation> {
+        self.debug_locations.get(&id).copied()
     }
 }
 
