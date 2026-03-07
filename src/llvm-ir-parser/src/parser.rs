@@ -627,14 +627,19 @@ impl<'src> Parser<'src> {
         };
 
         let (kind, ty) = self.parse_instr_kind()?;
-        let dbg_loc = self.parse_optional_dbg_attachment()?;
+        let metadata_attachments = self.parse_optional_metadata_attachments()?;
         let is_term = kind.is_terminator();
 
         let instr_name = result_name.clone();
         let instr = Instruction::new(instr_name, ty, kind);
         let iid = self.module.functions[fid].alloc_instr(instr);
-        if let Some(loc_id) = dbg_loc {
-            self.module.functions[fid].set_instr_dbg_loc(iid, loc_id);
+        for (key, value) in metadata_attachments {
+            self.module.functions[fid].add_instr_metadata(iid, key.clone(), value.clone());
+            if key == "dbg" {
+                if let Some(loc_id) = Self::parse_metadata_ref_id(&value) {
+                    self.module.functions[fid].set_instr_dbg_loc(iid, loc_id);
+                }
+            }
         }
 
         if is_term {
@@ -1664,29 +1669,27 @@ impl<'src> Parser<'src> {
         Ok(())
     }
 
-    fn parse_optional_dbg_attachment(&mut self) -> Result<Option<u32>, ParseError> {
-        let mut dbg = None;
+    fn parse_optional_metadata_attachments(&mut self) -> Result<Vec<(String, String)>, ParseError> {
+        let mut attachments = Vec::new();
         while self.lex.eat(&Token::Comma) {
             if !self.lex.eat(&Token::Bang) {
                 break;
             }
             let key = self.lex.expect_local_ident()?;
-            if key == "dbg" {
-                self.lex.expect(&Token::Bang)?;
-                let id = self.lex.expect_uint_lit()? as u32;
-                dbg = Some(id);
-            } else {
-                self.skip_one_metadata_value()?;
-            }
+            let value = self.parse_metadata_value_text()?;
+            attachments.push((key, value));
         }
-        Ok(dbg)
+        Ok(attachments)
     }
 
     fn parse_metadata_definition_or_skip(&mut self) -> Result<(), ParseError> {
-        // Optional form: !<id> = !DILocation(line: N, column: M, ...)
+        // Supports:
+        //   !12 = !DIFile(...)
+        //   !llvm.dbg.cu = !{!0}
         self.lex.expect(&Token::Bang)?;
-        let id = match self.lex.peek()? {
-            Token::IntLit(_) | Token::UIntLit(_) => self.lex.expect_uint_lit()? as u32,
+        let lhs = match self.lex.peek()? {
+            Token::IntLit(_) | Token::UIntLit(_) => Some((Some(self.lex.expect_uint_lit()? as u32), None)),
+            Token::LocalIdent(_) => Some((None, Some(self.lex.expect_local_ident()?))),
             _ => {
                 self.skip_one_metadata_value()?;
                 return Ok(());
@@ -1696,118 +1699,350 @@ impl<'src> Parser<'src> {
             self.skip_one_metadata_value()?;
             return Ok(());
         }
-        self.lex.expect(&Token::Bang)?;
-        let head = match self.lex.peek()? {
-            Token::LocalIdent(_) => self.lex.expect_local_ident()?,
-            _ => {
-                self.skip_one_metadata_value()?;
-                return Ok(());
+        let value = self.parse_metadata_value_text()?;
+        if let Some((maybe_id, maybe_name)) = lhs {
+            if let Some(id) = maybe_id {
+                self.module.set_metadata_node(id, value.clone());
+                if let Some(loc) = Self::parse_dilocation_from_text(&value) {
+                    self.module.set_debug_location(id, loc);
+                }
+            } else if let Some(name) = maybe_name {
+                self.module.set_named_metadata(name, value);
             }
-        };
-
-        if head == "DILocation" {
-            if let Some(loc) = self.parse_dilocation_body()? {
-                self.module.set_debug_location(id, loc);
-            }
-        } else {
-            self.skip_balanced_payload()?;
         }
         Ok(())
     }
 
-    fn parse_dilocation_body(&mut self) -> Result<Option<llvm_ir::DebugLocation>, ParseError> {
-        if !self.lex.eat(&Token::LParen) {
-            return Ok(None);
+    fn parse_metadata_ref_id(value: &str) -> Option<u32> {
+        let rest = value.strip_prefix('!')?;
+        if !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit()) {
+            return rest.parse().ok();
         }
-        let mut depth = 1usize;
-        let mut line: Option<u32> = None;
-        let mut column: Option<u32> = None;
-        while depth > 0 {
-            match self.lex.peek()? {
-                Token::LParen | Token::LBrace | Token::LBracket | Token::LAngle => {
-                    depth += 1;
-                    let _ = self.lex.next()?;
+        None
+    }
+
+    fn parse_dilocation_from_text(text: &str) -> Option<llvm_ir::DebugLocation> {
+        let mut s = text.trim();
+        if let Some(rest) = s.strip_prefix('!') {
+            s = rest;
+        }
+        if !s.starts_with("DILocation") {
+            return None;
+        }
+        let open = s.find('(')?;
+        let close = s.rfind(')')?;
+        if close <= open {
+            return None;
+        }
+        let body = &s[open + 1..close];
+        let line = Self::parse_named_u32(body, "line")?;
+        let column = Self::parse_named_u32(body, "column").unwrap_or(0);
+        Some(llvm_ir::DebugLocation { line, column })
+    }
+
+    fn parse_named_u32(body: &str, name: &str) -> Option<u32> {
+        let needle = format!("{name}:");
+        let idx = body.find(&needle)?;
+        let mut i = idx + needle.len();
+        while i < body.len() && body.as_bytes()[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        let start = i;
+        while i < body.len() && body.as_bytes()[i].is_ascii_digit() {
+            i += 1;
+        }
+        if i == start {
+            None
+        } else {
+            body[start..i].parse().ok()
+        }
+    }
+
+    fn parse_metadata_value_text(&mut self) -> Result<String, ParseError> {
+        let mut out = String::new();
+        let mut prev: Option<Token> = None;
+        let mut depth = 0usize;
+
+        if matches!(self.lex.peek()?, Token::LocalIdent(s) if s == "distinct") {
+            let tok = self.lex.next()?;
+            Self::push_token_text(&mut out, prev.as_ref(), &tok);
+            prev = Some(tok);
+        }
+
+        loop {
+            let tok = self.lex.next()?;
+            if matches!(tok, Token::Eof) {
+                break;
+            }
+            if Self::is_open_delim(&tok) {
+                depth += 1;
+            } else if Self::is_close_delim(&tok) {
+                if depth == 0 {
+                    return Err(self.err(format!("unbalanced metadata token {:?}", tok)));
                 }
-                Token::RParen | Token::RBrace | Token::RBracket | Token::RAngle => {
-                    depth -= 1;
-                    let _ = self.lex.next()?;
+                depth -= 1;
+            }
+            Self::push_token_text(&mut out, prev.as_ref(), &tok);
+            prev = Some(tok);
+
+            if depth == 0 {
+                let peek = self.lex.peek()?;
+                if matches!(
+                    peek,
+                    Token::Comma
+                        | Token::Eof
+                        | Token::RParen
+                        | Token::RBracket
+                        | Token::RBrace
+                        | Token::RAngle
+                        | Token::Kw(Keyword::Define)
+                        | Token::Kw(Keyword::Declare)
+                        | Token::Kw(Keyword::Source)
+                        | Token::Kw(Keyword::Target)
+                ) {
+                    break;
                 }
-                Token::LocalIdent(ref s) if depth == 1 && s == "line" => {
-                    let _ = self.lex.next()?;
-                    self.lex.expect(&Token::Colon)?;
-                    line = Some(self.lex.expect_uint_lit()? as u32);
+                if matches!(peek, Token::Bang) && !matches!(prev.as_ref(), Some(Token::Bang)) {
+                    break;
                 }
-                Token::LocalIdent(ref s) if depth == 1 && s == "column" => {
-                    let _ = self.lex.next()?;
-                    self.lex.expect(&Token::Colon)?;
-                    column = Some(self.lex.expect_uint_lit()? as u32);
-                }
-                Token::Eof => break,
-                _ => {
-                    let _ = self.lex.next()?;
+                if matches!(peek, Token::LocalIdent(_) | Token::GlobalIdent(_))
+                    && matches!(
+                        prev.as_ref(),
+                        Some(
+                            Token::RParen
+                                | Token::RBracket
+                                | Token::RBrace
+                                | Token::RAngle
+                                | Token::IntLit(_)
+                                | Token::UIntLit(_)
+                                | Token::StringLit(_)
+                                | Token::Kw(_)
+                                | Token::LocalIdent(_)
+                                | Token::GlobalIdent(_)
+                        )
+                    )
+                {
+                    break;
                 }
             }
         }
-        if let Some(line) = line {
-            Ok(Some(llvm_ir::DebugLocation {
-                line,
-                column: column.unwrap_or(0),
-            }))
-        } else {
-            Ok(None)
+        Ok(out)
+    }
+
+    fn is_open_delim(tok: &Token) -> bool {
+        matches!(
+            tok,
+            Token::LParen | Token::LBrace | Token::LBracket | Token::LAngle
+        )
+    }
+
+    fn is_close_delim(tok: &Token) -> bool {
+        matches!(
+            tok,
+            Token::RParen | Token::RBrace | Token::RBracket | Token::RAngle
+        )
+    }
+
+    fn push_token_text(out: &mut String, prev: Option<&Token>, tok: &Token) {
+        if let Some(p) = prev {
+            if Self::needs_space_between(p, tok) {
+                out.push(' ');
+            }
+        }
+        out.push_str(&Self::token_text(tok));
+    }
+
+    fn needs_space_between(prev: &Token, cur: &Token) -> bool {
+        if matches!(prev, Token::Bang) {
+            return false;
+        }
+        if matches!(
+            cur,
+            Token::Comma | Token::Colon | Token::RParen | Token::RBracket | Token::RBrace | Token::RAngle
+        ) {
+            return false;
+        }
+        if matches!(
+            prev,
+            Token::LParen
+                | Token::LBracket
+                | Token::LBrace
+                | Token::LAngle
+                | Token::Comma
+                | Token::Colon
+                | Token::Bang
+        ) {
+            return false;
+        }
+        if matches!(cur, Token::LParen) {
+            return false;
+        }
+        true
+    }
+
+    fn token_text(tok: &Token) -> String {
+        match tok {
+            Token::LocalIdent(s) => s.clone(),
+            Token::GlobalIdent(s) => format!("@{}", s),
+            Token::IntType(bits) => format!("i{}", bits),
+            Token::IntLit(n) => n.to_string(),
+            Token::UIntLit(n) => n.to_string(),
+            Token::FloatLit(n) => n.to_string(),
+            Token::StringLit(s) => format!("{:?}", s),
+            Token::Kw(k) => Self::keyword_text(k).to_string(),
+            Token::Equal => "=".to_string(),
+            Token::Comma => ",".to_string(),
+            Token::Colon => ":".to_string(),
+            Token::Star => "*".to_string(),
+            Token::LParen => "(".to_string(),
+            Token::RParen => ")".to_string(),
+            Token::LBracket => "[".to_string(),
+            Token::RBracket => "]".to_string(),
+            Token::LBrace => "{".to_string(),
+            Token::RBrace => "}".to_string(),
+            Token::LAngle => "<".to_string(),
+            Token::RAngle => ">".to_string(),
+            Token::Ellipsis => "...".to_string(),
+            Token::Bang => "!".to_string(),
+            Token::Hash => "#".to_string(),
+            Token::Eof => String::new(),
+        }
+    }
+
+    fn keyword_text(kw: &Keyword) -> &'static str {
+        match kw {
+            Keyword::Source => "source_filename",
+            Keyword::Target => "target",
+            Keyword::Triple => "triple",
+            Keyword::Datalayout => "datalayout",
+            Keyword::Define => "define",
+            Keyword::Declare => "declare",
+            Keyword::Type => "type",
+            Keyword::Private => "private",
+            Keyword::Internal => "internal",
+            Keyword::External => "external",
+            Keyword::Weak => "weak",
+            Keyword::WeakOdr => "weak_odr",
+            Keyword::Linkonce => "linkonce",
+            Keyword::LinkonceOdr => "linkonce_odr",
+            Keyword::Common => "common",
+            Keyword::AvailableExternally => "available_externally",
+            Keyword::Void => "void",
+            Keyword::Half => "half",
+            Keyword::Bfloat => "bfloat",
+            Keyword::Float => "float",
+            Keyword::Double => "double",
+            Keyword::Fp128 => "fp128",
+            Keyword::X86Fp80 => "x86_fp80",
+            Keyword::Label => "label",
+            Keyword::Metadata => "metadata",
+            Keyword::Ptr => "ptr",
+            Keyword::Global => "global",
+            Keyword::Constant => "constant",
+            Keyword::Inbounds => "inbounds",
+            Keyword::Exact => "exact",
+            Keyword::Nuw => "nuw",
+            Keyword::Nsw => "nsw",
+            Keyword::Volatile => "volatile",
+            Keyword::Tail => "tail",
+            Keyword::Musttail => "musttail",
+            Keyword::Notail => "notail",
+            Keyword::Fast => "fast",
+            Keyword::Nnan => "nnan",
+            Keyword::Ninf => "ninf",
+            Keyword::Nsz => "nsz",
+            Keyword::Arcp => "arcp",
+            Keyword::Contract => "contract",
+            Keyword::Afn => "afn",
+            Keyword::Reassoc => "reassoc",
+            Keyword::Add => "add",
+            Keyword::Sub => "sub",
+            Keyword::Mul => "mul",
+            Keyword::Udiv => "udiv",
+            Keyword::Sdiv => "sdiv",
+            Keyword::Urem => "urem",
+            Keyword::Srem => "srem",
+            Keyword::And => "and",
+            Keyword::Or => "or",
+            Keyword::Xor => "xor",
+            Keyword::Shl => "shl",
+            Keyword::Lshr => "lshr",
+            Keyword::Ashr => "ashr",
+            Keyword::Fadd => "fadd",
+            Keyword::Fsub => "fsub",
+            Keyword::Fmul => "fmul",
+            Keyword::Fdiv => "fdiv",
+            Keyword::Frem => "frem",
+            Keyword::Fneg => "fneg",
+            Keyword::Icmp => "icmp",
+            Keyword::Fcmp => "fcmp",
+            Keyword::Alloca => "alloca",
+            Keyword::Load => "load",
+            Keyword::Store => "store",
+            Keyword::Getelementptr => "getelementptr",
+            Keyword::Trunc => "trunc",
+            Keyword::Zext => "zext",
+            Keyword::Sext => "sext",
+            Keyword::Fptrunc => "fptrunc",
+            Keyword::Fpext => "fpext",
+            Keyword::Fptoui => "fptoui",
+            Keyword::Fptosi => "fptosi",
+            Keyword::Uitofp => "uitofp",
+            Keyword::Sitofp => "sitofp",
+            Keyword::Ptrtoint => "ptrtoint",
+            Keyword::Inttoptr => "inttoptr",
+            Keyword::Bitcast => "bitcast",
+            Keyword::Addrspacecast => "addrspacecast",
+            Keyword::Select => "select",
+            Keyword::Phi => "phi",
+            Keyword::Extractvalue => "extractvalue",
+            Keyword::Insertvalue => "insertvalue",
+            Keyword::Extractelement => "extractelement",
+            Keyword::Insertelement => "insertelement",
+            Keyword::Shufflevector => "shufflevector",
+            Keyword::Call => "call",
+            Keyword::Ret => "ret",
+            Keyword::Br => "br",
+            Keyword::Switch => "switch",
+            Keyword::Unreachable => "unreachable",
+            Keyword::Eq => "eq",
+            Keyword::Ne => "ne",
+            Keyword::Ugt => "ugt",
+            Keyword::Uge => "uge",
+            Keyword::Ult => "ult",
+            Keyword::Ule => "ule",
+            Keyword::Sgt => "sgt",
+            Keyword::Sge => "sge",
+            Keyword::Slt => "slt",
+            Keyword::Sle => "sle",
+            Keyword::False => "false",
+            Keyword::Oeq => "oeq",
+            Keyword::Ogt => "ogt",
+            Keyword::Oge => "oge",
+            Keyword::Olt => "olt",
+            Keyword::Ole => "ole",
+            Keyword::One => "one",
+            Keyword::Ord => "ord",
+            Keyword::Uno => "uno",
+            Keyword::Ueq => "ueq",
+            Keyword::Une => "une",
+            Keyword::True => "true",
+            Keyword::Zeroinitializer => "zeroinitializer",
+            Keyword::Undef => "undef",
+            Keyword::Poison => "poison",
+            Keyword::Null => "null",
+            Keyword::Align => "align",
+            Keyword::To => "to",
+            Keyword::X => "x",
+            Keyword::Vscale => "vscale",
         }
     }
 
     fn skip_one_metadata_value(&mut self) -> Result<(), ParseError> {
-        // Skip a single metadata value after a key, e.g. `!12`, `"foo"`, or
-        // a balanced tuple/list.
-        match self.lex.peek()? {
-            Token::Bang => {
-                let _ = self.lex.next()?;
-                if matches!(self.lex.peek()?, Token::IntLit(_) | Token::UIntLit(_)) {
-                    let _ = self.lex.next()?;
-                } else if matches!(self.lex.peek()?, Token::LocalIdent(_)) {
-                    let _ = self.lex.next()?;
-                    self.skip_balanced_payload()?;
-                }
-            }
-            Token::LParen | Token::LBrace | Token::LBracket | Token::LAngle => {
-                self.skip_balanced_payload()?;
-            }
-            _ => {
-                let _ = self.lex.next()?;
-            }
-        }
+        let _ = self.parse_metadata_value_text()?;
         Ok(())
     }
 
-    fn skip_balanced_payload(&mut self) -> Result<(), ParseError> {
-        if !matches!(
-            self.lex.peek()?,
-            Token::LParen | Token::LBrace | Token::LBracket | Token::LAngle
-        ) {
-            return Ok(());
-        }
-        let mut depth = 0usize;
-        loop {
-            let tok = self.lex.next()?;
-            match tok {
-                Token::LParen | Token::LBrace | Token::LBracket | Token::LAngle => depth += 1,
-                Token::RParen | Token::RBrace | Token::RBracket | Token::RAngle => {
-                    if depth == 0 {
-                        break;
-                    }
-                    depth -= 1;
-                    if depth == 0 {
-                        break;
-                    }
-                }
-                Token::Eof => break,
-                _ => {}
-            }
-        }
-        Ok(())
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1823,6 +2058,7 @@ pub fn parse(src: &str) -> Result<(Context, Module), ParseError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use llvm_ir::printer::Printer;
 
     #[test]
     fn parse_empty_function() {
@@ -1913,16 +2149,56 @@ else:
 source_filename = "dbg.ll"
 define i32 @f() {
 entry:
-  ret i32 0, !dbg !12
+  ret i32 0, !dbg !12, !tbaa !14
 }
 !12 = !DILocation(line: 27, column: 3, scope: !1)
+!14 = !{!"int", !15}
+!15 = !{!"omnipotent char", !16}
+!16 = !{!"Simple C/C++ TBAA"}
 "#;
         let (_ctx, module) = parse(src).expect("parse failed");
         let f = &module.functions[0];
         let tid = f.blocks[0].terminator.expect("terminator");
         assert_eq!(f.instr_dbg_loc(tid), Some(12));
+        let attachments = f.instr_metadata(tid).expect("metadata attachments");
+        assert_eq!(attachments.len(), 2);
+        assert_eq!(attachments[0].0, "dbg");
+        assert_eq!(attachments[0].1, "!12");
+        assert_eq!(attachments[1].0, "tbaa");
+        assert_eq!(attachments[1].1, "!14");
         let loc = module.debug_location(12).expect("dilocation");
         assert_eq!(loc.line, 27);
         assert_eq!(loc.column, 3);
+        assert_eq!(
+            module.metadata_node(14),
+            Some("!{!\"int\",!15}")
+        );
+    }
+
+    #[test]
+    fn metadata_roundtrip_preserves_named_and_numbered_nodes() {
+        let src = r#"
+define i32 @f() {
+entry:
+  ret i32 0, !dbg !12
+}
+!llvm.dbg.cu = !{!0}
+!0 = distinct !DICompileUnit(language: 12, file: !1, producer: !"codex", isOptimized: false, runtimeVersion: 0, emissionKind: 1)
+!1 = !DIFile(filename: !"a.c", directory: !"/tmp")
+!12 = !DILocation(line: 7, column: 2, scope: !0)
+"#;
+        let (ctx, module) = parse(src).expect("parse failed");
+        let printed = Printer::new(&ctx).print_module(&module);
+        let (_ctx2, module2) = parse(&printed).expect("roundtrip parse failed");
+        assert_eq!(
+            module2.named_metadata,
+            vec![("llvm.dbg.cu".to_string(), "!{!0}".to_string())]
+        );
+        assert_eq!(module2.metadata_node(0).map(|s| s.contains("DICompileUnit")), Some(true));
+        assert_eq!(module2.metadata_node(1).map(|s| s.contains("DIFile")), Some(true));
+        assert_eq!(module2.metadata_node(12), Some("!DILocation(line:7,column:2,scope:!0)"));
+        let loc = module2.debug_location(12).expect("dilocation");
+        assert_eq!(loc.line, 7);
+        assert_eq!(loc.column, 2);
     }
 }
