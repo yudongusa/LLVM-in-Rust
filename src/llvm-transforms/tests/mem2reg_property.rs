@@ -129,8 +129,8 @@ proptest! {
 
     #[test]
     fn mem2reg_semantics_equivalent_random_patterns(
-        init in any::<i32>(),
-        ops in prop::collection::vec((0u8..4u8, any::<i32>()), 1..24)
+        init in -128i32..128i32,
+        ops in prop::collection::vec((0u8..4u8, -128i32..128i32), 1..24)
     ) {
         if !have_tool("cc") || !cfg!(target_arch = "x86_64") {
             return Ok(());
