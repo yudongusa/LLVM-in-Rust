@@ -1,7 +1,7 @@
 //! Object-file emission.
 //!
-//! Produces a minimal ELF-64 (Linux/x86-64) or Mach-O 64-bit (macOS/x86-64)
-//! relocatable object file containing a single `.text` section.
+//! Produces a minimal ELF-64, Mach-O 64-bit, or COFF relocatable object file
+//! containing a single `.text` section.
 //! The actual byte encoding is supplied by the target via the [`Emitter`] trait.
 
 // ── object-file model ──────────────────────────────────────────────────────
@@ -11,6 +11,7 @@
 pub enum ObjectFormat {
     Elf,
     MachO,
+    Coff,
 }
 
 /// Kind of relocation record.
@@ -71,6 +72,8 @@ pub struct ObjectFile {
     /// ELF e_machine value when `format == ObjectFormat::Elf`.
     /// Ignored for Mach-O.
     pub elf_machine: u16,
+    /// COFF `Machine` field when `format == ObjectFormat::Coff`.
+    pub coff_machine: u16,
     pub sections: Vec<Section>,
     pub symbols: Vec<Symbol>,
 }
@@ -81,6 +84,7 @@ impl ObjectFile {
         match self.format {
             ObjectFormat::Elf => serialize_elf(self),
             ObjectFormat::MachO => serialize_macho(self),
+            ObjectFormat::Coff => serialize_coff(self),
         }
     }
 }
@@ -101,6 +105,11 @@ pub trait Emitter {
     fn elf_machine(&self) -> u16 {
         62 // EM_X86_64
     }
+
+    /// COFF `Machine` field for this target.
+    fn coff_machine(&self) -> u16 {
+        0x8664 // IMAGE_FILE_MACHINE_AMD64
+    }
 }
 
 /// Build a complete [`ObjectFile`] from a [`MachineFunction`] using `emitter`.
@@ -115,44 +124,58 @@ pub fn emit_object(mf: &MachineFunction, emitter: &mut dyn Emitter) -> ObjectFil
         global: true,
     };
     let mut sections = vec![section];
-    if emitter.object_format() == ObjectFormat::Elf {
-        if !sections[0].debug_rows.is_empty() || mf.debug_line_start.is_some() {
-            let source = mf.debug_source.as_deref().unwrap_or("unknown.c");
-            let rows = if !sections[0].debug_rows.is_empty() {
-                sections[0].debug_rows.clone()
-            } else {
-                vec![DebugLineRow {
-                    address: 0,
-                    line: mf.debug_line_start.unwrap_or(1),
-                    column: 0,
-                }]
-            };
-            let line = build_debug_line(source, &rows);
-            let abbrev = build_debug_abbrev();
-            let info = build_debug_info(source, 0);
-            sections.push(Section {
-                name: ".debug_abbrev".into(),
-                data: abbrev,
-                relocs: Vec::new(),
-                debug_rows: Vec::new(),
-            });
-            sections.push(Section {
-                name: ".debug_info".into(),
-                data: info,
-                relocs: Vec::new(),
-                debug_rows: Vec::new(),
-            });
-            sections.push(Section {
-                name: ".debug_line".into(),
-                data: line,
-                relocs: Vec::new(),
-                debug_rows: Vec::new(),
-            });
-        }
+    let has_debug = !sections[0].debug_rows.is_empty() || mf.debug_line_start.is_some();
+    if has_debug {
+        let source = mf.debug_source.as_deref().unwrap_or("unknown.c");
+        let rows = if !sections[0].debug_rows.is_empty() {
+            sections[0].debug_rows.clone()
+        } else {
+            vec![DebugLineRow {
+                address: 0,
+                line: mf.debug_line_start.unwrap_or(1),
+                column: 0,
+            }]
+        };
+        match emitter.object_format() {
+            ObjectFormat::Elf => {
+                let line = build_debug_line(source, &rows);
+                let abbrev = build_debug_abbrev();
+                let info = build_debug_info(source, 0);
+                sections.push(Section {
+                    name: ".debug_abbrev".into(),
+                    data: abbrev,
+                    relocs: Vec::new(),
+                    debug_rows: Vec::new(),
+                });
+                sections.push(Section {
+                    name: ".debug_info".into(),
+                    data: info,
+                    relocs: Vec::new(),
+                    debug_rows: Vec::new(),
+                });
+                sections.push(Section {
+                    name: ".debug_line".into(),
+                    data: line,
+                    relocs: Vec::new(),
+                    debug_rows: Vec::new(),
+                });
+            }
+            ObjectFormat::Coff => {
+                let cv = build_codeview_debug_s(source, &rows);
+                sections.push(Section {
+                    name: ".debug$S".into(),
+                    data: cv,
+                    relocs: Vec::new(),
+                    debug_rows: Vec::new(),
+                });
+            }
+            ObjectFormat::MachO => {}
+        };
     }
     ObjectFile {
         format: emitter.object_format(),
         elf_machine: emitter.elf_machine(),
+        coff_machine: emitter.coff_machine(),
         sections,
         symbols: vec![sym],
     }
@@ -220,7 +243,11 @@ fn serialize_elf(obj: &ObjectFile) -> Vec<u8> {
     let idx_shstrtab = idx_strtab + 1;
     let idx_rela = idx_shstrtab + 1;
 
-    let num_sections: u16 = if has_relocs { idx_rela + 1 } else { idx_shstrtab + 1 };
+    let num_sections: u16 = if has_relocs {
+        idx_rela + 1
+    } else {
+        idx_shstrtab + 1
+    };
     let sh_table_size = num_sections as u64 * SH_ENT;
 
     let mut cursor = ELF_HDR + sh_table_size;
@@ -684,6 +711,164 @@ fn serialize_macho(obj: &ObjectFile) -> Vec<u8> {
     buf
 }
 
+// ── COFF (PE/COFF object) serialization ───────────────────────────────────
+
+fn serialize_coff(obj: &ObjectFile) -> Vec<u8> {
+    const FILE_HEADER_SIZE: usize = 20;
+    const SECTION_HEADER_SIZE: usize = 40;
+    const RELOC_SIZE: usize = 10;
+    const SYMBOL_SIZE: usize = 18;
+
+    let nsec = obj.sections.len();
+    let sec_headers_size = nsec * SECTION_HEADER_SIZE;
+    let sec_data_start = FILE_HEADER_SIZE + sec_headers_size;
+
+    let mut data_ptr = sec_data_start as u32;
+    let mut sec_raw_ptrs = Vec::with_capacity(nsec);
+    let mut sec_reloc_ptrs = Vec::with_capacity(nsec);
+    for sec in &obj.sections {
+        let raw_size = sec.data.len() as u32;
+        let reloc_size = (sec.relocs.len() * RELOC_SIZE) as u32;
+        sec_raw_ptrs.push(data_ptr);
+        data_ptr = data_ptr.wrapping_add(raw_size);
+        sec_reloc_ptrs.push(if reloc_size > 0 { data_ptr } else { 0 });
+        data_ptr = data_ptr.wrapping_add(reloc_size);
+    }
+
+    let symtab_ptr = data_ptr;
+    let nsym = obj.symbols.len() as u32;
+    // COFF string table: u32 size + NUL-terminated strings.
+    let mut strtab: Vec<u8> = vec![0, 0, 0, 0];
+    let mut section_name_offs = Vec::with_capacity(nsec);
+    let mut symbol_name_offs = Vec::with_capacity(obj.symbols.len());
+    for sec in &obj.sections {
+        section_name_offs.push(append_coff_string(&mut strtab, &sec.name));
+    }
+    for sym in &obj.symbols {
+        symbol_name_offs.push(append_coff_string(&mut strtab, &sym.name));
+    }
+    let strtab_size = strtab.len() as u32;
+    strtab[0..4].copy_from_slice(&strtab_size.to_le_bytes());
+
+    let total_est = symtab_ptr as usize + nsym as usize * SYMBOL_SIZE + strtab.len();
+    let mut buf = Vec::with_capacity(total_est);
+
+    // IMAGE_FILE_HEADER
+    w16(&mut buf, obj.coff_machine); // Machine
+    w16(&mut buf, nsec as u16); // NumberOfSections
+    w32(&mut buf, 0); // TimeDateStamp
+    w32(&mut buf, symtab_ptr); // PointerToSymbolTable
+    w32(&mut buf, nsym); // NumberOfSymbols
+    w16(&mut buf, 0); // SizeOfOptionalHeader
+    w16(&mut buf, 0); // Characteristics
+
+    // IMAGE_SECTION_HEADER
+    for (i, sec) in obj.sections.iter().enumerate() {
+        write_coff_name_field(&mut buf, &sec.name, section_name_offs[i]);
+        w32(&mut buf, 0); // VirtualSize
+        w32(&mut buf, 0); // VirtualAddress
+        w32(&mut buf, sec.data.len() as u32); // SizeOfRawData
+        w32(&mut buf, sec_raw_ptrs[i]); // PointerToRawData
+        w32(&mut buf, sec_reloc_ptrs[i]); // PointerToRelocations
+        w32(&mut buf, 0); // PointerToLinenumbers
+        w16(&mut buf, sec.relocs.len() as u16); // NumberOfRelocations
+        w16(&mut buf, 0); // NumberOfLinenumbers
+        w32(&mut buf, coff_section_characteristics(&sec.name));
+    }
+
+    // section data + relocations
+    for sec in &obj.sections {
+        buf.extend_from_slice(&sec.data);
+        for reloc in &sec.relocs {
+            w32(&mut buf, reloc.offset as u32); // VirtualAddress
+            w32(&mut buf, reloc.symbol as u32); // SymbolTableIndex
+            let typ = match reloc.kind {
+                RelocKind::Pc32 => 0x0004,  // IMAGE_REL_AMD64_REL32
+                RelocKind::Abs64 => 0x0001, // IMAGE_REL_AMD64_ADDR64
+            };
+            w16(&mut buf, typ);
+        }
+    }
+
+    // symbol table
+    for (i, sym) in obj.symbols.iter().enumerate() {
+        write_coff_name_field(&mut buf, &sym.name, symbol_name_offs[i]);
+        w32(&mut buf, sym.offset as u32); // Value
+        w16(&mut buf, (sym.section + 1) as u16); // SectionNumber (1-based)
+        w16(&mut buf, 0); // Type
+        buf.push(if sym.global { 2 } else { 3 }); // StorageClass: EXTERNAL or STATIC
+        buf.push(0); // NumberOfAuxSymbols
+    }
+
+    // string table
+    buf.extend_from_slice(&strtab);
+    buf
+}
+
+fn append_coff_string(strtab: &mut Vec<u8>, s: &str) -> u32 {
+    let off = strtab.len() as u32;
+    strtab.extend_from_slice(s.as_bytes());
+    strtab.push(0);
+    off
+}
+
+fn write_coff_name_field(buf: &mut Vec<u8>, name: &str, strtab_off: u32) {
+    if name.len() <= 8 {
+        let mut raw = [0u8; 8];
+        raw[..name.len()].copy_from_slice(name.as_bytes());
+        buf.extend_from_slice(&raw);
+    } else {
+        let tag = format!("/{}", strtab_off);
+        let mut raw = [0u8; 8];
+        let bytes = tag.as_bytes();
+        let n = bytes.len().min(8);
+        raw[..n].copy_from_slice(&bytes[..n]);
+        buf.extend_from_slice(&raw);
+    }
+}
+
+fn coff_section_characteristics(name: &str) -> u32 {
+    if name == ".text" {
+        0x60000020 // CNT_CODE | MEM_EXECUTE | MEM_READ
+    } else if name.starts_with(".debug") {
+        0x42000040 // CNT_INITIALIZED_DATA | MEM_READ | MEM_DISCARDABLE
+    } else {
+        0x40000040 // CNT_INITIALIZED_DATA | MEM_READ
+    }
+}
+
+fn build_codeview_debug_s(source_file: &str, rows: &[DebugLineRow]) -> Vec<u8> {
+    // .debug$S starts with CV_SIGNATURE_C13.
+    let mut out = Vec::new();
+    w32(&mut out, 4);
+
+    // Minimal symbol payload carrying source identity and line span.
+    // This is intentionally small but consumable by COFF/CodeView tooling.
+    let mut payload = Vec::new();
+    payload.extend_from_slice(
+        source_file
+            .rsplit('/')
+            .next()
+            .unwrap_or(source_file)
+            .as_bytes(),
+    );
+    payload.push(0);
+
+    let min_line = rows.iter().map(|r| r.line).min().unwrap_or(1);
+    let max_line = rows.iter().map(|r| r.line).max().unwrap_or(min_line);
+    w32(&mut payload, min_line);
+    w32(&mut payload, max_line);
+
+    // subsection type=0xF1 (DEBUG_S_SYMBOLS)
+    w32(&mut out, 0xF1);
+    w32(&mut out, payload.len() as u32);
+    out.extend_from_slice(&payload);
+    while out.len() % 4 != 0 {
+        out.push(0);
+    }
+    out
+}
+
 // ── byte-writing helpers ───────────────────────────────────────────────────
 
 #[inline]
@@ -745,10 +930,12 @@ mod tests {
         let section_name = match fmt {
             ObjectFormat::Elf => ".text",
             ObjectFormat::MachO => "__text",
+            ObjectFormat::Coff => ".text",
         };
         ObjectFile {
             format: fmt,
             elf_machine: 62,
+            coff_machine: 0x8664,
             sections: vec![Section {
                 name: section_name.into(),
                 data: code,
@@ -817,6 +1004,22 @@ mod tests {
     }
 
     #[test]
+    fn coff_machine_x86_64() {
+        let bytes = make_obj(ObjectFormat::Coff, vec![0x90]).to_bytes();
+        let machine = u16::from_le_bytes([bytes[0], bytes[1]]);
+        assert_eq!(machine, 0x8664, "IMAGE_FILE_MACHINE_AMD64");
+    }
+
+    #[test]
+    fn coff_has_text_section_header() {
+        let bytes = make_obj(ObjectFormat::Coff, vec![0x90]).to_bytes();
+        let sec_count = u16::from_le_bytes([bytes[2], bytes[3]]) as usize;
+        assert_eq!(sec_count, 1);
+        let sec_name = &bytes[20..28];
+        assert_eq!(sec_name, b".text\0\0\0");
+    }
+
+    #[test]
     fn emit_object_roundtrip() {
         use crate::isel::{MachineBlock, MachineFunction};
 
@@ -845,6 +1048,7 @@ mod tests {
         assert_eq!(obj.symbols[0].name, "test");
         assert_eq!(obj.sections[0].data, vec![0x90]);
         assert_eq!(obj.elf_machine, 62);
+        assert_eq!(obj.coff_machine, 0x8664);
     }
 
     #[test]
@@ -882,5 +1086,38 @@ mod tests {
         assert!(bytes.windows(11).any(|w| w == b".debug_line"));
         assert!(bytes.windows(11).any(|w| w == b".debug_info"));
         assert!(bytes.windows(13).any(|w| w == b".debug_abbrev"));
+    }
+
+    #[test]
+    fn emit_object_adds_debug_s_section_for_coff() {
+        use crate::isel::{MachineBlock, MachineFunction};
+
+        struct NopEmitter;
+        impl Emitter for NopEmitter {
+            fn emit_function(&mut self, _mf: &MachineFunction) -> Section {
+                Section {
+                    name: ".text".into(),
+                    data: vec![0x90],
+                    relocs: vec![],
+                    debug_rows: vec![],
+                }
+            }
+            fn object_format(&self) -> ObjectFormat {
+                ObjectFormat::Coff
+            }
+        }
+
+        let mut mf = MachineFunction::new("dbg".into());
+        mf.blocks.push(MachineBlock {
+            label: "entry".into(),
+            instrs: vec![],
+        });
+        mf.debug_source = Some("foo.c".into());
+        mf.debug_line_start = Some(17);
+
+        let obj = emit_object(&mf, &mut NopEmitter);
+        assert!(obj.sections.iter().any(|s| s.name == ".debug$S"));
+        let bytes = obj.to_bytes();
+        assert!(bytes.windows(8).any(|w| w == b".debug$S"));
     }
 }

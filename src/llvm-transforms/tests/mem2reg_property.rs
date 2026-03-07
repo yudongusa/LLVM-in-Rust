@@ -29,6 +29,8 @@ fn have_tool(name: &str) -> bool {
 fn host_object_format() -> Option<ObjectFormat> {
     if cfg!(target_os = "linux") {
         Some(ObjectFormat::Elf)
+    } else if cfg!(target_os = "windows") {
+        Some(ObjectFormat::Coff)
     } else if cfg!(target_os = "macos") {
         Some(ObjectFormat::MachO)
     } else {
