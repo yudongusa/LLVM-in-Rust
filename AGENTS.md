@@ -97,6 +97,16 @@ When:   Adding the `llvm-target-riscv` crate, implementing regs/ABI/lowering/
 Skill:  skills/riscv-backend/SKILL.md
 ```
 
+### linker-compat agent
+Use for issue #91 and linker/debugger compatibility validation work.
+
+```
+Invoke: $linker-compat
+When:   Adding linker/tool integration tests, fixing ELF/Mach-O object
+        conformance issues, and documenting exact link commands.
+Skill:  skills/linker-compat/SKILL.md
+```
+
 ### Plan agent
 Use **before** starting a new phase or a non-trivial fix.
 

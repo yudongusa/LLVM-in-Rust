@@ -333,6 +333,10 @@ version = "0.1.0"
 dependencies = [
  "llvm-analysis",
  "llvm-ir",
+ "llvm-ir-parser",
+ "llvm-target-arm",
+ "llvm-target-x86",
+ "llvm-transforms",
 ]
 
 [[package]]

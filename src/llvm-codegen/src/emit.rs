@@ -401,6 +401,7 @@ fn serialize_macho(obj: &ObjectFile) -> Vec<u8> {
     w32(&mut buf, 3); // ncmds
     w32(&mut buf, cmds_size); // sizeofcmds
     w32(&mut buf, 0); // flags
+    w32(&mut buf, 0); // reserved
 
     // LC_SEGMENT_64
     w32(&mut buf, 0x19); // LC_SEGMENT_64

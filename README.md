@@ -538,6 +538,28 @@ cargo run -p tikv_jit
 objdump -d /tmp/eval_predicate.o   # inspect generated x86-64 assembly
 ```
 
+### Linking emitted `.o` files
+
+Linux (ELF):
+
+```bash
+# Relocatable link
+ld -r /tmp/eval_predicate.o -o /tmp/eval_predicate.linked.o
+
+# Link an executable with system startup/runtime
+cc /tmp/eval_predicate.o -o /tmp/eval_predicate_bin
+```
+
+macOS (Mach-O):
+
+```bash
+# Relocatable link
+ld -r /tmp/eval_predicate.o -o /tmp/eval_predicate.linked.o
+
+# Link an executable with system toolchain
+cc /tmp/eval_predicate.o -o /tmp/eval_predicate_bin
+```
+
 ### Adding to your own project
 
 Add the crates you need to your `Cargo.toml`. For a local checkout use path dependencies:
