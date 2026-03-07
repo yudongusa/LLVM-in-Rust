@@ -336,10 +336,6 @@ exit:
 
 /// Iterative Fibonacci: fib(7) = 13.  Three loop variables; tests phi chains.
 #[test]
-#[cfg_attr(
-    target_os = "linux",
-    ignore = "Known Linux x86 oracle mismatch; quarantined by issue #102"
-)]
 fn smoke_fibonacci_iterative() {
     smoke_oracle(
         "fibonacci_iterative",
@@ -436,10 +432,6 @@ exit:
 
 /// max(11, 42, 17) = 42.  Tests a chain of `select` instructions.
 #[test]
-#[cfg_attr(
-    target_os = "linux",
-    ignore = "Known Linux x86 oracle mismatch; quarantined by issue #102"
-)]
 fn smoke_max_select() {
     smoke_oracle(
         "max_select",
@@ -477,10 +469,6 @@ entry:
 /// 3×3 nested loop: sum of i*j for i,j in 0..2 = 9.
 /// Exercises nested phi chains and inner-loop reset.
 #[test]
-#[cfg_attr(
-    target_os = "linux",
-    ignore = "Known Linux x86 oracle mismatch; quarantined by issue #102"
-)]
 fn smoke_nested_loop() {
     smoke_oracle(
         "nested_loop",
@@ -558,10 +546,6 @@ exit:
 
 /// Collatz(6) reaches 1 in 8 steps.  Tests mixed even/odd branching with select.
 #[test]
-#[cfg_attr(
-    target_os = "linux",
-    ignore = "Known Linux x86 oracle mismatch; quarantined by issue #102"
-)]
 fn smoke_collatz_steps() {
     smoke_oracle(
         "collatz_steps",
