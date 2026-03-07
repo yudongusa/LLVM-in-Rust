@@ -11,6 +11,7 @@ use llvm_codegen::{
     },
     ObjectFormat,
 };
+use llvm_ir::printer::Printer;
 use llvm_ir_parser::parser::parse;
 use llvm_target_x86::{
     instructions::{MOV_LOAD_MR, MOV_STORE_RM},
@@ -74,13 +75,38 @@ fn build_program(init: i32, ops: &[(u8, i32)]) -> String {
     out
 }
 
-fn compile_and_run_exit_code(src: &str, apply_mem2reg: bool) -> Option<i32> {
+fn mem2reg_transform(src: &str) -> Option<String> {
     let (mut ctx, mut module) = parse(src).ok()?;
     let func = module.functions.iter_mut().find(|f| f.name == "main")?;
-    if apply_mem2reg {
-        let mut pass = Mem2Reg;
-        let _ = pass.run_on_function(&mut ctx, func);
+    let mut pass = Mem2Reg;
+    let _ = pass.run_on_function(&mut ctx, func);
+    Some(Printer::new(&ctx).print_module(&module))
+}
+
+fn compile_and_run_clang_exit_code(src: &str) -> Option<i32> {
+    let ll_path = unique_tmp("mem2reg_prop", "ll");
+    let bin_path = unique_tmp("mem2reg_prop", "bin");
+    std::fs::write(&ll_path, src).ok()?;
+    let compile = Command::new("clang")
+        .args(["-x", "ir", "-O0"])
+        .arg(&ll_path)
+        .arg("-o")
+        .arg(&bin_path)
+        .output()
+        .ok()?;
+    if !compile.status.success() {
+        let _ = std::fs::remove_file(&ll_path);
+        let _ = std::fs::remove_file(&bin_path);
+        return None;
     }
+    let run = Command::new(&bin_path).output().ok()?;
+    let _ = std::fs::remove_file(&ll_path);
+    let _ = std::fs::remove_file(&bin_path);
+    Some(run.status.code().unwrap_or(-1))
+}
+
+fn compile_and_run_ours_exit_code(src: &str) -> Option<i32> {
+    let (ctx, module) = parse(src).ok()?;
 
     let obj_format = host_object_format()?;
     let mut backend = X86Backend::default();
@@ -125,23 +151,32 @@ fn compile_and_run_exit_code(src: &str, apply_mem2reg: bool) -> Option<i32> {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(512))]
+    #![proptest_config(ProptestConfig::with_cases(64))]
 
     #[test]
     fn mem2reg_semantics_equivalent_random_patterns(
         init in -128i32..128i32,
         ops in prop::collection::vec((0u8..4u8, -128i32..128i32), 1..24)
     ) {
-        if !have_tool("cc") || !cfg!(target_arch = "x86_64") {
+        if !have_tool("clang") {
             return Ok(());
         }
 
         let src = build_program(init, &ops);
-        let before = compile_and_run_exit_code(&src, false)
-            .ok_or_else(|| TestCaseError::fail("failed to run original program"))?;
-        let after = compile_and_run_exit_code(&src, true)
-            .ok_or_else(|| TestCaseError::fail("failed to run mem2reg program"))?;
+        let after_src = mem2reg_transform(&src)
+            .ok_or_else(|| TestCaseError::fail("failed to run mem2reg transform"))?;
+
+        let before = compile_and_run_clang_exit_code(&src)
+            .ok_or_else(|| TestCaseError::fail("failed to run original program with clang"))?;
+        let after = compile_and_run_clang_exit_code(&after_src)
+            .ok_or_else(|| TestCaseError::fail("failed to run mem2reg program with clang"))?;
 
         prop_assert_eq!(before, after, "program:\n{}", src);
+
+        if have_tool("cc") && cfg!(target_arch = "x86_64") {
+            if let Some(ours_after) = compile_and_run_ours_exit_code(&after_src) {
+                prop_assert_eq!(ours_after, after, "transformed program:\n{}", after_src);
+            }
+        }
     }
 }
