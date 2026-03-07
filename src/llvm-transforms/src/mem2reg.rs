@@ -22,6 +22,20 @@ use llvm_ir::{BlockId, Context, Function, InstrId, InstrKind, Instruction, TypeI
 use std::collections::{HashMap, HashSet, VecDeque};
 
 /// mem2reg pass.
+///
+/// # Correctness
+///
+/// Preconditions for a promoted slot:
+/// - The alloca is entry-block local and scalar (`alloca T` with no element count).
+/// - Its address is only used by non-volatile `load`/`store`.
+/// - The pointer value does not escape (no call args, no stores of the pointer,
+///   no GEP/cast/phi/select uses of the pointer itself).
+///
+/// Postconditions for each promoted slot:
+/// - Every `load` is replaced by the reaching SSA value from the dominator walk.
+/// - Phi nodes are inserted only at iterated dominance-frontier blocks.
+/// - Every inserted phi has one incoming value per CFG predecessor.
+/// - No promoted `alloca`/`load`/`store` remains in the block bodies.
 pub struct Mem2Reg;
 
 impl FunctionPass for Mem2Reg {
@@ -122,6 +136,12 @@ impl FunctionPass for Mem2Reg {
 /// - It has no `num_elements` (scalar alloca, not `alloca T, N`).
 /// - Every use of its address is a non-volatile `load ptr` or
 ///   `store val, ptr` (address never captured or passed elsewhere).
+///
+/// # Correctness
+///
+/// This predicate is the safety gate for mem2reg: if a pointer can escape or
+/// alias unknown memory effects, replacing memory traffic with SSA values is
+/// unsound. The checks below conservatively reject such cases.
 fn find_promotable_allocas(func: &Function) -> HashMap<InstrId, TypeId> {
     let mut result = HashMap::new();
     let entry = match func.blocks.first() {
@@ -189,6 +209,11 @@ fn find_promotable_allocas(func: &Function) -> HashMap<InstrId, TypeId> {
 
 /// For each promotable alloca, compute its IDF and insert a phi in each
 /// block of the IDF.  Returns a map `BlockId → [(alloca_iid, phi_iid)]`.
+///
+/// # Correctness
+///
+/// IDF placement is sufficient and minimal for SSA construction (Cytron et al):
+/// phis are only inserted where distinct reaching definitions can meet.
 fn insert_phis(
     ctx: &mut Context,
     func: &mut Function,
@@ -266,6 +291,17 @@ fn iterated_df(def_blocks: &[BlockId], df: &HashMap<BlockId, Vec<BlockId>>) -> V
 
 /// Rename all loads and stores for the promotable allocas in the subtree
 /// rooted at `block` in the dominator tree.
+///
+/// # Correctness
+///
+/// The per-alloca stack models the current reaching definition along the DFS
+/// path in the dominator tree:
+/// - visiting a store/phi pushes a new definition
+/// - visiting a load reads the current top definition
+/// - leaving a block restores previous stack heights
+///
+/// This ensures every replaced load observes the same definition as the
+/// original memory semantics for promotable slots.
 #[allow(clippy::too_many_arguments)]
 fn rename_dfs(
     block: BlockId,
