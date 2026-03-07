@@ -1,0 +1,4 @@
+interface:
+  display_name: "Linker Compat Agent"
+  short_description: "Issue #91 linker/debugger compatibility workflow"
+  default_prompt: "Use $linker-compat to implement issue #91 with linker/tool integration tests, object-format fixes, README link-command updates, and PR review/test issue-fix loop before merge."
