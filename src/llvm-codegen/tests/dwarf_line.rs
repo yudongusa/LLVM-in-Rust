@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use llvm_codegen::{
@@ -33,14 +33,29 @@ else:
 !12 = !DILocation(line: 30, column: 5, scope: !1)
 "#;
 
-fn require_tool(name: &str) -> Option<String> {
-    if Command::new(name).arg("--version").output().is_ok() {
-        return Some(name.to_string());
+fn find_tool(candidates: &[&str]) -> Option<PathBuf> {
+    for cand in candidates {
+        let path = PathBuf::from(cand);
+        let probe = if path.components().count() > 1 {
+            Command::new(&path).arg("--version").output()
+        } else {
+            Command::new(cand).arg("--version").output()
+        };
+        if probe.is_ok() {
+            return Some(path);
+        }
+    }
+    None
+}
+
+fn require_llvm_tool(candidates: &[&str], display_name: &str) -> Option<PathBuf> {
+    if let Some(path) = find_tool(candidates) {
+        return Some(path);
     }
     if std::env::var("REQUIRE_LLVM").is_ok() {
         panic!(
             "REQUIRE_LLVM is set but '{}' was not found. Install LLVM 19 and ensure it is on PATH.",
-            name
+            display_name
         );
     }
     None
@@ -125,7 +140,7 @@ fn emits_debug_line_when_dbg_metadata_present() {
     let obj_path = std::env::temp_dir().join("llvm_codegen_dbg_line.o");
     let _ = emit_dbg_elf_obj_from_ir(DBG_LL, &obj_path);
 
-    if let Some(tool) = require_tool("readelf") {
+    if let Some(tool) = find_tool(&["readelf"]) {
         let out = Command::new(&tool)
             .arg("-S")
             .arg(&obj_path)
@@ -138,7 +153,14 @@ fn emits_debug_line_when_dbg_metadata_present() {
         assert!(text.contains(".debug_abbrev"), "readelf output: {text}");
     }
 
-    if let Some(tool) = require_tool("llvm-dwarfdump") {
+    if let Some(tool) = require_llvm_tool(
+        &[
+            "llvm-dwarfdump",
+            "llvm-dwarfdump-19",
+            "/usr/lib/llvm-19/bin/llvm-dwarfdump",
+        ],
+        "llvm-dwarfdump",
+    ) {
         let out = Command::new(&tool)
             .arg("--debug-line")
             .arg(&obj_path)
