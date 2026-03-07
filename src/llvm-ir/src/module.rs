@@ -25,6 +25,10 @@ pub struct Module {
     pub named_types: Vec<(String, TypeId)>,
     /// `!N = !DILocation(...)` records keyed by metadata id `N`.
     pub debug_locations: HashMap<u32, DebugLocation>,
+    /// Raw metadata node definitions keyed by numeric id, e.g. `!12 = !DIFile(...)`.
+    pub metadata_nodes: HashMap<u32, String>,
+    /// Named metadata definitions in insertion order, e.g. `!llvm.dbg.cu = !{!0}`.
+    pub named_metadata: Vec<(String, String)>,
 }
 
 impl Module {
@@ -40,6 +44,8 @@ impl Module {
             global_names: HashMap::new(),
             named_types: Vec::new(),
             debug_locations: HashMap::new(),
+            metadata_nodes: HashMap::new(),
+            named_metadata: Vec::new(),
         }
     }
 
@@ -128,6 +134,24 @@ impl Module {
 
     pub fn debug_location(&self, id: u32) -> Option<DebugLocation> {
         self.debug_locations.get(&id).copied()
+    }
+
+    pub fn set_metadata_node(&mut self, id: u32, value: impl Into<String>) {
+        self.metadata_nodes.insert(id, value.into());
+    }
+
+    pub fn metadata_node(&self, id: u32) -> Option<&str> {
+        self.metadata_nodes.get(&id).map(String::as_str)
+    }
+
+    pub fn set_named_metadata(&mut self, name: impl Into<String>, value: impl Into<String>) {
+        let name = name.into();
+        let value = value.into();
+        if let Some((_, v)) = self.named_metadata.iter_mut().find(|(n, _)| *n == name) {
+            *v = value;
+        } else {
+            self.named_metadata.push((name, value));
+        }
     }
 }
 

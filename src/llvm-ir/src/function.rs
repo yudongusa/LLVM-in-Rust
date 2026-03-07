@@ -19,6 +19,8 @@ pub struct Function {
     pub instructions: Vec<Instruction>,
     /// Optional `!dbg !N` attachment for each instruction id.
     pub instr_dbg_locs: HashMap<InstrId, u32>,
+    /// Arbitrary metadata attachments per instruction, e.g. `!dbg !12`, `!tbaa !7`.
+    pub instr_metadata: HashMap<InstrId, Vec<(String, String)>>,
     /// Maps result name → InstrId.
     pub value_names: HashMap<String, InstrId>,
     /// Maps argument name → ArgId.
@@ -39,6 +41,7 @@ impl Function {
             blocks: Vec::new(),
             instructions: Vec::new(),
             instr_dbg_locs: HashMap::new(),
+            instr_metadata: HashMap::new(),
             value_names: HashMap::new(),
             arg_names: HashMap::new(),
             is_declaration: false,
@@ -129,6 +132,17 @@ impl Function {
 
     pub fn instr_dbg_loc(&self, id: InstrId) -> Option<u32> {
         self.instr_dbg_locs.get(&id).copied()
+    }
+
+    pub fn add_instr_metadata(&mut self, id: InstrId, key: impl Into<String>, value: impl Into<String>) {
+        self.instr_metadata
+            .entry(id)
+            .or_default()
+            .push((key.into(), value.into()));
+    }
+
+    pub fn instr_metadata(&self, id: InstrId) -> Option<&[(String, String)]> {
+        self.instr_metadata.get(&id).map(Vec::as_slice)
     }
 
     // -----------------------------------------------------------------------

@@ -78,6 +78,20 @@ impl<'a> Printer<'a> {
             self.write_function(&mut out, func);
         }
 
+        if !module.named_metadata.is_empty() || !module.metadata_nodes.is_empty() {
+            writeln!(out).unwrap();
+            for (name, value) in &module.named_metadata {
+                writeln!(out, "!{} = {}", name, value).unwrap();
+            }
+            let mut ids: Vec<u32> = module.metadata_nodes.keys().copied().collect();
+            ids.sort_unstable();
+            for id in ids {
+                if let Some(value) = module.metadata_node(id) {
+                    writeln!(out, "!{} = {}", id, value).unwrap();
+                }
+            }
+        }
+
         out
     }
 
@@ -811,6 +825,14 @@ impl<'a> Printer<'a> {
             InstrKind::Unreachable => {
                 out.push_str("unreachable");
             }
+        }
+
+        if let Some(attachments) = func.instr_metadata(id) {
+            for (key, value) in attachments {
+                write!(out, ", !{} {}", key, value).unwrap();
+            }
+        } else if let Some(loc_id) = func.instr_dbg_loc(id) {
+            write!(out, ", !dbg !{}", loc_id).unwrap();
         }
         writeln!(out).unwrap();
     }
