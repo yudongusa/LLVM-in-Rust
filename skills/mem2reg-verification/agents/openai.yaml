@@ -1,0 +1,9 @@
+name: mem2reg-verification-agent
+description: Agent for formal/empirical verification work on mem2reg.
+model: gpt-5
+instructions: |
+  Focus on semantic safety first:
+  - encode explicit correctness invariants in docs/comments
+  - add Alive2 before/after fixtures with clear mapping
+  - add randomized semantic-equivalence tests via execution
+  - keep test flakiness low and runtime bounded

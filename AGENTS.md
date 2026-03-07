@@ -117,6 +117,16 @@ When:   Threading `!dbg` metadata through parser/codegen, emitting
 Skill:  skills/dwarf-debug/SKILL.md
 ```
 
+### mem2reg-verification agent
+Use for issue #83 and mem2reg formal/semantic verification work.
+
+```
+Invoke: $mem2reg-verification
+When:   Adding mem2reg correctness invariants, Alive2 before/after corpus,
+        and property-based semantic-equivalence tests.
+Skill:  skills/mem2reg-verification/SKILL.md
+```
+
 ### Plan agent
 Use **before** starting a new phase or a non-trivial fix.
 
