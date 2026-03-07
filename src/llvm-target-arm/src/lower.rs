@@ -9,7 +9,7 @@ use crate::{
     instructions::*,
     regs::{ALLOCATABLE, CALLEE_SAVED},
 };
-use llvm_codegen::isel::{IselBackend, MInstr, MachineFunction, PReg, VReg};
+use llvm_codegen::isel::{DebugLoc, IselBackend, MInstr, MachineFunction, PReg, VReg};
 use llvm_ir::{
     ArgId, BlockId, ConstantData, Context, Function, InstrId, InstrKind, IntPredicate, Module,
     TypeData, ValueRef,
@@ -80,23 +80,36 @@ impl IselBackend for AArch64Backend {
         // Lower each IR block.
         for (bi, bb) in func.blocks.iter().enumerate() {
             for &iid in &bb.body {
+                let dbg = func
+                    .instr_dbg_loc(iid)
+                    .and_then(|loc_id| module.debug_location(loc_id))
+                    .map(|loc| DebugLoc {
+                        line: loc.line,
+                        column: loc.column,
+                    });
+                mf.current_debug_loc = dbg;
                 if mf.debug_line_start.is_none() {
-                    if let Some(loc_id) = func.instr_dbg_loc(iid) {
-                        mf.debug_line_start = module.debug_location(loc_id).map(|loc| loc.line);
-                    }
+                    mf.debug_line_start = dbg.map(|loc| loc.line);
                 }
                 lower_instr(ctx, module, func, &mut mf, bi, iid, &mut vmap);
             }
             if let Some(tid) = bb.terminator {
+                let dbg = func
+                    .instr_dbg_loc(tid)
+                    .and_then(|loc_id| module.debug_location(loc_id))
+                    .map(|loc| DebugLoc {
+                        line: loc.line,
+                        column: loc.column,
+                    });
+                mf.current_debug_loc = dbg;
                 if mf.debug_line_start.is_none() {
-                    if let Some(loc_id) = func.instr_dbg_loc(tid) {
-                        mf.debug_line_start = module.debug_location(loc_id).map(|loc| loc.line);
-                    }
+                    mf.debug_line_start = dbg.map(|loc| loc.line);
                 }
                 lower_terminator(ctx, func, &mut mf, bi, tid, &mut vmap);
             }
         }
 
+        mf.current_debug_loc = None;
         mf
     }
 }

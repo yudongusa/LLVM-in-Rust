@@ -9,7 +9,7 @@
 
 use crate::{instructions::*, regs::reg_enc};
 use llvm_codegen::{
-    emit::{Emitter, ObjectFormat, Reloc, Section},
+    emit::{DebugLineRow, Emitter, ObjectFormat, Reloc, Section},
     isel::{MInstr, MOperand, MachineFunction, PReg},
 };
 use std::collections::HashMap;
@@ -28,6 +28,7 @@ impl AArch64Emitter {
 impl Emitter for AArch64Emitter {
     fn emit_function(&mut self, mf: &MachineFunction) -> Section {
         let mut ctx = EncodeCtx::default();
+        let mut debug_rows: Vec<DebugLineRow> = Vec::new();
 
         // Determine whether we need a frame (x29/x30 save + sub-sp).
         // Needed when there are spill slots OR when callee-saved regs were used.
@@ -72,6 +73,7 @@ impl Emitter for AArch64Emitter {
         for (bi, block) in mf.blocks.iter().enumerate() {
             ctx.block_offsets.insert(bi, ctx.code.len());
             for instr in &block.instrs {
+                let instr_addr = ctx.code.len() as u64;
                 // Emit epilogue before any RET when we have a frame.
                 if instr.opcode == RET && needs_frame {
                     // ldr Xreg, [x29, #(16 + i*8)] for each callee-saved reg (reverse order).
@@ -87,6 +89,13 @@ impl Emitter for AArch64Emitter {
                     ctx.emit4(0xA8C00000 | (imm7 << 15) | (30 << 10) | (31 << 5) | 29);
                 }
                 encode_instr(instr, &mut ctx);
+                if let Some(loc) = instr.debug_loc {
+                    debug_rows.push(DebugLineRow {
+                        address: instr_addr,
+                        line: loc.line,
+                        column: loc.column,
+                    });
+                }
             }
         }
 
@@ -134,6 +143,7 @@ impl Emitter for AArch64Emitter {
             name: section_name.into(),
             data: ctx.code,
             relocs: ctx.relocs,
+            debug_rows,
         }
     }
 
@@ -601,6 +611,7 @@ mod tests {
             operands: vec![MOperand::Imm(42)],
             phys_uses: vec![],
             clobbers: vec![],
+        debug_loc: None,
         };
         let mf = single_block_mf("mov_imm_fn", vec![mi]);
         let mut e = AArch64Emitter::new(ObjectFormat::Elf);
@@ -618,6 +629,7 @@ mod tests {
             operands: vec![MOperand::PReg(X1), MOperand::PReg(X2)],
             phys_uses: vec![],
             clobbers: vec![],
+        debug_loc: None,
         };
         let mf = single_block_mf("add_fn", vec![mi]);
         let mut e = AArch64Emitter::new(ObjectFormat::Elf);
@@ -694,6 +706,7 @@ mod tests {
             operands: vec![MOperand::Imm(0)],
             phys_uses: vec![],
             clobbers: vec![],
+        debug_loc: None,
         };
         let mf = single_block_mf("ldr_fp_fn", vec![mi]);
         let mut e = AArch64Emitter::new(ObjectFormat::Elf);
@@ -715,6 +728,7 @@ mod tests {
             operands: vec![MOperand::Imm(0), MOperand::PReg(X1)],
             phys_uses: vec![],
             clobbers: vec![],
+        debug_loc: None,
         };
         let mf = single_block_mf("str_fp_fn", vec![mi]);
         let mut e = AArch64Emitter::new(ObjectFormat::Elf);
@@ -848,6 +862,7 @@ mod tests {
             operands: vec![MOperand::Imm(val)],
             phys_uses: vec![],
             clobbers: vec![],
+        debug_loc: None,
         };
         let mf = single_block_mf("mov_wide_fn", vec![mi]);
         let mut e = AArch64Emitter::new(ObjectFormat::Elf);
@@ -912,6 +927,7 @@ mod tests {
             operands: vec![MOperand::Imm(CC_EQ)],
             phys_uses: vec![],
             clobbers: vec![],
+        debug_loc: None,
         };
         let mf = single_block_mf("cset_fn", vec![mi]);
         let mut e = AArch64Emitter::new(ObjectFormat::Elf);
@@ -944,6 +960,7 @@ mod tests {
             operands: vec![MOperand::Imm(CC_LT)],
             phys_uses: vec![],
             clobbers: vec![],
+        debug_loc: None,
         };
         let mf = single_block_mf("cset_lt_fn", vec![mi]);
         let mut e = AArch64Emitter::new(ObjectFormat::Elf);
@@ -1052,6 +1069,7 @@ mod tests {
                 operands: vec![MOperand::Imm(0)], // slot 0
                 phys_uses: vec![],
                 clobbers: vec![],
+            debug_loc: None,
             },
         );
         mf.push(b, MInstr::new(RET));
@@ -1084,6 +1102,7 @@ mod tests {
             operands: vec![MOperand::Imm(val)],
             phys_uses: vec![],
             clobbers: vec![],
+        debug_loc: None,
         };
         let mf = single_block_mf("mov_wide_32_fn", vec![mi]);
         let mut e = AArch64Emitter::new(ObjectFormat::Elf);

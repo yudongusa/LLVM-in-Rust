@@ -1,7 +1,7 @@
 //! RV64 encoder and object emission.
 
 use crate::instructions::*;
-use llvm_codegen::emit::{Emitter, ObjectFormat, Section};
+use llvm_codegen::emit::{DebugLineRow, Emitter, ObjectFormat, Section};
 use llvm_codegen::isel::{MInstr, MOpcode, MOperand, MachineFunction, PReg, VReg};
 
 pub struct RiscVEmitter {
@@ -18,10 +18,18 @@ impl Emitter for RiscVEmitter {
     fn emit_function(&mut self, mf: &MachineFunction) -> Section {
         let mut data = Vec::new();
         let mut patches: Vec<(usize, usize, PatchKind, MOpcode)> = Vec::new();
+        let mut debug_rows: Vec<DebugLineRow> = Vec::new();
 
         for block in &mf.blocks {
             for instr in &block.instrs {
                 let off = data.len();
+                if let Some(loc) = instr.debug_loc {
+                    debug_rows.push(DebugLineRow {
+                        address: off as u64,
+                        line: loc.line,
+                        column: loc.column,
+                    });
+                }
                 if let Some((target, kind)) = patch_from_instr(instr) {
                     patches.push((off, target, kind, instr.opcode));
                 }
@@ -59,6 +67,7 @@ impl Emitter for RiscVEmitter {
             name: ".text".into(),
             data,
             relocs: Vec::new(),
+            debug_rows,
         }
     }
 

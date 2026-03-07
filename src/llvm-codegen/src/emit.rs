@@ -34,12 +34,22 @@ pub struct Reloc {
     pub addend: i64,
 }
 
+/// A single source mapping row for debug line table emission.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DebugLineRow {
+    pub address: u64,
+    pub line: u32,
+    pub column: u32,
+}
+
 /// A named output section (`.text`, `__TEXT,__text`, etc.).
 #[derive(Clone, Debug)]
 pub struct Section {
     pub name: String,
     pub data: Vec<u8>,
     pub relocs: Vec<Reloc>,
+    /// Address->source rows collected while encoding this section.
+    pub debug_rows: Vec<DebugLineRow>,
 }
 
 /// A symbol definition.
@@ -106,12 +116,28 @@ pub fn emit_object(mf: &MachineFunction, emitter: &mut dyn Emitter) -> ObjectFil
     };
     let mut sections = vec![section];
     if emitter.object_format() == ObjectFormat::Elf {
-        if let Some(line) = mf.debug_line_start {
+        if !sections[0].debug_rows.is_empty() {
             let source = mf.debug_source.as_deref().unwrap_or("unknown");
             sections.push(Section {
                 name: ".debug_line".into(),
-                data: build_minimal_debug_line(source, line),
+                data: build_debug_line(source, &sections[0].debug_rows),
                 relocs: Vec::new(),
+                debug_rows: Vec::new(),
+            });
+        } else if let Some(line) = mf.debug_line_start {
+            let source = mf.debug_source.as_deref().unwrap_or("unknown");
+            sections.push(Section {
+                name: ".debug_line".into(),
+                data: build_debug_line(
+                    source,
+                    &[DebugLineRow {
+                        address: 0,
+                        line,
+                        column: 0,
+                    }],
+                ),
+                relocs: Vec::new(),
+                debug_rows: Vec::new(),
             });
         }
     }
@@ -378,7 +404,7 @@ fn serialize_elf(obj: &ObjectFile) -> Vec<u8> {
     buf
 }
 
-fn build_minimal_debug_line(source_file: &str, line: u32) -> Vec<u8> {
+fn build_debug_line(source_file: &str, rows: &[DebugLineRow]) -> Vec<u8> {
     let file = source_file.rsplit('/').next().unwrap_or(source_file);
 
     let mut header_body = Vec::<u8>::new();
@@ -397,11 +423,29 @@ fn build_minimal_debug_line(source_file: &str, line: u32) -> Vec<u8> {
     header_body.push(0); // file_names terminator
 
     let mut program = Vec::<u8>::new();
-    if line > 1 {
-        program.push(3); // DW_LNS_advance_line
-        write_sleb128(&mut program, (line - 1) as i64);
+    let mut sorted = rows.to_vec();
+    sorted.sort_by_key(|r| r.address);
+    let mut cur_addr = 0u64;
+    let mut cur_line = 1u32;
+    let mut cur_col = 0u32;
+    for row in sorted {
+        if row.address > cur_addr {
+            program.push(2); // DW_LNS_advance_pc
+            write_uleb128(&mut program, row.address - cur_addr);
+            cur_addr = row.address;
+        }
+        if row.line != cur_line {
+            program.push(3); // DW_LNS_advance_line
+            write_sleb128(&mut program, row.line as i64 - cur_line as i64);
+            cur_line = row.line;
+        }
+        if row.column != cur_col {
+            program.push(5); // DW_LNS_set_column
+            write_uleb128(&mut program, row.column as u64);
+            cur_col = row.column;
+        }
+        program.push(1); // DW_LNS_copy
     }
-    program.push(1); // DW_LNS_copy
     program.push(0);
     program.push(1);
     program.push(1); // DW_LNE_end_sequence
@@ -640,6 +684,7 @@ mod tests {
                 name: section_name.into(),
                 data: code,
                 relocs: vec![],
+                debug_rows: vec![],
             }],
             symbols: vec![Symbol {
                 name: "f".into(),
@@ -714,6 +759,7 @@ mod tests {
                     name: ".text".into(),
                     data: vec![0x90],
                     relocs: vec![],
+                    debug_rows: vec![],
                 }
             }
             fn object_format(&self) -> ObjectFormat {
@@ -743,6 +789,7 @@ mod tests {
                     name: ".text".into(),
                     data: vec![0x90],
                     relocs: vec![],
+                    debug_rows: vec![],
                 }
             }
             fn object_format(&self) -> ObjectFormat {
