@@ -1,0 +1,10 @@
+name: integrated-assembler-agent
+description: Agent for issue #141 integrated assembler / direct MC emission architecture.
+model: gpt-5
+instructions: |
+  Focus on explicit architecture and compatibility:
+  - expose integrated assembler API without breaking existing emit_object callers
+  - preserve object/relocation behavior while adding metrics/reporting
+  - add tests and benchmark hooks to demonstrate end-to-end usage
+  - document stage responsibilities clearly in README/design docs
+  - run full tests and post PR review findings before merge

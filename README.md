@@ -550,6 +550,24 @@ ld -r /tmp/eval_predicate.o -o /tmp/eval_predicate.linked.o
 cc /tmp/eval_predicate.o -o /tmp/eval_predicate_bin
 ```
 
+### Integrated Assembler (Direct MC Emission)
+
+The default backend flow already uses an integrated assembler path: machine IR
+is encoded directly into section bytes and serialized to object files (ELF /
+Mach-O / COFF) without generating textual assembly as an intermediate.
+
+`llvm-codegen` exposes this stage explicitly:
+
+```rust
+use llvm_codegen::{assemble_with_report, ObjectFormat};
+use llvm_target_x86::X86Emitter;
+
+let mut emitter = X86Emitter::new(ObjectFormat::Elf);
+let assembled = assemble_with_report(&mf, &mut emitter);
+std::fs::write("/tmp/out.o", &assembled.bytes)?;
+println!("mc bytes: {}", assembled.report.bytes);
+```
+
 macOS (Mach-O):
 
 ```bash

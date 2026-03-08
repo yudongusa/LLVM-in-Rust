@@ -2,7 +2,7 @@ use std::hint::black_box;
 
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 use llvm_codegen::{
-    emit_object,
+    assemble_with_report, emit_object,
     isel::IselBackend,
     regalloc::{
         allocate_registers, apply_allocation, compute_live_intervals, insert_spill_reloads,
@@ -42,6 +42,28 @@ fn codegen_module(ctx: &Context, module: &Module) {
         apply_allocation(&mut mf, &result);
         let mut emitter = X86Emitter::new(ObjectFormat::Elf);
         emit_object(&mf, &mut emitter);
+    }
+}
+
+/// Run codegen using the explicit integrated-assembler API.
+fn codegen_module_integrated_assembler(ctx: &Context, module: &Module) {
+    let mut backend = X86Backend::default();
+    for func in &module.functions {
+        if func.is_declaration {
+            continue;
+        }
+        let mut mf = backend.lower_function(ctx, module, func);
+        let intervals = compute_live_intervals(&mf);
+        let mut result = allocate_registers(
+            &intervals,
+            &mf.allocatable_pregs,
+            RegAllocStrategy::LinearScan,
+        );
+        insert_spill_reloads(&mut mf, &mut result, MOV_LOAD_MR, MOV_STORE_RM);
+        apply_allocation(&mut mf, &result);
+        let mut emitter = X86Emitter::new(ObjectFormat::Elf);
+        let assembled = assemble_with_report(&mf, &mut emitter);
+        black_box(assembled.report);
     }
 }
 
@@ -118,6 +140,13 @@ fn bench_codegen_x86(c: &mut Criterion) {
     });
 }
 
+fn bench_codegen_x86_integrated_assembler(c: &mut Criterion) {
+    let (ctx, module) = parsed_module();
+    c.bench_function("pipeline/codegen_x86_integrated_assembler", |b| {
+        b.iter(|| codegen_module_integrated_assembler(black_box(&ctx), black_box(&module)))
+    });
+}
+
 fn bench_opt_o0(c: &mut Criterion) {
     c.bench_function("pipeline/opt_O0", |b| {
         b.iter(|| {
@@ -148,6 +177,7 @@ criterion_group!(
     bench_mem2reg,
     bench_dce,
     bench_codegen_x86,
+    bench_codegen_x86_integrated_assembler,
     bench_opt_o0,
     bench_opt_o2
 );

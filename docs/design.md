@@ -245,8 +245,10 @@ for O(n log n) total (not O(n² log n)).
 
 #### Object File Emission
 
-`Emitter` produces a `Section` (byte stream + relocation list). `emit_object`
-serializes to either ELF-64 or Mach-O depending on `ObjectFormat`:
+`Emitter` produces a `Section` (byte stream + relocation list). The integrated
+assembler stage (`IntegratedAssembler`) turns machine IR + section streams into
+an object and final bytes directly (no textual assembly round-trip). `emit_object`
+serializes to either ELF-64, Mach-O, or COFF depending on `ObjectFormat`:
 
 - **ELF-64**: null + `.text` + `.symtab` + `.strtab` + `.shstrtab` + optional
   `.rela.text` section headers; uses `EM_X86_64` (62) or `EM_AARCH64` (183)

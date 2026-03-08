@@ -147,6 +147,16 @@ When:   Adding dedicated compile-time constant evaluation pass behavior,
 Skill:  skills/constant-folding/SKILL.md
 ```
 
+### integrated-assembler agent
+Use for issue #141 and direct MC/integrated assembler work.
+
+```
+Invoke: $integrated-assembler
+When:   Formalizing explicit machine-IR -> object-byte assembly APIs, adding
+        MC-stage docs/bench coverage, and preserving object-format correctness.
+Skill:  skills/integrated-assembler/SKILL.md
+```
+
 ### Plan agent
 Use **before** starting a new phase or a non-trivial fix.
 
