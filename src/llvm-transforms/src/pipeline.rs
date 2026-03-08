@@ -4,8 +4,8 @@
 //! manually assembling pass sequences.
 
 use crate::{
-    pass::PassManager, ConstProp, DeadArgElim, DeadCodeElim, Gvn, Inliner, Ipcp, LoopUnroll,
-    Mem2Reg,
+    pass::PassManager, ConstProp, ConstantFold, DeadArgElim, DeadCodeElim, Gvn, Inliner, Ipcp,
+    LoopUnroll, Mem2Reg,
 };
 
 /// Optimization level preset.
@@ -42,6 +42,7 @@ pub fn build_pipeline(level: OptLevel) -> PassManager {
         }
         OptLevel::O1 => {
             pm.add_function_pass(Mem2Reg);
+            pm.add_function_pass(ConstantFold);
             pm.add_function_pass(ConstProp);
             pm.add_function_pass(DeadCodeElim);
         }
@@ -50,10 +51,12 @@ pub fn build_pipeline(level: OptLevel) -> PassManager {
             pm.add_module_pass(Inliner::default());
             pm.add_function_pass(Gvn);
             pm.add_function_pass(LoopUnroll::default());
+            pm.add_function_pass(ConstantFold);
             pm.add_function_pass(ConstProp);
             pm.add_function_pass(DeadCodeElim);
             // Clean up after inlining.
             pm.add_function_pass(Gvn);
+            pm.add_function_pass(ConstantFold);
             pm.add_function_pass(ConstProp);
             pm.add_function_pass(DeadCodeElim);
         }
@@ -71,12 +74,15 @@ pub fn build_pipeline(level: OptLevel) -> PassManager {
                 factor: 8,
                 max_trip_count: 16,
             });
+            pm.add_function_pass(ConstantFold);
             pm.add_function_pass(ConstProp);
             pm.add_function_pass(DeadCodeElim);
             // Extra cleanup rounds as a placeholder for future aggressive O3.
             pm.add_function_pass(Gvn);
+            pm.add_function_pass(ConstantFold);
             pm.add_function_pass(ConstProp);
             pm.add_function_pass(DeadCodeElim);
+            pm.add_function_pass(ConstantFold);
             pm.add_function_pass(ConstProp);
             pm.add_function_pass(DeadCodeElim);
         }
@@ -94,7 +100,14 @@ mod tests {
         let mut ctx = Context::new();
         let mut module = Module::new("test");
         let mut b = Builder::new(&mut ctx, &mut module);
-        b.add_function("main", b.ctx.i32_ty, vec![], vec![], false, Linkage::External);
+        b.add_function(
+            "main",
+            b.ctx.i32_ty,
+            vec![],
+            vec![],
+            false,
+            Linkage::External,
+        );
         let entry = b.add_block("entry");
         b.position_at_end(entry);
 
@@ -159,5 +172,39 @@ mod tests {
         assert_eq!(OptLevel::parse("o2"), Some(OptLevel::O2));
         assert_eq!(OptLevel::parse(" 3 "), Some(OptLevel::O3));
         assert_eq!(OptLevel::parse("Ox"), None);
+    }
+
+    #[test]
+    fn o1_folds_trivial_constant_expression() {
+        let mut ctx = Context::new();
+        let mut module = Module::new("fold");
+        let mut b = Builder::new(&mut ctx, &mut module);
+        b.add_function(
+            "main",
+            b.ctx.i32_ty,
+            vec![],
+            vec![],
+            false,
+            Linkage::External,
+        );
+        let entry = b.add_block("entry");
+        b.position_at_end(entry);
+        let c2 = b.const_int(b.ctx.i32_ty, 2);
+        let sum = b.build_add("sum", c2, c2);
+        b.build_ret(sum);
+
+        let mut pm = build_pipeline(OptLevel::O1);
+        pm.run_until_fixed_point(&mut ctx, &mut module, 4);
+        assert_eq!(module.functions[0].blocks[0].body.len(), 0);
+        let tid = module.functions[0].blocks[0].terminator.expect("ret");
+        match &module.functions[0].instr(tid).kind {
+            InstrKind::Ret {
+                val: Some(ValueRef::Constant(cid)),
+            } => match ctx.get_const(*cid) {
+                llvm_ir::ConstantData::Int { val, .. } => assert_eq!(*val, 4),
+                other => panic!("unexpected constant kind: {other:?}"),
+            },
+            other => panic!("expected constant return after O1, got {other:?}"),
+        }
     }
 }

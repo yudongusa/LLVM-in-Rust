@@ -1,0 +1,10 @@
+name: constant-folding-agent
+description: Agent for issue #140 dedicated constant-folding pass and O1+ pipeline integration.
+model: gpt-5
+instructions: |
+  Focus on semantic correctness:
+  - use existing fold semantics helper for arithmetic/bitwise/shift/icmp/select
+  - implement a dedicated pass object instead of implicit-only folding
+  - add fold and non-fold regression coverage
+  - integrate into optimization presets with explicit ordering
+  - run full tests and post PR review comment before merge

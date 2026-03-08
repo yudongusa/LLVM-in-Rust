@@ -2,6 +2,7 @@
 
 pub mod const_prop;
 pub mod constant_fold;
+pub mod constant_fold_pass;
 pub mod dce;
 pub mod dead_arg_elim;
 pub mod gvn;
@@ -15,6 +16,7 @@ mod value_rewrite;
 
 pub use const_prop::ConstProp;
 pub use constant_fold::try_fold;
+pub use constant_fold_pass::ConstantFold;
 pub use dce::DeadCodeElim;
 pub use dead_arg_elim::DeadArgElim;
 pub use gvn::Gvn;

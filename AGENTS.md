@@ -137,6 +137,16 @@ When:   Adding COFF object emission, CodeView `.debug$S` milestones, and
 Skill:  skills/windows-debug-pdb/SKILL.md
 ```
 
+### constant-folding agent
+Use for issue #140 and middle-end constant-folding pass work.
+
+```
+Invoke: $constant-folding
+When:   Adding dedicated compile-time constant evaluation pass behavior,
+        pipeline integration at O1+, and fold/non-fold regression tests.
+Skill:  skills/constant-folding/SKILL.md
+```
+
 ### Plan agent
 Use **before** starting a new phase or a non-trivial fix.
 
