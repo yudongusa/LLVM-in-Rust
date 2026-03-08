@@ -5,11 +5,11 @@
 //! Phi-destruction (parallel copy insertion) is also handled here.
 
 use crate::{
-    abi::{classify_sysv_args, ArgLocation, SYSV_INT_RET},
+    abi::{ArgLocation, CallingConvention},
     instructions::*,
-    regs::{ALLOCATABLE, CALLEE_SAVED, RCX, RDX},
+    regs::{RCX, RDX, RSP},
 };
-use llvm_codegen::isel::{DebugLoc, IselBackend, MInstr, MachineFunction, PReg, VReg};
+use llvm_codegen::isel::{DebugLoc, IselBackend, MInstr, MOperand, MachineFunction, PReg, VReg};
 use llvm_ir::{
     ArgId, BlockId, ConstantData, Context, FloatKind, Function, InstrId, InstrKind, IntPredicate,
     Module, TypeData, ValueRef,
@@ -72,9 +72,10 @@ impl IselBackend for X86Backend {
         module: &Module,
         func: &Function,
     ) -> MachineFunction {
+        let cc = CallingConvention::from_target_triple(module.target_triple.as_deref());
         let mut mf = MachineFunction::new(func.name.clone());
-        mf.allocatable_pregs = ALLOCATABLE.to_vec();
-        mf.callee_saved_pregs = CALLEE_SAVED.to_vec();
+        mf.allocatable_pregs = cc.allocatable_pregs().to_vec();
+        mf.callee_saved_pregs = cc.callee_saved_pregs().to_vec();
         mf.debug_source = module.source_filename.clone();
 
         if func.is_declaration || func.blocks.is_empty() {
@@ -105,7 +106,7 @@ impl IselBackend for X86Backend {
         }
 
         // Lower function arguments: copy from ABI registers into VRegs.
-        let arg_locs = classify_sysv_args(func.args.len());
+        let arg_locs = cc.classify_int_args(func.args.len());
         for (i, _arg) in func.args.iter().enumerate() {
             let vr = mf.fresh_vreg();
             vmap.insert(ValueRef::Argument(ArgId(i as u32)), vr);
@@ -145,6 +146,7 @@ impl IselBackend for X86Backend {
                     bi,
                     iid,
                     &mut vmap,
+                    cc,
                     self.features,
                 );
             }
@@ -160,7 +162,7 @@ impl IselBackend for X86Backend {
                 if mf.debug_line_start.is_none() {
                     mf.debug_line_start = dbg.map(|loc| loc.line);
                 }
-                lower_terminator(ctx, func, &mut mf, bi, tid, &mut vmap);
+                lower_terminator(ctx, func, &mut mf, bi, tid, &mut vmap, cc);
             }
         }
 
@@ -315,6 +317,7 @@ fn lower_instr(
     mblock: usize,
     iid: InstrId,
     vmap: &mut HashMap<ValueRef, VReg>,
+    cc: CallingConvention,
     features: TargetFeatures,
 ) {
     use InstrKind::*;
@@ -395,13 +398,13 @@ fn lower_instr(
             // Keep divisor out of clobbered regs (rax/rdx) to avoid
             // self-clobbering when the allocator picks those registers.
             emit_mov_to_preg(mf, mblock, RCX, r);
-            emit_mov_to_preg(mf, mblock, SYSV_INT_RET, l);
+            emit_mov_to_preg(mf, mblock, cc.int_ret(), l);
             mf.push(mblock, MInstr::new(CQO));
             let mut div_mi = MInstr::new(IDIV_R).with_preg(RCX);
             div_mi.phys_uses = vec![RCX];
-            div_mi.clobbers = vec![SYSV_INT_RET, RDX];
+            div_mi.clobbers = vec![cc.int_ret(), RDX];
             mf.push(mblock, div_mi);
-            emit_mov_from_preg(mf, mblock, dst, SYSV_INT_RET);
+            emit_mov_from_preg(mf, mblock, dst, cc.int_ret());
         }
 
         UDiv { lhs, rhs, .. } => {
@@ -410,15 +413,15 @@ fn lower_instr(
             let r = res!(*rhs);
             // mov rax, lhs; xor rdx, rdx; div rcx → rax = quotient (unsigned)
             emit_mov_to_preg(mf, mblock, RCX, r);
-            emit_mov_to_preg(mf, mblock, SYSV_INT_RET, l);
+            emit_mov_to_preg(mf, mblock, cc.int_ret(), l);
             let zero = mf.fresh_vreg();
             mf.push(mblock, MInstr::new(MOV_RI).with_dst(zero).with_imm(0));
             emit_mov_to_preg(mf, mblock, RDX, zero);
             let mut div_mi = MInstr::new(DIV_R).with_preg(RCX);
             div_mi.phys_uses = vec![RCX];
-            div_mi.clobbers = vec![SYSV_INT_RET, RDX];
+            div_mi.clobbers = vec![cc.int_ret(), RDX];
             mf.push(mblock, div_mi);
-            emit_mov_from_preg(mf, mblock, dst, SYSV_INT_RET);
+            emit_mov_from_preg(mf, mblock, dst, cc.int_ret());
         }
 
         SRem { lhs, rhs, .. } => {
@@ -427,11 +430,11 @@ fn lower_instr(
             let r = res!(*rhs);
             // mov rax, lhs; cqo; idiv rcx → rdx = remainder (signed)
             emit_mov_to_preg(mf, mblock, RCX, r);
-            emit_mov_to_preg(mf, mblock, SYSV_INT_RET, l);
+            emit_mov_to_preg(mf, mblock, cc.int_ret(), l);
             mf.push(mblock, MInstr::new(CQO));
             let mut div_mi = MInstr::new(IDIV_R).with_preg(RCX);
             div_mi.phys_uses = vec![RCX];
-            div_mi.clobbers = vec![SYSV_INT_RET, RDX];
+            div_mi.clobbers = vec![cc.int_ret(), RDX];
             mf.push(mblock, div_mi);
             emit_mov_from_preg(mf, mblock, dst, RDX);
         }
@@ -442,13 +445,13 @@ fn lower_instr(
             let r = res!(*rhs);
             // mov rax, lhs; xor rdx, rdx; div rcx → rdx = remainder (unsigned)
             emit_mov_to_preg(mf, mblock, RCX, r);
-            emit_mov_to_preg(mf, mblock, SYSV_INT_RET, l);
+            emit_mov_to_preg(mf, mblock, cc.int_ret(), l);
             let zero = mf.fresh_vreg();
             mf.push(mblock, MInstr::new(MOV_RI).with_dst(zero).with_imm(0));
             emit_mov_to_preg(mf, mblock, RDX, zero);
             let mut div_mi = MInstr::new(DIV_R).with_preg(RCX);
             div_mi.phys_uses = vec![RCX];
-            div_mi.clobbers = vec![SYSV_INT_RET, RDX];
+            div_mi.clobbers = vec![cc.int_ret(), RDX];
             mf.push(mblock, div_mi);
             emit_mov_from_preg(mf, mblock, dst, RDX);
         }
@@ -521,9 +524,7 @@ fn lower_instr(
             );
             mf.push(
                 mblock,
-                MInstr::new(AND_RR)
-                    .with_dst(then_masked)
-                    .with_vreg(scratch),
+                MInstr::new(AND_RR).with_dst(then_masked).with_vreg(scratch),
             );
             mf.push(
                 mblock,
@@ -535,9 +536,7 @@ fn lower_instr(
             );
             mf.push(
                 mblock,
-                MInstr::new(AND_RR)
-                    .with_dst(else_masked)
-                    .with_vreg(scratch),
+                MInstr::new(AND_RR).with_dst(else_masked).with_vreg(scratch),
             );
             mf.push(
                 mblock,
@@ -545,9 +544,7 @@ fn lower_instr(
             );
             mf.push(
                 mblock,
-                MInstr::new(OR_RR)
-                    .with_dst(dst)
-                    .with_vreg(else_masked),
+                MInstr::new(OR_RR).with_dst(dst).with_vreg(else_masked),
             );
         }
 
@@ -598,28 +595,65 @@ fn lower_instr(
 
         // ── calls ──────────────────────────────────────────────────────────
         Call { callee, args, .. } => {
-            let arg_locs = classify_sysv_args(args.len());
+            let callee_src = res!(*callee);
+            let callee_vr = mf.fresh_vreg();
+            mf.push(
+                mblock,
+                MInstr::new(MOV_RR)
+                    .with_dst(callee_vr)
+                    .with_vreg(callee_src),
+            );
+
+            let arg_locs = cc.classify_int_args(args.len());
+            let mut reg_moves: Vec<(PReg, VReg)> = Vec::new();
+            let mut stack_args: Vec<VReg> = Vec::new();
             for (i, &arg_vref) in args.iter().enumerate() {
                 let src = res!(arg_vref);
                 match arg_locs[i] {
-                    ArgLocation::Reg(preg) => {
-                        emit_mov_to_preg(mf, mblock, preg, src);
-                    }
-                    ArgLocation::Stack(off) => {
-                        // Stack arguments: use a placeholder store.
-                        let _ = off;
-                        mf.push(mblock, MInstr::new(PUSH_R).with_vreg(src));
-                    }
+                    ArgLocation::Reg(preg) => reg_moves.push((preg, src)),
+                    ArgLocation::Stack(_) => stack_args.push(src),
                 }
             }
-            let callee_vr = res!(*callee);
+
+            // Maintain 16-byte stack alignment at the call site.
+            let align_pad = if stack_args.len() % 2 == 1 { 8 } else { 0 };
+            if align_pad != 0 {
+                emit_stack_adjust(mf, mblock, -(align_pad as i64));
+            }
+
+            // Stack arguments are pushed right-to-left.
+            for src in stack_args.iter().rev() {
+                mf.push(mblock, MInstr::new(PUSH_R).with_vreg(*src));
+            }
+
+            let shadow = cc.shadow_space_bytes();
+            if shadow != 0 {
+                emit_stack_adjust(mf, mblock, -(shadow as i64));
+            }
+
+            // Two-phase register assignment avoids clobber cycles.
+            let mut staged = Vec::with_capacity(reg_moves.len());
+            for (_, src) in &reg_moves {
+                let tmp = mf.fresh_vreg();
+                mf.push(mblock, MInstr::new(MOV_RR).with_dst(tmp).with_vreg(*src));
+                staged.push(tmp);
+            }
+            for ((preg, _), tmp) in reg_moves.iter().zip(staged.into_iter()) {
+                emit_mov_to_preg(mf, mblock, *preg, tmp);
+            }
+
             let mut call_mi = MInstr::new(CALL_R).with_vreg(callee_vr);
-            call_mi.clobbers = ALLOCATABLE.to_vec();
+            call_mi.clobbers = cc.caller_saved_clobbers().to_vec();
             mf.push(mblock, call_mi);
+
+            let cleanup = shadow as i64 + (stack_args.len() as i64) * 8 + align_pad as i64;
+            if cleanup != 0 {
+                emit_stack_adjust(mf, mblock, cleanup);
+            }
 
             // Capture return value from RAX.
             let dst = new_dst!();
-            emit_mov_from_preg(mf, mblock, dst, SYSV_INT_RET);
+            emit_mov_from_preg(mf, mblock, dst, cc.int_ret());
         }
 
         // ── memory (placeholder NOP — mem2reg removes most alloca/load/store) ──
@@ -631,7 +665,10 @@ fn lower_instr(
         Load { ty, .. } => {
             let dst = new_dst!();
             if matches!(ctx.get_type(*ty), TypeData::Vector { .. }) && features.sse42 {
-                mf.push(mblock, MInstr::new(MOVDQU_LOAD_MR).with_dst(dst).with_imm(0));
+                mf.push(
+                    mblock,
+                    MInstr::new(MOVDQU_LOAD_MR).with_dst(dst).with_imm(0),
+                );
             } else {
                 mf.push(mblock, MInstr::new(NOP));
             }
@@ -681,9 +718,7 @@ fn lower_instr(
         }
 
         // ── aggregate / vector ops (not yet supported) ─────────────────────
-        ExtractValue { .. }
-        | InsertValue { .. }
-        | ShuffleVector { .. } => {
+        ExtractValue { .. } | InsertValue { .. } | ShuffleVector { .. } => {
             let dst = new_dst!();
             if features.avx2 || features.sse42 {
                 // Feature-aware placeholder: SIMD-specific lowering lands in
@@ -732,6 +767,7 @@ fn lower_terminator(
     mblock: usize,
     tid: InstrId,
     vmap: &mut HashMap<ValueRef, VReg>,
+    cc: CallingConvention,
 ) {
     use InstrKind::*;
     let term = func.instr(tid);
@@ -740,7 +776,7 @@ fn lower_terminator(
         Ret { val } => {
             if let Some(rv) = val {
                 let src = resolve(ctx, mf, mblock, vmap, *rv);
-                emit_mov_to_preg(mf, mblock, SYSV_INT_RET, src);
+                emit_mov_to_preg(mf, mblock, cc.int_ret(), src);
             }
             mf.push(mblock, MInstr::new(RET));
         }
@@ -844,11 +880,17 @@ fn emit_phi_copies(
     let mut staged: Vec<(VReg, VReg)> = Vec::with_capacity(copies.len());
     for (dst, src) in copies {
         let tmp = mf.fresh_vreg();
-        mf.push(emit_to_mblock, MInstr::new(MOV_RR).with_dst(tmp).with_vreg(src));
+        mf.push(
+            emit_to_mblock,
+            MInstr::new(MOV_RR).with_dst(tmp).with_vreg(src),
+        );
         staged.push((dst, tmp));
     }
     for (dst, tmp) in staged {
-        mf.push(emit_to_mblock, MInstr::new(MOV_RR).with_dst(dst).with_vreg(tmp));
+        mf.push(
+            emit_to_mblock,
+            MInstr::new(MOV_RR).with_dst(dst).with_vreg(tmp),
+        );
     }
 }
 
@@ -860,6 +902,22 @@ fn emit_mov_to_preg(mf: &mut MachineFunction, mblock: usize, preg: PReg, src: VR
     // After regalloc operands[1] becomes PReg(src_allocated) and the encoder
     // generates `mov preg, src_allocated`.
     mf.push(mblock, MInstr::new(MOV_PR).with_preg(preg).with_vreg(src));
+}
+
+fn emit_stack_adjust(mf: &mut MachineFunction, mblock: usize, delta: i64) {
+    if delta == 0 {
+        return;
+    }
+    let mut mi = if delta > 0 {
+        MInstr::new(ADD_RI)
+    } else {
+        MInstr::new(SUB_RI)
+    };
+    mi.operands.push(MOperand::PReg(RSP));
+    mi.operands.push(MOperand::Imm(delta.unsigned_abs() as i64));
+    mi.phys_uses = vec![RSP];
+    mi.clobbers = vec![RSP];
+    mf.push(mblock, mi);
 }
 
 fn emit_mov_from_preg(mf: &mut MachineFunction, mblock: usize, dst: VReg, preg: PReg) {
@@ -924,6 +982,132 @@ mod tests {
         let mut be = X86Backend::default();
         let mf = be.lower_function(&ctx, &module, &module.functions[0]);
         assert!(!mf.allocatable_pregs.is_empty());
+    }
+
+    #[test]
+    fn entry_arg_registers_follow_sysv_vs_win64() {
+        let (ctx, mut module) = make_add_fn();
+        let mut be = X86Backend::default();
+
+        // SysV default: %a in RDI, %b in RSI.
+        let mf_sysv = be.lower_function(&ctx, &module, &module.functions[0]);
+        let uses_sysv: Vec<_> = mf_sysv.blocks[0]
+            .instrs
+            .iter()
+            .filter(|i| i.opcode == MOV_RR)
+            .filter_map(|i| i.phys_uses.first().copied())
+            .collect();
+        assert!(uses_sysv.starts_with(&[crate::regs::RDI, crate::regs::RSI]));
+
+        // Win64 triple: %a in RCX, %b in RDX.
+        module.target_triple = Some("x86_64-pc-windows-msvc".into());
+        let mf_win = be.lower_function(&ctx, &module, &module.functions[0]);
+        let uses_win: Vec<_> = mf_win.blocks[0]
+            .instrs
+            .iter()
+            .filter(|i| i.opcode == MOV_RR)
+            .filter_map(|i| i.phys_uses.first().copied())
+            .collect();
+        assert!(uses_win.starts_with(&[crate::regs::RCX, crate::regs::RDX]));
+    }
+
+    #[test]
+    fn win64_register_sets_mark_rsi_rdi_callee_saved() {
+        let (ctx, mut module) = make_add_fn();
+        module.target_triple = Some("x86_64-pc-windows-msvc".into());
+        let mut be = X86Backend::default();
+        let mf = be.lower_function(&ctx, &module, &module.functions[0]);
+        assert!(mf.callee_saved_pregs.contains(&crate::regs::RSI));
+        assert!(mf.callee_saved_pregs.contains(&crate::regs::RDI));
+        assert!(!mf.allocatable_pregs.contains(&crate::regs::RSI));
+        assert!(!mf.allocatable_pregs.contains(&crate::regs::RDI));
+    }
+
+    fn make_call_fn(n_args: usize) -> (Context, Module) {
+        let mut ctx = Context::new();
+        let mut module = Module::new("call");
+        let mut b = Builder::new(&mut ctx, &mut module);
+        let i64_ty = b.ctx.i64_ty;
+        let arg_tys = vec![i64_ty; n_args];
+        let callee_ty = b.ctx.mk_fn_type(i64_ty, arg_tys.clone(), false);
+        b.add_declaration("callee", i64_ty, arg_tys.clone(), false);
+        b.add_function("caller", i64_ty, vec![], vec![], false, Linkage::External);
+        let entry = b.add_block("entry");
+        b.position_at_end(entry);
+        let mut args = Vec::with_capacity(n_args);
+        for i in 0..n_args {
+            args.push(ValueRef::Constant(b.ctx.const_int(i64_ty, (i as u64) + 1)));
+        }
+        let call = b.build_call(
+            "r",
+            i64_ty,
+            callee_ty,
+            ValueRef::Global(llvm_ir::GlobalId(0)),
+            args,
+        );
+        b.build_ret(call);
+        (ctx, module)
+    }
+
+    #[test]
+    fn win64_call_reserves_shadow_space_and_cleans_stack() {
+        let (ctx, mut module) = make_call_fn(6);
+        module.target_triple = Some("x86_64-pc-windows-msvc".into());
+        let mut be = X86Backend::default();
+        let caller = module
+            .functions
+            .iter()
+            .find(|f| f.name == "caller" && !f.is_declaration)
+            .expect("caller definition");
+        let mf = be.lower_function(&ctx, &module, caller);
+        let instrs: Vec<_> = mf.blocks.iter().flat_map(|b| b.instrs.iter()).collect();
+        let has_sub32 = instrs.iter().any(|i| {
+            i.opcode == SUB_RI
+                && i.operands.first() == Some(&MOperand::PReg(crate::regs::RSP))
+                && i.operands.get(1) == Some(&MOperand::Imm(32))
+        });
+        let has_add48 = instrs.iter().any(|i| {
+            i.opcode == ADD_RI
+                && i.operands.first() == Some(&MOperand::PReg(crate::regs::RSP))
+                && i.operands.get(1) == Some(&MOperand::Imm(48))
+        });
+        let push_count = instrs.iter().filter(|i| i.opcode == PUSH_R).count();
+        assert!(has_sub32, "Win64 call must reserve 32-byte shadow space");
+        assert!(has_add48, "Win64 call must clean stack args + shadow space");
+        assert_eq!(push_count, 2, "6 args => 2 stack-passed arguments");
+    }
+
+    #[test]
+    fn sysv_call_with_one_stack_arg_adds_alignment_pad() {
+        let (ctx, module) = make_call_fn(7);
+        let mut be = X86Backend::default();
+        let caller = module
+            .functions
+            .iter()
+            .find(|f| f.name == "caller" && !f.is_declaration)
+            .expect("caller definition");
+        let mf = be.lower_function(&ctx, &module, caller);
+        let instrs: Vec<_> = mf.blocks.iter().flat_map(|b| b.instrs.iter()).collect();
+        let has_sub8 = instrs.iter().any(|i| {
+            i.opcode == SUB_RI
+                && i.operands.first() == Some(&MOperand::PReg(crate::regs::RSP))
+                && i.operands.get(1) == Some(&MOperand::Imm(8))
+        });
+        let has_add16 = instrs.iter().any(|i| {
+            i.opcode == ADD_RI
+                && i.operands.first() == Some(&MOperand::PReg(crate::regs::RSP))
+                && i.operands.get(1) == Some(&MOperand::Imm(16))
+        });
+        let push_count = instrs.iter().filter(|i| i.opcode == PUSH_R).count();
+        assert!(
+            has_sub8,
+            "SysV odd stack args must add 8-byte alignment pad"
+        );
+        assert!(
+            has_add16,
+            "SysV cleanup must include stack arg + alignment pad"
+        );
+        assert_eq!(push_count, 1, "7 args => 1 stack-passed argument");
     }
 
     #[test]
@@ -1372,7 +1556,11 @@ mod tests {
 
         b.position_at_end(merge_bb);
         let c0 = b.const_int(b.ctx.i64_ty, 0);
-        let phi = b.build_phi("phi", b.ctx.i64_ty, vec![(from_then, then_bb), (c0, else_bb)]);
+        let phi = b.build_phi(
+            "phi",
+            b.ctx.i64_ty,
+            vec![(from_then, then_bb), (c0, else_bb)],
+        );
         let plus_one = b.build_add("plus_one", phi, c1);
         b.build_ret(plus_one);
 
