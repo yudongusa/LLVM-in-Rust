@@ -285,9 +285,33 @@ fn encode_instr(instr: &MInstr, ctx: &mut EncodeCtx) {
             encode_rrr(ctx, instr, 0x01);
         }
 
+        // ── ADD reg, imm32 (REX.W 0x81 /0 id) ────────────────────────────
+        ADD_RI => {
+            if let Some((dst, val)) = get_dst_preg_imm(instr) {
+                maybe_rex(ctx, true, PReg(0), dst);
+                ctx.emit(0x81);
+                ctx.emit(0xC0 | reg_enc(dst)); // /0
+                ctx.emit32(val as i32);
+            } else {
+                ctx.emit(0x90);
+            }
+        }
+
         // ── SUB reg, reg (REX.W 0x29 /r) ─────────────────────────────────
         SUB_RR => {
             encode_rrr(ctx, instr, 0x29);
+        }
+
+        // ── SUB reg, imm32 (REX.W 0x81 /5 id) ────────────────────────────
+        SUB_RI => {
+            if let Some((dst, val)) = get_dst_preg_imm(instr) {
+                maybe_rex(ctx, true, PReg(0), dst);
+                ctx.emit(0x81);
+                ctx.emit(0xE8 | reg_enc(dst)); // /5
+                ctx.emit32(val as i32);
+            } else {
+                ctx.emit(0x90);
+            }
         }
 
         // ── IMUL dst, src (REX.W 0x0F 0xAF /r) ───────────────────────────
@@ -737,6 +761,18 @@ fn get_two_pregs(instr: &MInstr) -> (Option<PReg>, Option<PReg>) {
     (it.next(), it.next())
 }
 
+fn get_dst_preg_imm(instr: &MInstr) -> Option<(PReg, i64)> {
+    if let (Some(dst), Some(MOperand::Imm(v))) = (instr.dst, instr.operands.first()) {
+        return Some((PReg(dst.0 as u8), *v));
+    }
+    if let (Some(MOperand::PReg(dst)), Some(MOperand::Imm(v))) =
+        (instr.operands.first(), instr.operands.get(1))
+    {
+        return Some((*dst, *v));
+    }
+    None
+}
+
 /// Map a CC_* constant to the SETcc opcode byte (second byte of 0x0F 0x9x).
 fn setcc_opcode(cc: i64) -> u8 {
     match cc {
@@ -776,7 +812,7 @@ fn jcc_opcode(cc: i64) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::regs::{RAX, RDI, RSI};
+    use crate::regs::{RAX, RDI, RSI, RSP};
     use llvm_codegen::{
         emit::emit_object,
         isel::{MInstr, MachineFunction, VReg},
@@ -1303,5 +1339,25 @@ mod tests {
         assert!(!sec.data.is_empty(), "emitted code must be non-empty");
         assert_eq!(sec.data[0], 0x55, "push rbp must be first byte of prologue");
         assert!(sec.data.contains(&0xC3), "RET must be present in output");
+    }
+
+    #[test]
+    fn add_sub_imm_fixed_rsp_encoding() {
+        let mut mf = MachineFunction::new("stack_adj".into());
+        let b0 = mf.add_block("entry");
+        mf.push(b0, MInstr::new(SUB_RI).with_preg(RSP).with_imm(32));
+        mf.push(b0, MInstr::new(ADD_RI).with_preg(RSP).with_imm(48));
+        mf.push(b0, MInstr::new(RET));
+
+        let mut e = X86Emitter::new(ObjectFormat::Elf);
+        let sec = e.emit_function(&mf);
+        assert!(sec
+            .data
+            .windows(7)
+            .any(|w| w == [0x48, 0x81, 0xEC, 0x20, 0x00, 0x00, 0x00]));
+        assert!(sec
+            .data
+            .windows(7)
+            .any(|w| w == [0x48, 0x81, 0xC4, 0x30, 0x00, 0x00, 0x00]));
     }
 }
