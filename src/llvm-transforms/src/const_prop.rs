@@ -345,7 +345,7 @@ pub(crate) fn subst_kind(kind: InstrKind, subst: &HashMap<InstrId, ValueRef>) ->
 ///
 /// Unreachable blocks are appended at the end (in their stored order) so that
 /// the pass still processes them for correctness.
-fn rpo(func: &Function) -> Vec<usize> {
+pub(crate) fn rpo(func: &Function) -> Vec<usize> {
     let n = func.blocks.len();
     let mut visited: HashSet<usize> = HashSet::with_capacity(n);
     let mut post_order: Vec<usize> = Vec::with_capacity(n);
