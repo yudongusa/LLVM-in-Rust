@@ -1,5 +1,6 @@
 # Rust build output
 /target/
+src/llvm-bench/target/
 
 # Claude Code local-only files (not project-wide)
 .claude/settings.local.json
