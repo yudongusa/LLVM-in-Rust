@@ -453,3 +453,23 @@ llvm-bitcode/src/
   writer.rs        write_bitcode()
   reader.rs        read_bitcode()
 ```
+
+---
+
+## Miscompilation Reproducer Minimization Utility
+
+Use `llvm-ir-min` to reduce a failing `.ll` reproducer while preserving a failure predicate.
+
+```bash
+# Build/run minimizer
+cargo run -p llvm --bin llvm-ir-min -- \
+  --input failing.ll \
+  --predicate './repro.sh {{input}}' \
+  --output minimized.ll
+```
+
+Notes:
+- `{{input}}` in `--predicate` is replaced with the candidate IR path.
+- Predicate must return **non-zero** when the bug is still reproduced.
+- The tool performs line-based reduction and writes `minimized.ll`.
+- Pair this output with the miscompilation issue template evidence package.

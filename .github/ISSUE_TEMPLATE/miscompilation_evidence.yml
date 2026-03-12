@@ -1,0 +1,104 @@
+name: Miscompilation Evidence Package
+about: Report wrong-code or miscompilation with reproducible evidence.
+title: "miscompile: <short summary>"
+labels: [bug, miscompilation]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please provide a reproducible evidence package.
+        Reports missing required fields are hard to triage and may be sent back for completion.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What is wrong and why it is unexpected?
+      placeholder: "Program returns 0 instead of 42 at O2 on x86_64"
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro_ir
+    attributes:
+      label: Minimized LLVM IR reproducer (.ll)
+      description: Paste minimized IR or link to attached file.
+      render: llvm
+    validations:
+      required: true
+
+  - type: textarea
+    id: command
+    attributes:
+      label: Reproduction command transcript
+      description: Exact commands used to reproduce.
+      placeholder: |
+        cargo run -p llvm --bin llvm-ir-min -- --input bug.ll --predicate './repro.sh {{input}}'
+        ./repro.sh minimized.ll
+    validations:
+      required: true
+
+  - type: input
+    id: target
+    attributes:
+      label: Target/backend/triple
+      placeholder: "x86_64-unknown-linux-gnu, x86 backend"
+    validations:
+      required: true
+
+  - type: input
+    id: opts
+    attributes:
+      label: Optimization level and flags
+      placeholder: "-O2, --features avx2"
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected_actual
+    attributes:
+      label: Expected vs actual behavior
+      placeholder: |
+        Expected: exit code 42
+        Actual: exit code 0
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment/toolchain
+      description: Host OS, rustc/cargo versions, LLVM/clang versions.
+      placeholder: |
+        macOS 15 arm64
+        rustc 1.84.0
+        LLVM 19.1.7
+    validations:
+      required: true
+
+  - type: textarea
+    id: artifacts
+    attributes:
+      label: Evidence package artifacts
+      description: Attach object/disassembly/hash/log bundle paths or links.
+      placeholder: |
+        - original.ll
+        - minimized.ll
+        - ours.o / oracle.o
+        - ours.objdump.txt / oracle.objdump.txt
+        - hashes.json
+        - reducer.log
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Triage checklist
+      options:
+        - label: I verified the reproducer still fails on current main.
+          required: true
+        - label: I included commands another developer can run as-is.
+          required: true
+        - label: I attached or pasted a minimized reproducer.
+          required: true
