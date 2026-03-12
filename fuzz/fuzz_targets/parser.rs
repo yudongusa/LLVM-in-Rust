@@ -67,9 +67,9 @@ fn within_complexity_budget(module: &Module) -> bool {
     let mut blocks = 0usize;
     let mut instrs = 0usize;
     for f in &module.functions {
-        blocks += f.blocks.len();
+        blocks = blocks.saturating_add(f.blocks.len());
         for bb in &f.blocks {
-            instrs += bb.instrs.len();
+            instrs = instrs.saturating_add(bb.instrs.len());
         }
     }
 
