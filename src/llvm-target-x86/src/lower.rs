@@ -307,6 +307,16 @@ fn const_u64(ctx: &Context, v: ValueRef) -> Option<u64> {
     }
 }
 
+fn const_i64(ctx: &Context, v: ValueRef) -> Option<i64> {
+    let ValueRef::Constant(cid) = v else {
+        return None;
+    };
+    match ctx.get_const(cid) {
+        ConstantData::Int { val, .. } => i64::try_from(*val).ok(),
+        _ => None,
+    }
+}
+
 // ── instruction lowering ──────────────────────────────────────────────────
 
 fn lower_instr(
@@ -385,6 +395,18 @@ fn lower_instr(
         Mul { lhs, rhs, .. } => {
             if let Some(vop) = vector_int_opcode(ctx, instr.ty, VecIntOp::Mul, features) {
                 emit_binop!(vop, *lhs, *rhs);
+            } else if let Some(k) = const_i64(ctx, *rhs).filter(|v| i32::try_from(*v).is_ok()) {
+                // Pattern combine (isel bridge): `%x * C` -> `imul dst, dst, imm32`.
+                // This avoids materializing the constant in a separate register.
+                let dst = new_dst!();
+                let l = res!(*lhs);
+                mf.push(mblock, MInstr::new(MOV_RR).with_dst(dst).with_vreg(l));
+                mf.push(mblock, MInstr::new(IMUL_RRI).with_dst(dst).with_vreg(dst).with_imm(k));
+            } else if let Some(k) = const_i64(ctx, *lhs).filter(|v| i32::try_from(*v).is_ok()) {
+                let dst = new_dst!();
+                let r = res!(*rhs);
+                mf.push(mblock, MInstr::new(MOV_RR).with_dst(dst).with_vreg(r));
+                mf.push(mblock, MInstr::new(IMUL_RRI).with_dst(dst).with_vreg(dst).with_imm(k));
             } else {
                 emit_binop!(IMUL_RR, *lhs, *rhs);
             }
@@ -1181,6 +1203,27 @@ mod tests {
         (ctx, module)
     }
 
+    fn make_mul_const_fn(k: u64) -> (Context, Module) {
+        let mut ctx = Context::new();
+        let mut module = Module::new("test");
+        let mut b = Builder::new(&mut ctx, &mut module);
+        b.add_function(
+            "mulc_fn",
+            b.ctx.i64_ty,
+            vec![b.ctx.i64_ty],
+            vec!["a".into()],
+            false,
+            Linkage::External,
+        );
+        let entry = b.add_block("entry");
+        b.position_at_end(entry);
+        let a = b.get_arg(0);
+        let c = b.const_int(b.ctx.i64_ty, k);
+        let m = b.build_mul("m", a, c);
+        b.build_ret(m);
+        (ctx, module)
+    }
+
     fn make_shl_fn() -> (Context, Module) {
         let mut ctx = Context::new();
         let mut module = Module::new("test");
@@ -1271,6 +1314,24 @@ mod tests {
             .any(|bl| bl.instrs.iter().any(|i| i.opcode == DIV_R));
         assert!(has_idiv_r, "SDiv must emit IDIV_R (signed div)");
         assert!(!has_div_r, "SDiv must NOT emit DIV_R (unsigned div)");
+    }
+
+    #[test]
+    fn mul_by_const_uses_imul_rri_pattern() {
+        // Isel pattern bridge: `%a * C` should avoid materializing `C` in a
+        // register and instead use IMUL_RRI.
+        let (ctx, module) = make_mul_const_fn(7);
+        let mut be = X86Backend::default();
+        let mf = be.lower_function(&ctx, &module, &module.functions[0]);
+
+        let has_imul_rri = mf
+            .blocks
+            .iter()
+            .any(|bl| bl.instrs.iter().any(|i| i.opcode == IMUL_RRI));
+        assert!(
+            has_imul_rri,
+            "mul-by-constant should lower via IMUL_RRI pattern"
+        );
     }
 
     #[test]
