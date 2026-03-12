@@ -122,6 +122,21 @@ fn with_temp_file<R>(tag: &str, ext: &str, f: impl FnOnce(&Path) -> R) -> R {
     result
 }
 
+#[cfg(target_os = "macos")]
+fn macho_obj_arch(obj_path: &Path) -> Option<String> {
+    // Prefer lipo for a stable arch token (e.g. "arm64", "x86_64").
+    if let Ok(out) = Command::new("lipo").arg("-archs").arg(obj_path).output() {
+        if out.status.success() {
+            let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !s.is_empty() {
+                return Some(s);
+            }
+        }
+    }
+
+    None
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn elf_link_with_cc_and_run_exit_code() {
@@ -188,7 +203,12 @@ fn macho_link_with_cc_succeeds() {
     with_temp_file("linker_compat_main", "o", |obj_path| {
         emit_host_obj(MAIN_RET42_LL, obj_path);
         let bin_path = std::env::temp_dir().join("linker_compat_main_bin");
-        let link = Command::new("cc")
+
+        let mut cmd = Command::new("cc");
+        if let Some(arch) = macho_obj_arch(obj_path) {
+            cmd.arg("-arch").arg(arch);
+        }
+        let link = cmd
             .arg(obj_path)
             .arg("-o")
             .arg(&bin_path)
