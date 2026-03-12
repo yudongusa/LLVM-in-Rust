@@ -95,6 +95,7 @@ pub fn build_pipeline(level: OptLevel) -> PassManager {
 mod tests {
     use super::*;
     use llvm_ir::{Builder, Context, InstrKind, Linkage, Module, ValueRef};
+    use llvm_ir_parser::parser::parse;
 
     fn make_dead_code_fn() -> (Context, Module) {
         let mut ctx = Context::new();
@@ -205,6 +206,56 @@ mod tests {
                 other => panic!("unexpected constant kind: {other:?}"),
             },
             other => panic!("expected constant return after O1, got {other:?}"),
+        }
+    }
+
+    fn parse_dbg_fixture() -> (Context, Module) {
+        let src = r#"
+source_filename = "pipeline_dbg.c"
+define i32 @f(i32 %a, i32 %b) {
+entry:
+  %s = add i32 %a, %b, !dbg !12
+  ret i32 %s, !dbg !13
+}
+!llvm.dbg.cu = !{!0}
+!0 = !DICompileUnit(language: DW_LANG_C99, file: !1)
+!1 = !DIFile(filename: "pipeline_dbg.c", directory: ".")
+!12 = !DILocation(line: 10, column: 2, scope: !0)
+!13 = !DILocation(line: 11, column: 3, scope: !0)
+"#;
+        parse(src).expect("parse debug fixture")
+    }
+
+    fn assert_debug_metadata_survives(module: &Module) {
+        let f = &module.functions[0];
+        assert!(
+            !f.instr_dbg_locs.is_empty(),
+            "function should retain at least one !dbg location"
+        );
+        assert!(
+            module
+                .named_metadata
+                .iter()
+                .any(|(k, _)| k == "llvm.dbg.cu"),
+            "named metadata llvm.dbg.cu must be preserved"
+        );
+
+        for loc_id in f.instr_dbg_locs.values() {
+            assert!(
+                module.debug_location(*loc_id).is_some(),
+                "missing debug location for !dbg !{}",
+                loc_id
+            );
+        }
+    }
+
+    #[test]
+    fn debug_metadata_survives_o1_o2_o3_pipelines() {
+        for level in [OptLevel::O1, OptLevel::O2, OptLevel::O3] {
+            let (mut ctx, mut module) = parse_dbg_fixture();
+            let mut pm = build_pipeline(level);
+            pm.run_until_fixed_point(&mut ctx, &mut module, 8);
+            assert_debug_metadata_survives(&module);
         }
     }
 }
