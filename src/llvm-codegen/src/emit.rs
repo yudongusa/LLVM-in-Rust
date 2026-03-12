@@ -140,7 +140,8 @@ pub fn emit_object(mf: &MachineFunction, emitter: &mut dyn Emitter) -> ObjectFil
             ObjectFormat::Elf => {
                 let line = build_debug_line(source, &rows);
                 let abbrev = build_debug_abbrev();
-                let info = build_debug_info(source, 0);
+                let loclists = build_debug_loclists(size);
+                let info = build_debug_info(source, &mf.name, size, 0, 0, 12);
                 sections.push(Section {
                     name: ".debug_abbrev".into(),
                     data: abbrev,
@@ -156,6 +157,12 @@ pub fn emit_object(mf: &MachineFunction, emitter: &mut dyn Emitter) -> ObjectFil
                 sections.push(Section {
                     name: ".debug_line".into(),
                     data: line,
+                    relocs: Vec::new(),
+                    debug_rows: Vec::new(),
+                });
+                sections.push(Section {
+                    name: ".debug_loclists".into(),
+                    data: loclists,
                     relocs: Vec::new(),
                     debug_rows: Vec::new(),
                 });
@@ -497,34 +504,111 @@ fn build_debug_line(source_file: &str, rows: &[DebugLineRow]) -> Vec<u8> {
 }
 
 fn build_debug_abbrev() -> Vec<u8> {
-    const DW_TAG_COMPILE_UNIT: u8 = 0x11;
+    // DWARF5 abbrev set:
+    // 1: CU (children=yes)
+    // 2: subprogram (children=yes)
+    // 3: variable (children=no)
+    // 4: base_type (children=no)
+    const DW_TAG_COMPILE_UNIT: u64 = 0x11;
+    const DW_TAG_SUBPROGRAM: u64 = 0x2e;
+    const DW_TAG_VARIABLE: u64 = 0x34;
+    const DW_TAG_BASE_TYPE: u64 = 0x24;
+
     const DW_CHILDREN_NO: u8 = 0x00;
-    const DW_AT_NAME: u8 = 0x03;
-    const DW_AT_STMT_LIST: u8 = 0x10;
-    const DW_AT_COMP_DIR: u8 = 0x1b;
-    const DW_FORM_STRING: u8 = 0x08;
-    const DW_FORM_DATA4: u8 = 0x06;
+    const DW_CHILDREN_YES: u8 = 0x01;
+
+    const DW_AT_NAME: u64 = 0x03;
+    const DW_AT_STMT_LIST: u64 = 0x10;
+    const DW_AT_LOW_PC: u64 = 0x11;
+    const DW_AT_HIGH_PC: u64 = 0x12;
+    const DW_AT_COMP_DIR: u64 = 0x1b;
+    const DW_AT_LOCATION: u64 = 0x02;
+    const DW_AT_TYPE: u64 = 0x49;
+    const DW_AT_ENCODING: u64 = 0x3e;
+    const DW_AT_BYTE_SIZE: u64 = 0x0b;
+
+    const DW_FORM_ADDR: u64 = 0x01;
+    const DW_FORM_DATA1: u64 = 0x0b;
+    const DW_FORM_DATA8: u64 = 0x07;
+    const DW_FORM_STRING: u64 = 0x08;
+    const DW_FORM_REF4: u64 = 0x13;
+    const DW_FORM_SEC_OFFSET: u64 = 0x17;
 
     let mut out = Vec::new();
-    // Abbrev code 1: compile_unit with name + stmt_list + comp_dir
-    out.push(1);
-    out.push(DW_TAG_COMPILE_UNIT);
+
+    // Abbrev code 1: compile_unit
+    write_uleb128(&mut out, 1);
+    write_uleb128(&mut out, DW_TAG_COMPILE_UNIT);
+    out.push(DW_CHILDREN_YES);
+    write_uleb128(&mut out, DW_AT_NAME);
+    write_uleb128(&mut out, DW_FORM_STRING);
+    write_uleb128(&mut out, DW_AT_STMT_LIST);
+    write_uleb128(&mut out, DW_FORM_SEC_OFFSET);
+    write_uleb128(&mut out, DW_AT_COMP_DIR);
+    write_uleb128(&mut out, DW_FORM_STRING);
+    write_uleb128(&mut out, DW_AT_LOW_PC);
+    write_uleb128(&mut out, DW_FORM_ADDR);
+    write_uleb128(&mut out, DW_AT_HIGH_PC);
+    write_uleb128(&mut out, DW_FORM_DATA8);
+    out.push(0);
+    out.push(0);
+
+    // Abbrev code 2: subprogram
+    write_uleb128(&mut out, 2);
+    write_uleb128(&mut out, DW_TAG_SUBPROGRAM);
+    out.push(DW_CHILDREN_YES);
+    write_uleb128(&mut out, DW_AT_NAME);
+    write_uleb128(&mut out, DW_FORM_STRING);
+    write_uleb128(&mut out, DW_AT_LOW_PC);
+    write_uleb128(&mut out, DW_FORM_ADDR);
+    write_uleb128(&mut out, DW_AT_HIGH_PC);
+    write_uleb128(&mut out, DW_FORM_DATA8);
+    out.push(0);
+    out.push(0);
+
+    // Abbrev code 3: variable with location list offset + type ref
+    write_uleb128(&mut out, 3);
+    write_uleb128(&mut out, DW_TAG_VARIABLE);
     out.push(DW_CHILDREN_NO);
-    out.push(DW_AT_NAME);
-    out.push(DW_FORM_STRING);
-    out.push(DW_AT_STMT_LIST);
-    out.push(DW_FORM_DATA4);
-    out.push(DW_AT_COMP_DIR);
-    out.push(DW_FORM_STRING);
+    write_uleb128(&mut out, DW_AT_NAME);
+    write_uleb128(&mut out, DW_FORM_STRING);
+    write_uleb128(&mut out, DW_AT_LOCATION);
+    write_uleb128(&mut out, DW_FORM_SEC_OFFSET);
+    write_uleb128(&mut out, DW_AT_TYPE);
+    write_uleb128(&mut out, DW_FORM_REF4);
     out.push(0);
     out.push(0);
+
+    // Abbrev code 4: base_type (e.g. i64)
+    write_uleb128(&mut out, 4);
+    write_uleb128(&mut out, DW_TAG_BASE_TYPE);
+    out.push(DW_CHILDREN_NO);
+    write_uleb128(&mut out, DW_AT_NAME);
+    write_uleb128(&mut out, DW_FORM_STRING);
+    write_uleb128(&mut out, DW_AT_ENCODING);
+    write_uleb128(&mut out, DW_FORM_DATA1);
+    write_uleb128(&mut out, DW_AT_BYTE_SIZE);
+    write_uleb128(&mut out, DW_FORM_DATA1);
+    out.push(0);
+    out.push(0);
+
     // End of abbrev table
     out.push(0);
     out
 }
 
-fn build_debug_info(source_file: &str, stmt_list_off: u32) -> Vec<u8> {
-    const DWARF_VERSION: u16 = 2;
+fn build_debug_info(
+    source_file: &str,
+    fn_name: &str,
+    text_size: u64,
+    stmt_list_off: u32,
+    _abbrev_off: u32,
+    loclists_var_off: u32,
+) -> Vec<u8> {
+    const DWARF_VERSION: u16 = 5;
+    const DW_UT_COMPILE: u8 = 0x01;
+    const DW_ATE_SIGNED: u8 = 0x05;
+
     let file = source_file.rsplit('/').next().unwrap_or(source_file);
     let comp_dir = source_file
         .rfind('/')
@@ -533,25 +617,84 @@ fn build_debug_info(source_file: &str, stmt_list_off: u32) -> Vec<u8> {
         .unwrap_or(".");
 
     let mut body = Vec::new();
-    // Abbrev code for CU DIE.
+
+    // DIE: compile unit (abbrev 1)
     write_uleb128(&mut body, 1);
-    // DW_AT_name (DW_FORM_string)
     body.extend_from_slice(file.as_bytes());
     body.push(0);
-    // DW_AT_stmt_list (DW_FORM_data4), offset in .debug_line section.
     w32(&mut body, stmt_list_off);
-    // DW_AT_comp_dir (DW_FORM_string)
     body.extend_from_slice(comp_dir.as_bytes());
     body.push(0);
-    // Null DIE terminator.
+    w64(&mut body, 0); // low_pc
+    w64(&mut body, text_size); // high_pc as address range size
+
+    // DIE: subprogram (abbrev 2)
+    write_uleb128(&mut body, 2);
+    body.extend_from_slice(fn_name.as_bytes());
+    body.push(0);
+    w64(&mut body, 0);
+    w64(&mut body, text_size);
+
+    // DIE: variable (abbrev 3)
+    write_uleb128(&mut body, 3);
+    body.extend_from_slice(b"result");
+    body.push(0);
+    w32(&mut body, loclists_var_off);
+    let type_ref_pos = body.len();
+    w32(&mut body, 0); // patched after base_type DIE offset is known
+
+    // End children of subprogram.
+    body.push(0);
+
+    // DIE: base_type (abbrev 4)
+    let base_type_off = body.len() as u32;
+    write_uleb128(&mut body, 4);
+    body.extend_from_slice(b"i64");
+    body.push(0);
+    body.push(DW_ATE_SIGNED);
+    body.push(8);
+
+    // Patch variable DW_AT_type (DW_FORM_ref4) to base_type DIE offset.
+    body[type_ref_pos..type_ref_pos + 4].copy_from_slice(&base_type_off.to_le_bytes());
+
+    // End children of CU.
     body.push(0);
 
     let mut out = Vec::new();
-    let unit_length = (2 + 4 + 1 + body.len()) as u32;
+    let unit_length = (2 + 1 + 1 + 4 + body.len()) as u32;
     w32(&mut out, unit_length);
     w16(&mut out, DWARF_VERSION);
-    w32(&mut out, 0); // abbrev offset
+    out.push(DW_UT_COMPILE);
     out.push(8); // address size
+    w32(&mut out, 0); // abbrev offset
+    out.extend_from_slice(&body);
+    out
+}
+
+fn build_debug_loclists(text_size: u64) -> Vec<u8> {
+    // DWARF5 .debug_loclists with one list at offset 12 (after header).
+    // List entries:
+    //   DW_LLE_start_length [0, text_size] exprloc(DW_OP_reg0)
+    //   DW_LLE_end_of_list
+    const DW_LLE_END_OF_LIST: u8 = 0x00;
+    const DW_LLE_START_LENGTH: u8 = 0x08;
+    const DW_OP_REG0: u8 = 0x50;
+
+    let mut body = Vec::new();
+    body.push(DW_LLE_START_LENGTH);
+    w64(&mut body, 0);
+    write_uleb128(&mut body, text_size.max(1));
+    body.push(1); // exprloc length
+    body.push(DW_OP_REG0);
+    body.push(DW_LLE_END_OF_LIST);
+
+    let mut out = Vec::new();
+    let unit_length = (2 + 1 + 1 + 4 + body.len()) as u32;
+    w32(&mut out, unit_length);
+    w16(&mut out, 5); // DWARF v5
+    out.push(8); // address size
+    out.push(0); // segment selector size
+    w32(&mut out, 0); // offset entry count
     out.extend_from_slice(&body);
     out
 }
@@ -1082,10 +1225,12 @@ mod tests {
         assert!(obj.sections.iter().any(|s| s.name == ".debug_line"));
         assert!(obj.sections.iter().any(|s| s.name == ".debug_info"));
         assert!(obj.sections.iter().any(|s| s.name == ".debug_abbrev"));
+        assert!(obj.sections.iter().any(|s| s.name == ".debug_loclists"));
         let bytes = obj.to_bytes();
         assert!(bytes.windows(11).any(|w| w == b".debug_line"));
         assert!(bytes.windows(11).any(|w| w == b".debug_info"));
         assert!(bytes.windows(13).any(|w| w == b".debug_abbrev"));
+        assert!(bytes.windows(15).any(|w| w == b".debug_loclists"));
     }
 
     #[test]
