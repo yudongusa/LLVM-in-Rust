@@ -36,6 +36,17 @@ jobs:
       - name: Seed 10k llvm-stress corpus and fuzz for 5m
         run: ./scripts/llvm_stress_fuzz.sh --iterations 10000 --max-total-time 300
 
+      - name: Upload fuzz artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: llvm-stress-fuzz-artifacts-${{ github.run_id }}
+          path: |
+            fuzz/artifacts/**
+            fuzz/corpus/**
+          if-no-files-found: warn
+          retention-days: 14
+
   csmith_semantic:
     name: CSmith semantic differential (1k cases)
     runs-on: ubuntu-24.04
