@@ -8,6 +8,7 @@ ITERATIONS="${ITERATIONS:-10000}"
 MAX_TOTAL_TIME="${MAX_TOTAL_TIME:-300}"
 CORPUS_DIR="${CORPUS_DIR:-fuzz/corpus/parser}"
 LLVM_STRESS_SIZE="${LLVM_STRESS_SIZE:-64}"
+LIBFUZZER_TIMEOUT="${LIBFUZZER_TIMEOUT:-60}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -25,6 +26,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --size)
       LLVM_STRESS_SIZE="$2"
+      shift 2
+      ;;
+    --timeout)
+      LIBFUZZER_TIMEOUT="$2"
       shift 2
       ;;
     *)
@@ -55,5 +60,8 @@ for i in $(seq 1 "$ITERATIONS"); do
   llvm-stress -size="$LLVM_STRESS_SIZE" >"$CORPUS_DIR/stress_${i}.ll"
 done
 
-echo "[fuzz] running parser target for ${MAX_TOTAL_TIME}s"
-cargo +nightly fuzz run parser "$CORPUS_DIR" -- -max_total_time="$MAX_TOTAL_TIME" -print_final_stats=1
+echo "[fuzz] running parser target for ${MAX_TOTAL_TIME}s (per-input timeout=${LIBFUZZER_TIMEOUT}s)"
+cargo +nightly fuzz run parser "$CORPUS_DIR" -- \
+  -max_total_time="$MAX_TOTAL_TIME" \
+  -timeout="$LIBFUZZER_TIMEOUT" \
+  -print_final_stats=1
