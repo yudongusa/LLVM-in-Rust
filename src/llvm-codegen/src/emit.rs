@@ -526,6 +526,7 @@ fn build_debug_abbrev() -> Vec<u8> {
     const DW_AT_TYPE: u64 = 0x49;
     const DW_AT_ENCODING: u64 = 0x3e;
     const DW_AT_BYTE_SIZE: u64 = 0x0b;
+    const DW_AT_LOCLISTS_BASE: u64 = 0x8c;
 
     const DW_FORM_ADDR: u64 = 0x01;
     const DW_FORM_DATA1: u64 = 0x0b;
@@ -550,6 +551,8 @@ fn build_debug_abbrev() -> Vec<u8> {
     write_uleb128(&mut out, DW_FORM_ADDR);
     write_uleb128(&mut out, DW_AT_HIGH_PC);
     write_uleb128(&mut out, DW_FORM_DATA8);
+    write_uleb128(&mut out, DW_AT_LOCLISTS_BASE);
+    write_uleb128(&mut out, DW_FORM_SEC_OFFSET);
     out.push(0);
     out.push(0);
 
@@ -627,6 +630,7 @@ fn build_debug_info(
     body.push(0);
     w64(&mut body, 0); // low_pc
     w64(&mut body, text_size); // high_pc as address range size
+    w32(&mut body, 0); // DW_AT_loclists_base
 
     // DIE: subprogram (abbrev 2)
     write_uleb128(&mut body, 2);
