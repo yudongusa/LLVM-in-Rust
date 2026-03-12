@@ -53,6 +53,29 @@ fn run_codegen(module: &Module, ctx: &llvm_ir::Context) {
     }
 }
 
+fn within_complexity_budget(module: &Module) -> bool {
+    // Keep fuzzing signal strong while avoiding pathological workloads that
+    // turn this harness into a long-running compiler benchmark.
+    const MAX_FUNCTIONS: usize = 256;
+    const MAX_BLOCKS: usize = 4096;
+    const MAX_INSTRUCTIONS: usize = 200_000;
+
+    if module.functions.len() > MAX_FUNCTIONS {
+        return false;
+    }
+
+    let mut blocks = 0usize;
+    let mut instrs = 0usize;
+    for f in &module.functions {
+        blocks += f.blocks.len();
+        for bb in &f.blocks {
+            instrs += bb.instrs.len();
+        }
+    }
+
+    blocks <= MAX_BLOCKS && instrs <= MAX_INSTRUCTIONS
+}
+
 fuzz_target!(|data: &[u8]| {
     if data.len() > 256 * 1024 {
         return;
@@ -67,6 +90,10 @@ fuzz_target!(|data: &[u8]| {
         Ok(m) => m,
         Err(_) => return,
     };
+
+    if !within_complexity_budget(&module) {
+        return;
+    }
 
     // Phase 2 in issue #82: exercise optimizer passes.
     let mut pm = PassManager::new();
