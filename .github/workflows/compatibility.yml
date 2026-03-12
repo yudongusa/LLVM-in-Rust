@@ -1,0 +1,77 @@
+name: Bootstrap Compatibility Gates
+
+on:
+  push:
+    branches: [main, "feat/**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  compat_stage_a:
+    name: Compatibility Stage A (core-level subset)
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Install Rust stable toolchain
+        run: |
+          rustup set profile minimal
+          rustup toolchain install stable
+          rustup default stable
+
+      - name: Cache cargo registry and build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-compat-a-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-compat-a-
+            ${{ runner.os }}-cargo-
+
+      - name: Run Stage A compatibility suite
+        run: ./scripts/compat_stage_a.sh
+
+  compat_stage_b:
+    name: Compatibility Stage B (expanded suite)
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Install Rust stable toolchain
+        run: |
+          rustup set profile minimal
+          rustup toolchain install stable
+          rustup default stable
+
+      - name: Install LLVM 19 tools
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y llvm-19 clang-19 binutils
+          sudo update-alternatives --install /usr/bin/llvm-as llvm-as /usr/lib/llvm-19/bin/llvm-as 100
+          sudo update-alternatives --install /usr/bin/llvm-objdump llvm-objdump /usr/lib/llvm-19/bin/llvm-objdump 100
+
+      - name: Cache cargo registry and build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-compat-b-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-compat-b-
+            ${{ runner.os }}-cargo-
+
+      - name: Run Stage B compatibility suite
+        env:
+          REQUIRE_LLVM: "1"
+        run: ./scripts/compat_stage_b.sh
