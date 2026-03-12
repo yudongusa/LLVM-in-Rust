@@ -326,6 +326,18 @@ fn encode_instr(instr: &MInstr, ctx: &mut EncodeCtx) {
             }
         }
 
+        // ── IMUL dst, src, imm32 (REX.W 0x69 /r id) ─────────────────────
+        IMUL_RRI => {
+            if let Some((dst, src, imm32)) = get_dst_src_imm(instr) {
+                maybe_rex(ctx, true, dst, src);
+                ctx.emit(0x69);
+                ctx.emit(modrm_rr(dst, src));
+                ctx.emit32(imm32 as i32);
+            } else {
+                ctx.emit(0x90);
+            }
+        }
+
         // ── IDIV src (REX.W 0xF7 /7) ──────────────────────────────────────
         IDIV_R => {
             if let Some(src) = instr.operands.first().and_then(preg) {
@@ -771,6 +783,25 @@ fn get_dst_preg_imm(instr: &MInstr) -> Option<(PReg, i64)> {
         return Some((*dst, *v));
     }
     None
+}
+
+fn get_dst_src_imm(instr: &MInstr) -> Option<(PReg, PReg, i64)> {
+    let dst = instr.dst.map(|v| PReg(v.0 as u8))?;
+    let src = instr.operands.iter().find_map(|op| {
+        if let MOperand::PReg(r) = op {
+            Some(*r)
+        } else {
+            None
+        }
+    })?;
+    let imm = instr.operands.iter().find_map(|op| {
+        if let MOperand::Imm(v) = op {
+            Some(*v)
+        } else {
+            None
+        }
+    })?;
+    Some((dst, src, imm))
 }
 
 /// Map a CC_* constant to the SETcc opcode byte (second byte of 0x0F 0x9x).
