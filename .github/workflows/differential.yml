@@ -13,9 +13,14 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Install Rust stable toolchain
-        uses: dtolnay/rust-toolchain@stable
+        run: |
+          rustup set profile minimal
+          rustup toolchain install stable
+          rustup default stable
 
       - name: Cache cargo registry and build artifacts
         uses: actions/cache@v4
@@ -44,9 +49,14 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Install Rust nightly toolchain
-        uses: dtolnay/rust-toolchain@nightly
+        run: |
+          rustup set profile minimal
+          rustup toolchain install stable nightly
+          rustup default nightly
 
       - name: Cache cargo registry and build artifacts
         uses: actions/cache@v4
