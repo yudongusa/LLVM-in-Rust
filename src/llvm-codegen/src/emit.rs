@@ -124,6 +124,37 @@ pub fn emit_object(mf: &MachineFunction, emitter: &mut dyn Emitter) -> ObjectFil
         global: true,
     };
     let mut sections = vec![section];
+
+    // Always emit baseline unwind metadata for supported object families.
+    // This enables stack unwinding infrastructure to discover frame ranges
+    // even when full per-instruction CFI richness is still evolving.
+    match emitter.object_format() {
+        ObjectFormat::Elf => {
+            sections.push(Section {
+                name: ".eh_frame".into(),
+                data: build_eh_frame(size),
+                relocs: Vec::new(),
+                debug_rows: Vec::new(),
+            });
+        }
+        ObjectFormat::Coff => {
+            let (xdata, pdata) = build_coff_unwind_tables(size);
+            sections.push(Section {
+                name: ".xdata".into(),
+                data: xdata,
+                relocs: Vec::new(),
+                debug_rows: Vec::new(),
+            });
+            sections.push(Section {
+                name: ".pdata".into(),
+                data: pdata,
+                relocs: Vec::new(),
+                debug_rows: Vec::new(),
+            });
+        }
+        ObjectFormat::MachO => {}
+    }
+
     let has_debug = !sections[0].debug_rows.is_empty() || mf.debug_line_start.is_some();
     if has_debug {
         let source = mf.debug_source.as_deref().unwrap_or("unknown.c");
@@ -690,6 +721,68 @@ fn build_debug_loclists(text_size: u64) -> Vec<u8> {
     out
 }
 
+fn build_eh_frame(text_size: u64) -> Vec<u8> {
+    // Minimal .eh_frame with one CIE and one FDE (x86_64 SysV conventions).
+    // CIE augmentation uses zR and encodes FDE pointers as pcrel/sdata4.
+    let mut out = Vec::new();
+
+    let mut cie = Vec::new();
+    cie.push(1); // version
+    cie.extend_from_slice(b"zR\0"); // augmentation
+    write_uleb128(&mut cie, 1); // code alignment factor
+    write_sleb128(&mut cie, -8); // data alignment factor
+    write_uleb128(&mut cie, 16); // return address register (RIP)
+    write_uleb128(&mut cie, 1); // augmentation data length
+    cie.push(0x1b); // DW_EH_PE_pcrel | DW_EH_PE_sdata4
+    cie.push(0x0c); // DW_CFA_def_cfa
+    write_uleb128(&mut cie, 7); // rsp
+    write_uleb128(&mut cie, 8);
+    cie.push(0x90); // DW_CFA_offset + r16
+    write_uleb128(&mut cie, 1);
+
+    w32(&mut out, cie.len() as u32 + 4);
+    w32(&mut out, 0); // CIE id
+    out.extend_from_slice(&cie);
+    while out.len() % 8 != 0 {
+        out.push(0);
+    }
+
+    let fde_start = out.len();
+    let mut fde = Vec::new();
+    w32(&mut fde, 0); // initial_location (placeholder in object file)
+    w32(&mut fde, text_size.max(1) as u32); // address range
+    write_uleb128(&mut fde, 0); // augmentation data length
+
+    w32(&mut out, fde.len() as u32 + 4);
+    let cie_ptr = (fde_start as u32).wrapping_sub(0);
+    w32(&mut out, cie_ptr); // CIE pointer (backward relative offset)
+    out.extend_from_slice(&fde);
+    while out.len() % 8 != 0 {
+        out.push(0);
+    }
+
+    w32(&mut out, 0); // terminator
+    out
+}
+
+fn build_coff_unwind_tables(text_size: u64) -> (Vec<u8>, Vec<u8>) {
+    // Minimal x64 UNWIND_INFO (version 1, no unwind codes, no frame reg).
+    let mut xdata = Vec::new();
+    xdata.push(0x01); // version=1, flags=0
+    xdata.push(0); // size of prolog
+    xdata.push(0); // count of unwind codes
+    xdata.push(0); // frame reg/offset
+
+    // One RUNTIME_FUNCTION entry in .pdata:
+    // BeginAddress, EndAddress, UnwindInfoAddress (all image-relative u32).
+    let mut pdata = Vec::new();
+    w32(&mut pdata, 0);
+    w32(&mut pdata, text_size.max(1) as u32);
+    w32(&mut pdata, 0); // points at start of .xdata in this object's section space
+
+    (xdata, pdata)
+}
+
 // ── Mach-O 64-bit serialization ────────────────────────────────────────────
 //
 // Minimal Mach-O 64-bit MH_OBJECT layout:
@@ -1222,6 +1315,75 @@ mod tests {
         assert!(bytes.windows(11).any(|w| w == b".debug_info"));
         assert!(bytes.windows(13).any(|w| w == b".debug_abbrev"));
         assert!(bytes.windows(15).any(|w| w == b".debug_loclists"));
+    }
+
+    #[test]
+    fn emit_object_adds_eh_frame_for_elf() {
+        use crate::isel::{MachineBlock, MachineFunction};
+
+        struct NopEmitter;
+        impl Emitter for NopEmitter {
+            fn emit_function(&mut self, _mf: &MachineFunction) -> Section {
+                Section {
+                    name: ".text".into(),
+                    data: vec![0x90, 0xC3],
+                    relocs: vec![],
+                    debug_rows: vec![],
+                }
+            }
+            fn object_format(&self) -> ObjectFormat {
+                ObjectFormat::Elf
+            }
+        }
+
+        let mut mf = MachineFunction::new("eh".into());
+        mf.blocks.push(MachineBlock {
+            label: "entry".into(),
+            instrs: vec![],
+        });
+
+        let obj = emit_object(&mf, &mut NopEmitter);
+        let eh = obj
+            .sections
+            .iter()
+            .find(|s| s.name == ".eh_frame")
+            .expect(".eh_frame section");
+        assert!(!eh.data.is_empty());
+        let bytes = obj.to_bytes();
+        assert!(bytes.windows(9).any(|w| w == b".eh_frame"));
+    }
+
+    #[test]
+    fn emit_object_adds_unwind_tables_for_coff() {
+        use crate::isel::{MachineBlock, MachineFunction};
+
+        struct NopEmitter;
+        impl Emitter for NopEmitter {
+            fn emit_function(&mut self, _mf: &MachineFunction) -> Section {
+                Section {
+                    name: ".text".into(),
+                    data: vec![0x90],
+                    relocs: vec![],
+                    debug_rows: vec![],
+                }
+            }
+            fn object_format(&self) -> ObjectFormat {
+                ObjectFormat::Coff
+            }
+        }
+
+        let mut mf = MachineFunction::new("seh".into());
+        mf.blocks.push(MachineBlock {
+            label: "entry".into(),
+            instrs: vec![],
+        });
+
+        let obj = emit_object(&mf, &mut NopEmitter);
+        assert!(obj.sections.iter().any(|s| s.name == ".xdata"));
+        assert!(obj.sections.iter().any(|s| s.name == ".pdata"));
+        let bytes = obj.to_bytes();
+        assert!(bytes.windows(6).any(|w| w == b".xdata"));
+        assert!(bytes.windows(6).any(|w| w == b".pdata"));
     }
 
     #[test]

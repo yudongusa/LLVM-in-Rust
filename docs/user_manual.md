@@ -473,3 +473,19 @@ Notes:
 - Predicate must return **non-zero** when the bug is still reproduced.
 - The tool performs line-based reduction and writes `minimized.ll`.
 - Pair this output with the miscompilation issue template evidence package.
+
+---
+
+## Exception / Unwind Metadata (Current State)
+
+`llvm-codegen` now emits baseline unwind metadata for object files:
+
+- ELF: `.eh_frame` with a minimal CIE/FDE record
+- COFF: `.xdata` + `.pdata` with a minimal unwind/runtime-function record
+
+This enables platform unwind tooling to discover function frame ranges in produced objects.
+
+Current limitations:
+- Metadata is intentionally minimal (baseline compatibility path, not full prologue-precise unwind op streams yet).
+- Personality routine / language-specific exception object interop is not fully modeled.
+- Cross-language throw/catch semantics should still be considered experimental at ABI boundaries.
