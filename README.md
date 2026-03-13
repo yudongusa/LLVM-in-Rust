@@ -8,15 +8,24 @@ The official LLVM is a C++ library that Rust projects consume through a fragile 
 
 ## Status
 
-All of Phase 1–5 are implemented and tested (196 tests, all passing):
+Core roadmap phases are implemented and actively extended. Current workspace test inventory is **523 tests (all passing)**.
 
 | Phase | What | Status |
 |-------|------|--------|
 | 1 | IR foundation — types, values, instructions, builder, printer, `.ll` parser | Done |
 | 2 | Analysis — CFG, dominator tree, use-def chains, loop detection | Done |
 | 3 | Optimization — mem2reg, DCE, constant folding/propagation, inlining | Done |
-| 4 | x86_64 backend — instruction selection, register allocation, ELF/Mach-O emission | Done |
-| 5 | AArch64 backend + binary IR format (LRIR) reader/writer | Done |
+| 4 | x86_64 backend — instruction selection, register allocation, object emission | Done |
+| 5 | AArch64 backend + LRIR reader/writer | Done |
+| 6 | Debug + unwind hardening (DWARF5 sections, `.eh_frame`, `.xdata/.pdata`, verifier-oriented tests) | Done |
+| 7 | SIMD/FP expansion (feature-gated SSE4.2/AVX2/AVX-512F vector lowering paths) | Done |
+| 8 | LTO baseline (IR payload embedding in objects + link-time cross-module re-optimization path) | Done |
+
+### Recently completed milestones
+
+- **DWARF / unwind completeness:** frame-aware unwind metadata emission with structural and tool-backed verification (`readelf`, `llvm-dwarfdump`, `llvm-readobj` where available).
+- **SIMD/FP widening:** x86 lowering now includes explicit width/feature gating for SSE4.2, AVX2, and AVX-512F paths with fallback safety tests.
+- **LTO-ready flow:** top-level `llvm::lto` helpers now support embedding/recovering LRIR payloads and running cross-module optimization at link time.
 
 ---
 
