@@ -1387,6 +1387,116 @@ mod tests {
     }
 
     #[test]
+    fn eh_frame_has_expected_cie_fde_shape() {
+        use crate::isel::{MachineBlock, MachineFunction};
+
+        struct NopEmitter;
+        impl Emitter for NopEmitter {
+            fn emit_function(&mut self, _mf: &MachineFunction) -> Section {
+                Section {
+                    name: ".text".into(),
+                    data: vec![0x90, 0x90, 0xC3],
+                    relocs: vec![],
+                    debug_rows: vec![],
+                }
+            }
+            fn object_format(&self) -> ObjectFormat {
+                ObjectFormat::Elf
+            }
+        }
+
+        let mut mf = MachineFunction::new("eh-shape".into());
+        mf.blocks.push(MachineBlock {
+            label: "entry".into(),
+            instrs: vec![],
+        });
+
+        let obj = emit_object(&mf, &mut NopEmitter);
+        let eh = obj
+            .sections
+            .iter()
+            .find(|s| s.name == ".eh_frame")
+            .expect(".eh_frame section")
+            .data
+            .clone();
+
+        // CIE starts at offset 0.
+        let cie_len = u32::from_le_bytes([eh[0], eh[1], eh[2], eh[3]]) as usize;
+        assert!(cie_len > 8, "CIE should have payload");
+        let cie_id = u32::from_le_bytes([eh[4], eh[5], eh[6], eh[7]]);
+        assert_eq!(cie_id, 0, "CIE id must be zero");
+        assert_eq!(eh[8], 1, "CIE version");
+        assert!(eh.windows(3).any(|w| w == b"zR\0"), "CIE augmentation zR");
+
+        // FDE starts at aligned boundary after first record.
+        let fde_off = (4 + cie_len + 7) & !7;
+        let fde_len = u32::from_le_bytes([eh[fde_off], eh[fde_off + 1], eh[fde_off + 2], eh[fde_off + 3]]) as usize;
+        assert!(fde_len >= 12, "FDE should contain init loc + range + aug len");
+
+        // FDE payload: [CIE ptr][init loc][range][aug-len]
+        let range_off = fde_off + 4 + 4 + 4;
+        let range = u32::from_le_bytes([eh[range_off], eh[range_off + 1], eh[range_off + 2], eh[range_off + 3]]);
+        assert_eq!(range, 3, "FDE range should match text size");
+
+        // .eh_frame terminator record exists.
+        assert_eq!(&eh[eh.len() - 4..], &[0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn coff_unwind_tables_have_expected_layout() {
+        use crate::isel::{MachineBlock, MachineFunction};
+
+        struct NopEmitter;
+        impl Emitter for NopEmitter {
+            fn emit_function(&mut self, _mf: &MachineFunction) -> Section {
+                Section {
+                    name: ".text".into(),
+                    data: vec![0x90, 0xC3],
+                    relocs: vec![],
+                    debug_rows: vec![],
+                }
+            }
+            fn object_format(&self) -> ObjectFormat {
+                ObjectFormat::Coff
+            }
+        }
+
+        let mut mf = MachineFunction::new("coff-unwind-shape".into());
+        mf.blocks.push(MachineBlock {
+            label: "entry".into(),
+            instrs: vec![],
+        });
+
+        let obj = emit_object(&mf, &mut NopEmitter);
+        let xdata = obj
+            .sections
+            .iter()
+            .find(|s| s.name == ".xdata")
+            .expect(".xdata section")
+            .data
+            .clone();
+        let pdata = obj
+            .sections
+            .iter()
+            .find(|s| s.name == ".pdata")
+            .expect(".pdata section")
+            .data
+            .clone();
+
+        assert_eq!(xdata.len(), 4, "minimal UNWIND_INFO header");
+        assert_eq!(xdata[0] & 0x7, 1, "UNWIND_INFO version 1");
+        assert_eq!(pdata.len(), 12, "single RUNTIME_FUNCTION entry");
+
+        let begin = u32::from_le_bytes([pdata[0], pdata[1], pdata[2], pdata[3]]);
+        let end = u32::from_le_bytes([pdata[4], pdata[5], pdata[6], pdata[7]]);
+        let unwind_info_rva = u32::from_le_bytes([pdata[8], pdata[9], pdata[10], pdata[11]]);
+
+        assert_eq!(begin, 0);
+        assert_eq!(end, 2, "runtime function end should match text size");
+        assert_eq!(unwind_info_rva, 0, "points at section-local xdata start in this object model");
+    }
+
+    #[test]
     fn emit_object_adds_debug_s_section_for_coff() {
         use crate::isel::{MachineBlock, MachineFunction};
 

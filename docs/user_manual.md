@@ -489,3 +489,5 @@ Current limitations:
 - Metadata is intentionally minimal (baseline compatibility path, not full prologue-precise unwind op streams yet).
 - Personality routine / language-specific exception object interop is not fully modeled.
 - Cross-language throw/catch semantics should still be considered experimental at ABI boundaries.
+
+See also: `docs/unwind_compatibility_matrix.md` for per-format guarantees and caveats.
