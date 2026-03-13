@@ -91,7 +91,7 @@ impl ObjectFile {
 
 // ── Emitter trait ──────────────────────────────────────────────────────────
 
-use crate::isel::MachineFunction;
+use crate::isel::{MachineFunction, PReg};
 
 /// Implemented by each target to encode machine instructions into bytes.
 pub trait Emitter {
@@ -132,13 +132,13 @@ pub fn emit_object(mf: &MachineFunction, emitter: &mut dyn Emitter) -> ObjectFil
         ObjectFormat::Elf => {
             sections.push(Section {
                 name: ".eh_frame".into(),
-                data: build_eh_frame(size),
+                data: build_eh_frame(size, mf.frame_size, &mf.used_callee_saved),
                 relocs: Vec::new(),
                 debug_rows: Vec::new(),
             });
         }
         ObjectFormat::Coff => {
-            let (xdata, pdata) = build_coff_unwind_tables(size);
+            let (xdata, pdata) = build_coff_unwind_tables(size, mf.frame_size, &mf.used_callee_saved);
             sections.push(Section {
                 name: ".xdata".into(),
                 data: xdata,
@@ -721,8 +721,8 @@ fn build_debug_loclists(text_size: u64) -> Vec<u8> {
     out
 }
 
-fn build_eh_frame(text_size: u64) -> Vec<u8> {
-    // Minimal .eh_frame with one CIE and one FDE (x86_64 SysV conventions).
+fn build_eh_frame(text_size: u64, frame_size: u32, used_callee_saved: &[PReg]) -> Vec<u8> {
+    // Baseline .eh_frame with one CIE/FDE, now shaped by frame facts.
     // CIE augmentation uses zR and encodes FDE pointers as pcrel/sdata4.
     let mut out = Vec::new();
 
@@ -734,10 +734,12 @@ fn build_eh_frame(text_size: u64) -> Vec<u8> {
     write_uleb128(&mut cie, 16); // return address register (RIP)
     write_uleb128(&mut cie, 1); // augmentation data length
     cie.push(0x1b); // DW_EH_PE_pcrel | DW_EH_PE_sdata4
+
+    // Initial canonical frame: CFA = rsp + 8, RA saved at cfa-8.
     cie.push(0x0c); // DW_CFA_def_cfa
     write_uleb128(&mut cie, 7); // rsp
     write_uleb128(&mut cie, 8);
-    cie.push(0x90); // DW_CFA_offset + r16
+    cie.push(0x90); // DW_CFA_offset + r16 (rip)
     write_uleb128(&mut cie, 1);
 
     w32(&mut out, cie.len() as u32 + 4);
@@ -751,11 +753,52 @@ fn build_eh_frame(text_size: u64) -> Vec<u8> {
     let mut fde = Vec::new();
     w32(&mut fde, 0); // initial_location (placeholder in object file)
     w32(&mut fde, text_size.max(1) as u32); // address range
-    write_uleb128(&mut fde, 0); // augmentation data length
+
+    // Build FDE instruction stream from frame shape.
+    let mut fde_prog = Vec::new();
+    let mut cfa_off = 8u64;
+
+    // Account for frame pointer setup and pushed callee-saved registers.
+    let pushes = if frame_size > 0 || !used_callee_saved.is_empty() {
+        1 + used_callee_saved.len() as u64 // push rbp + pushes
+    } else {
+        0
+    };
+
+    if pushes > 0 {
+        cfa_off += pushes * 8;
+        fde_prog.push(0x0e); // DW_CFA_def_cfa_offset
+        write_uleb128(&mut fde_prog, cfa_off);
+
+        // rbp saved at CFA-16 after push rbp + call return address.
+        fde_prog.push(0x86); // DW_CFA_offset + r6 (rbp)
+        write_uleb128(&mut fde_prog, 2);
+
+        for (idx, pr) in used_callee_saved.iter().enumerate() {
+            let reg = pr.0 as u8;
+            if reg <= 0x3f {
+                fde_prog.push(0x80 | reg); // DW_CFA_offset + reg
+                write_uleb128(&mut fde_prog, 3 + idx as u64); // after RA+RBP
+            }
+        }
+
+        // set CFA register to rbp once prologue establishes frame pointer.
+        fde_prog.push(0x0d); // DW_CFA_def_cfa_register
+        write_uleb128(&mut fde_prog, 6); // rbp
+    }
+
+    if frame_size > 0 {
+        cfa_off += frame_size as u64;
+        fde_prog.push(0x0e); // DW_CFA_def_cfa_offset
+        write_uleb128(&mut fde_prog, cfa_off);
+    }
+
+    write_uleb128(&mut fde, fde_prog.len() as u64); // augmentation data length
+    fde.extend_from_slice(&fde_prog);
 
     w32(&mut out, fde.len() as u32 + 4);
-    let cie_ptr = (fde_start as u32).wrapping_sub(0);
-    w32(&mut out, cie_ptr); // CIE pointer (backward relative offset)
+    let cie_ptr = fde_start as u32;
+    w32(&mut out, cie_ptr); // CIE pointer (offset back to CIE at 0)
     out.extend_from_slice(&fde);
     while out.len() % 8 != 0 {
         out.push(0);
@@ -765,13 +808,40 @@ fn build_eh_frame(text_size: u64) -> Vec<u8> {
     out
 }
 
-fn build_coff_unwind_tables(text_size: u64) -> (Vec<u8>, Vec<u8>) {
-    // Minimal x64 UNWIND_INFO (version 1, no unwind codes, no frame reg).
+fn build_coff_unwind_tables(text_size: u64, frame_size: u32, used_callee_saved: &[PReg]) -> (Vec<u8>, Vec<u8>) {
+    // x64 UNWIND_INFO shaped from prologue facts (push rbp + optional stack alloc).
+    // Keep a conservative subset of unwind codes for compatibility.
+    let has_frame = frame_size > 0 || !used_callee_saved.is_empty();
+    let mut codes: Vec<(u8, u8, u16)> = Vec::new();
+
+    if has_frame {
+        // UWOP_PUSH_NONVOL for RBP at prologue offset 1.
+        codes.push((1, 0, 5)); // info=RBP
+    }
+
+    let alloc_size = if frame_size == 0 { 0 } else { ((frame_size as u32 + 15) / 16) * 16 };
+    if alloc_size > 0 && alloc_size <= 128 {
+        // UWOP_ALLOC_SMALL: info = (size/8)-1
+        let info = ((alloc_size / 8) - 1) as u16;
+        codes.push((4, 2, info));
+    }
+
+    let count_of_codes = codes.len() as u8;
     let mut xdata = Vec::new();
     xdata.push(0x01); // version=1, flags=0
-    xdata.push(0); // size of prolog
-    xdata.push(0); // count of unwind codes
-    xdata.push(0); // frame reg/offset
+    xdata.push(if has_frame { 4 } else { 0 }); // conservative prolog size
+    xdata.push(count_of_codes); // unwind code slots (we encode one slot each)
+    xdata.push(if has_frame { 5 } else { 0 }); // frame register=RBP, offset=0
+
+    for (code_off, unwind_op, op_info) in &codes {
+        xdata.push(*code_off);
+        xdata.push(((*op_info as u8) << 4) | (*unwind_op & 0x0f));
+    }
+
+    // Align unwind info to 4-byte boundary.
+    while xdata.len() % 4 != 0 {
+        xdata.push(0);
+    }
 
     // One RUNTIME_FUNCTION entry in .pdata:
     // BeginAddress, EndAddress, UnwindInfoAddress (all image-relative u32).
@@ -1387,6 +1457,48 @@ mod tests {
     }
 
     #[test]
+    fn eh_frame_reflects_frame_facts_when_present() {
+        use crate::isel::{MachineBlock, MachineFunction};
+
+        struct NopEmitter;
+        impl Emitter for NopEmitter {
+            fn emit_function(&mut self, _mf: &MachineFunction) -> Section {
+                Section {
+                    name: ".text".into(),
+                    data: vec![0x90, 0x90, 0xC3],
+                    relocs: vec![],
+                    debug_rows: vec![],
+                }
+            }
+            fn object_format(&self) -> ObjectFormat {
+                ObjectFormat::Elf
+            }
+        }
+
+        let mut mf = MachineFunction::new("eh-facts".into());
+        mf.blocks.push(MachineBlock {
+            label: "entry".into(),
+            instrs: vec![],
+        });
+        mf.frame_size = 16;
+        mf.used_callee_saved = vec![PReg(3), PReg(12)]; // rbx, r12
+
+        let obj = emit_object(&mf, &mut NopEmitter);
+        let eh = obj
+            .sections
+            .iter()
+            .find(|s| s.name == ".eh_frame")
+            .expect(".eh_frame section")
+            .data
+            .clone();
+
+        // Expect def_cfa_offset opcode (0x0e) in FDE program when frame facts exist.
+        assert!(eh.contains(&0x0e), "expected DW_CFA_def_cfa_offset in frame-aware FDE");
+        // Expect def_cfa_register opcode (0x0d) when frame pointer model is active.
+        assert!(eh.contains(&0x0d), "expected DW_CFA_def_cfa_register in frame-aware FDE");
+    }
+
+    #[test]
     fn eh_frame_has_expected_cie_fde_shape() {
         use crate::isel::{MachineBlock, MachineFunction};
 
@@ -1440,6 +1552,47 @@ mod tests {
 
         // .eh_frame terminator record exists.
         assert_eq!(&eh[eh.len() - 4..], &[0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn coff_unwind_tables_encode_frame_facts_when_present() {
+        use crate::isel::{MachineBlock, MachineFunction};
+
+        struct NopEmitter;
+        impl Emitter for NopEmitter {
+            fn emit_function(&mut self, _mf: &MachineFunction) -> Section {
+                Section {
+                    name: ".text".into(),
+                    data: vec![0x90, 0x90, 0xC3],
+                    relocs: vec![],
+                    debug_rows: vec![],
+                }
+            }
+            fn object_format(&self) -> ObjectFormat {
+                ObjectFormat::Coff
+            }
+        }
+
+        let mut mf = MachineFunction::new("coff-unwind-facts".into());
+        mf.blocks.push(MachineBlock {
+            label: "entry".into(),
+            instrs: vec![],
+        });
+        mf.frame_size = 16;
+        mf.used_callee_saved = vec![PReg(3)]; // rbx
+
+        let obj = emit_object(&mf, &mut NopEmitter);
+        let xdata = obj
+            .sections
+            .iter()
+            .find(|s| s.name == ".xdata")
+            .expect(".xdata section")
+            .data
+            .clone();
+        assert!(xdata.len() >= 8, "unwind info should include at least one code slot");
+        assert_eq!(xdata[0] & 0x7, 1, "UNWIND_INFO version 1");
+        assert!(xdata[2] >= 1, "count_of_codes should be non-zero when frame facts exist");
+        assert_eq!(xdata[3] & 0x0f, 5, "frame register should be RBP");
     }
 
     #[test]
