@@ -91,6 +91,7 @@ fn emit_dbg_elf_obj_from_ir(src: &str, out: &Path) -> ObjectFile {
     assert!(obj.sections.iter().any(|s| s.name == ".debug_line"));
     assert!(obj.sections.iter().any(|s| s.name == ".debug_info"));
     assert!(obj.sections.iter().any(|s| s.name == ".debug_abbrev"));
+    assert!(obj.sections.iter().any(|s| s.name == ".debug_loclists"));
     std::fs::write(out, obj.to_bytes()).expect("write object");
     obj
 }
@@ -126,6 +127,7 @@ fn emit_dbg_elf_obj_from_ir(src: &str, out: &Path) -> ObjectFile {
     assert!(obj.sections.iter().any(|s| s.name == ".debug_line"));
     assert!(obj.sections.iter().any(|s| s.name == ".debug_info"));
     assert!(obj.sections.iter().any(|s| s.name == ".debug_abbrev"));
+    assert!(obj.sections.iter().any(|s| s.name == ".debug_loclists"));
     std::fs::write(out, obj.to_bytes()).expect("write object");
     obj
 }
@@ -151,6 +153,7 @@ fn emits_debug_line_when_dbg_metadata_present() {
         assert!(text.contains(".debug_line"), "readelf output: {text}");
         assert!(text.contains(".debug_info"), "readelf output: {text}");
         assert!(text.contains(".debug_abbrev"), "readelf output: {text}");
+        assert!(text.contains(".debug_loclists"), "readelf output: {text}");
     }
 
     if let Some(tool) = require_llvm_tool(
@@ -169,6 +172,20 @@ fn emits_debug_line_when_dbg_metadata_present() {
         assert!(out.status.success());
         let text = String::from_utf8_lossy(&out.stdout);
         assert!(text.contains("dbg_test.c") || text.contains("line"), "dwarfdump output: {text}");
+
+        let info = Command::new(&tool)
+            .arg("--debug-info")
+            .arg(&obj_path)
+            .output()
+            .expect("run llvm-dwarfdump --debug-info");
+        assert!(info.status.success());
+        let info_text = String::from_utf8_lossy(&info.stdout);
+        assert!(
+            info_text.contains("DW_TAG_compile_unit")
+                && info_text.contains("DW_TAG_subprogram")
+                && info_text.contains("DW_TAG_variable"),
+            "dwarfdump --debug-info output: {info_text}"
+        );
 
         let verify = Command::new(&tool)
             .arg("--verify")
