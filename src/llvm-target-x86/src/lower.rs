@@ -21,6 +21,7 @@ use std::collections::HashMap;
 pub struct TargetFeatures {
     pub sse42: bool,
     pub avx2: bool,
+    pub avx512f: bool,
 }
 
 impl TargetFeatures {
@@ -28,6 +29,7 @@ impl TargetFeatures {
         Self {
             sse42: false,
             avx2: false,
+            avx512f: false,
         }
     }
 
@@ -35,6 +37,7 @@ impl TargetFeatures {
         Self {
             sse42: true,
             avx2: false,
+            avx512f: false,
         }
     }
 
@@ -42,7 +45,20 @@ impl TargetFeatures {
         Self {
             sse42: true,
             avx2: true,
+            avx512f: false,
         }
+    }
+
+    pub const fn avx512f() -> Self {
+        Self {
+            sse42: true,
+            avx2: true,
+            avx512f: true,
+        }
+    }
+
+    pub const fn simd_enabled(self) -> bool {
+        self.sse42 || self.avx2 || self.avx512f
     }
 }
 
@@ -239,9 +255,6 @@ fn vector_int_opcode(
     op: VecIntOp,
     features: TargetFeatures,
 ) -> Option<llvm_codegen::isel::MOpcode> {
-    if !features.sse42 {
-        return None;
-    }
     let TypeData::Vector {
         element,
         len,
@@ -250,12 +263,20 @@ fn vector_int_opcode(
     else {
         return None;
     };
-    if *len != 4 {
-        return None;
-    }
     let TypeData::Integer(32) = ctx.get_type(*element) else {
         return None;
     };
+
+    let width_supported = match *len {
+        4 => features.sse42,
+        8 => features.avx2,
+        16 => features.avx512f,
+        _ => false,
+    };
+    if !width_supported {
+        return None;
+    }
+
     Some(match op {
         VecIntOp::Add => PADDD_RR,
         VecIntOp::Sub => PSUBD_RR,
@@ -276,9 +297,6 @@ fn vector_fp_opcode(
     op: VecFpOp,
     features: TargetFeatures,
 ) -> Option<llvm_codegen::isel::MOpcode> {
-    if !features.sse42 {
-        return None;
-    }
     let TypeData::Vector {
         element,
         len,
@@ -287,12 +305,26 @@ fn vector_fp_opcode(
     else {
         return None;
     };
+
     match (ctx.get_type(*element), *len, op) {
-        (TypeData::Float(FloatKind::Single), 4, VecFpOp::Add) => Some(ADDPS_RR),
-        (TypeData::Float(FloatKind::Single), 4, VecFpOp::Mul) => Some(MULPS_RR),
-        (TypeData::Float(FloatKind::Single), 4, VecFpOp::Div) => Some(DIVPS_RR),
-        (TypeData::Float(FloatKind::Double), 2, VecFpOp::Add) => Some(ADDPD_RR),
-        (TypeData::Float(FloatKind::Double), 2, VecFpOp::Mul) => Some(MULPD_RR),
+        // f32 vectors: 128/256/512-bit lanes gate on SSE4.2/AVX2/AVX-512F.
+        (TypeData::Float(FloatKind::Single), 4, VecFpOp::Add) if features.sse42 => Some(ADDPS_RR),
+        (TypeData::Float(FloatKind::Single), 4, VecFpOp::Mul) if features.sse42 => Some(MULPS_RR),
+        (TypeData::Float(FloatKind::Single), 4, VecFpOp::Div) if features.sse42 => Some(DIVPS_RR),
+        (TypeData::Float(FloatKind::Single), 8, VecFpOp::Add) if features.avx2 => Some(ADDPS_RR),
+        (TypeData::Float(FloatKind::Single), 8, VecFpOp::Mul) if features.avx2 => Some(MULPS_RR),
+        (TypeData::Float(FloatKind::Single), 8, VecFpOp::Div) if features.avx2 => Some(DIVPS_RR),
+        (TypeData::Float(FloatKind::Single), 16, VecFpOp::Add) if features.avx512f => Some(ADDPS_RR),
+        (TypeData::Float(FloatKind::Single), 16, VecFpOp::Mul) if features.avx512f => Some(MULPS_RR),
+        (TypeData::Float(FloatKind::Single), 16, VecFpOp::Div) if features.avx512f => Some(DIVPS_RR),
+
+        // f64 vectors: 128/256/512-bit lanes gate on SSE4.2/AVX2/AVX-512F.
+        (TypeData::Float(FloatKind::Double), 2, VecFpOp::Add) if features.sse42 => Some(ADDPD_RR),
+        (TypeData::Float(FloatKind::Double), 2, VecFpOp::Mul) if features.sse42 => Some(MULPD_RR),
+        (TypeData::Float(FloatKind::Double), 4, VecFpOp::Add) if features.avx2 => Some(ADDPD_RR),
+        (TypeData::Float(FloatKind::Double), 4, VecFpOp::Mul) if features.avx2 => Some(MULPD_RR),
+        (TypeData::Float(FloatKind::Double), 8, VecFpOp::Add) if features.avx512f => Some(ADDPD_RR),
+        (TypeData::Float(FloatKind::Double), 8, VecFpOp::Mul) if features.avx512f => Some(MULPD_RR),
         _ => None,
     }
 }
@@ -686,7 +718,7 @@ fn lower_instr(
         }
         Load { ty, .. } => {
             let dst = new_dst!();
-            if matches!(ctx.get_type(*ty), TypeData::Vector { .. }) && features.sse42 {
+            if matches!(ctx.get_type(*ty), TypeData::Vector { .. }) && features.simd_enabled() {
                 mf.push(
                     mblock,
                     MInstr::new(MOVDQU_LOAD_MR).with_dst(dst).with_imm(0),
@@ -697,7 +729,7 @@ fn lower_instr(
         }
         Store { val, .. } => {
             if let Some(ty) = func.type_of_value(*val) {
-                if matches!(ctx.get_type(ty), TypeData::Vector { .. }) && features.sse42 {
+                if matches!(ctx.get_type(ty), TypeData::Vector { .. }) && features.simd_enabled() {
                     let src = res!(*val);
                     mf.push(
                         mblock,
@@ -742,7 +774,7 @@ fn lower_instr(
         // ── aggregate / vector ops (not yet supported) ─────────────────────
         ExtractValue { .. } | InsertValue { .. } | ShuffleVector { .. } => {
             let dst = new_dst!();
-            if features.avx2 || features.sse42 {
+            if features.simd_enabled() {
                 // Feature-aware placeholder: SIMD-specific lowering lands in
                 // follow-up issue #86 patches, but the path is now gated.
                 mf.push(mblock, MInstr::new(MOV_RI).with_dst(dst).with_imm(0));
@@ -753,7 +785,7 @@ fn lower_instr(
         }
         ExtractElement { vec, idx } => {
             let dst = new_dst!();
-            if features.sse42 && const_u64(ctx, *idx) == Some(0) {
+            if features.simd_enabled() && const_u64(ctx, *idx) == Some(0) {
                 let src = res!(*vec);
                 mf.push(mblock, MInstr::new(MOV_RR).with_dst(dst).with_vreg(src));
             } else {
@@ -762,12 +794,12 @@ fn lower_instr(
         }
         InsertElement { vec, val, idx } => {
             let dst = new_dst!();
-            if features.sse42 && const_u64(ctx, *idx) == Some(0) {
+            if features.simd_enabled() && const_u64(ctx, *idx) == Some(0) {
                 let src = res!(*val);
                 mf.push(mblock, MInstr::new(MOV_RR).with_dst(dst).with_vreg(src));
             } else {
                 let src = res!(*vec);
-                if features.sse42 {
+                if features.simd_enabled() {
                     mf.push(mblock, MInstr::new(MOVAPS_RR).with_dst(dst).with_vreg(src));
                 } else {
                     mf.push(mblock, MInstr::new(MOV_RI).with_dst(dst).with_imm(0));
@@ -1712,6 +1744,29 @@ mod tests {
         (ctx, module)
     }
 
+    fn make_vec_add_i32_len_fn(len: u32) -> (Context, Module) {
+        let mut ctx = Context::new();
+        let mut module = Module::new("vec_i32_len");
+        let mut b = Builder::new(&mut ctx, &mut module);
+        let vti = b.ctx.mk_vector(b.ctx.i32_ty, len, false);
+        b.add_function(
+            "main",
+            b.ctx.i32_ty,
+            vec![],
+            vec![],
+            false,
+            Linkage::External,
+        );
+        let entry = b.add_block("entry");
+        b.position_at_end(entry);
+        let z = ValueRef::Constant(b.ctx.const_zero(vti));
+        let s = b.build_add("s", z, z);
+        let i0 = ValueRef::Constant(b.ctx.const_int(b.ctx.i32_ty, 0));
+        let lane0 = b.build_extractelement("lane0", s, i0, b.ctx.i32_ty);
+        b.build_ret(lane0);
+        (ctx, module)
+    }
+
     #[test]
     fn vector_i32_add_uses_paddd_when_sse42_enabled() {
         let (ctx, module) = make_vec_add_i32_fn();
@@ -1770,6 +1825,34 @@ mod tests {
         assert!(
             mf.blocks.iter().any(|b| !b.instrs.is_empty()),
             "AVX2 feature gate path should lower vector instructions"
+        );
+    }
+
+    #[test]
+    fn vector_i32x16_add_uses_simd_path_when_avx512f_enabled() {
+        let (ctx, module) = make_vec_add_i32_len_fn(16);
+        let mut be = X86Backend::new(TargetFeatures::avx512f());
+        let mf = be.lower_function(&ctx, &module, &module.functions[0]);
+        assert!(
+            mf.blocks
+                .iter()
+                .flat_map(|b| &b.instrs)
+                .any(|i| i.opcode == PADDD_RR),
+            "expected SIMD lowering for <16 x i32> add under AVX-512F gate"
+        );
+    }
+
+    #[test]
+    fn vector_i32x16_add_falls_back_without_avx512f() {
+        let (ctx, module) = make_vec_add_i32_len_fn(16);
+        let mut be = X86Backend::new(TargetFeatures::avx2());
+        let mf = be.lower_function(&ctx, &module, &module.functions[0]);
+        assert!(
+            mf.blocks
+                .iter()
+                .flat_map(|b| &b.instrs)
+                .all(|i| i.opcode != PADDD_RR),
+            "without AVX-512F, <16 x i32> should avoid AVX-512-gated SIMD opcode path"
         );
     }
 }
