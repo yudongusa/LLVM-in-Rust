@@ -476,6 +476,26 @@ Notes:
 
 ---
 
+## LTO Payload Workflow (Cross-Module Optimization)
+
+The top-level `llvm` crate exposes `llvm::lto` helpers to support an LTO-ready flow:
+
+- Embed LRIR payload into object sections:
+  - ELF: `.llvm_ir`
+  - Mach-O: `__LLVM,__bitcode`
+  - COFF: `.lto$ir`
+- Recover embedded payloads from produced objects.
+- Merge recovered IR modules and run optimization pipeline at link stage.
+
+Current API surface:
+- `embed_lto_payload(object, ctx, module)`
+- `extract_lto_payload(object)`
+- `run_lto_from_objects(objects, opt_level)`
+
+This enables cross-object IR collection and link-time optimization on top of existing pass pipelines.
+
+---
+
 ## Exception / Unwind Metadata (Current State)
 
 `llvm-codegen` now emits baseline unwind metadata for object files:
