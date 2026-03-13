@@ -39,6 +39,10 @@ Current caveats:
 `llvm-codegen` tests assert:
 - Section presence for `.eh_frame`, `.xdata`, `.pdata`.
 - Baseline record shape and key field sanity (CIE/FDE and UNWIND_INFO/RUNTIME_FUNCTION layouts).
+- Frame-fact-sensitive unwind metadata behavior (frame size + callee-saved usage reflected in metadata).
+- Tool-backed checks when available:
+  - ELF: `readelf --debug-dump=frames`, `llvm-dwarfdump --eh-frame`
+  - COFF: `llvm-readobj --unwind`
 
 ## Recommended Next Steps
 
