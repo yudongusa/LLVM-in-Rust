@@ -630,7 +630,7 @@ fn build_debug_info(
     body.push(0);
     w64(&mut body, 0); // low_pc
     w64(&mut body, text_size); // high_pc as address range size
-    w32(&mut body, 0); // DW_AT_loclists_base
+    w32(&mut body, loclists_var_off); // DW_AT_loclists_base (first loclist entry offset)
 
     // DIE: subprogram (abbrev 2)
     write_uleb128(&mut body, 2);
