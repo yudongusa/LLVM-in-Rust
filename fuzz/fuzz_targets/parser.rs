@@ -69,7 +69,7 @@ fn within_complexity_budget(module: &Module) -> bool {
     for f in &module.functions {
         blocks = blocks.saturating_add(f.blocks.len());
         for bb in &f.blocks {
-            instrs = instrs.saturating_add(bb.instrs.len());
+            instrs = instrs.saturating_add(bb.instrs().count());
         }
     }
 
