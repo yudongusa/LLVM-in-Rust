@@ -491,3 +491,21 @@ Current limitations:
 - Cross-language throw/catch semantics should still be considered experimental at ABI boundaries.
 
 See also: `docs/unwind_compatibility_matrix.md` for per-format guarantees and caveats.
+
+---
+
+## SIMD / FP Feature Gating (x86 backend)
+
+The x86 backend lowering supports feature-gated SIMD vector paths:
+
+- `sse42` baseline vector paths (XMM-oriented)
+- `avx2` wider vector paths (YMM-oriented gate)
+- `avx512f` widest vector paths (ZMM-oriented gate)
+
+Current behavior:
+- Unsupported widths/features automatically fall back to conservative non-SIMD-safe lowering paths.
+- Feature checks are explicit in lowering and covered by regression tests to avoid accidental widening on unsupported targets.
+
+Notes:
+- This phase emphasizes correctness and deterministic feature gating in instruction selection.
+- Additional backend encoding and performance tuning work for full AVX-512 throughput remains iterative.
