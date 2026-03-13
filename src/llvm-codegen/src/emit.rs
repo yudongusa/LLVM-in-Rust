@@ -630,7 +630,7 @@ fn build_debug_info(
     body.push(0);
     w64(&mut body, 0); // low_pc
     w64(&mut body, text_size); // high_pc as address range size
-    w32(&mut body, loclists_var_off); // DW_AT_loclists_base (first loclist entry offset)
+    w32(&mut body, 0); // DW_AT_loclists_base (base for indexed loclists)
 
     // DIE: subprogram (abbrev 2)
     write_uleb128(&mut body, 2);
@@ -678,15 +678,16 @@ fn build_debug_info(
 fn build_debug_loclists(text_size: u64) -> Vec<u8> {
     // DWARF5 .debug_loclists with one list at offset 12 (after header).
     // List entries:
-    //   DW_LLE_start_length [0, text_size] exprloc(DW_OP_reg0)
+    //   DW_LLE_offset_pair [0, text_size] exprloc(DW_OP_reg0)
     //   DW_LLE_end_of_list
+    // Use offset-pair (relative to CU low_pc) to avoid absolute relocations in .o files.
     const DW_LLE_END_OF_LIST: u8 = 0x00;
-    const DW_LLE_START_LENGTH: u8 = 0x08;
+    const DW_LLE_OFFSET_PAIR: u8 = 0x04;
     const DW_OP_REG0: u8 = 0x50;
 
     let mut body = Vec::new();
-    body.push(DW_LLE_START_LENGTH);
-    w64(&mut body, 0);
+    body.push(DW_LLE_OFFSET_PAIR);
+    write_uleb128(&mut body, 0);
     write_uleb128(&mut body, text_size.max(1));
     body.push(1); // exprloc length
     body.push(DW_OP_REG0);
