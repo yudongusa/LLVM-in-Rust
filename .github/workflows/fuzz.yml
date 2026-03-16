@@ -37,10 +37,13 @@ jobs:
           llvm-stress --version
 
       - name: Seed 10k llvm-stress corpus and fuzz for 5m
+        id: llvm_stress_fuzz
+        # Nightly scheduled fuzzing should keep running and upload artifacts even when libFuzzer finds timeouts/crashes.
+        continue-on-error: ${{ github.event_name == 'schedule' }}
         run: ./scripts/llvm_stress_fuzz.sh --iterations 10000 --max-total-time 300
 
       - name: Upload fuzz artifacts on failure
-        if: failure()
+        if: ${{ failure() || steps.llvm_stress_fuzz.outcome == 'failure' }}
         uses: actions/upload-artifact@v4
         with:
           name: llvm-stress-fuzz-artifacts-${{ github.run_id }}
