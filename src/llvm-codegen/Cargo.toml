@@ -13,3 +13,4 @@ llvm-ir-parser = { path = "../llvm-ir-parser" }
 llvm-transforms = { path = "../llvm-transforms" }
 llvm-target-x86 = { path = "../llvm-target-x86" }
 llvm-target-arm = { path = "../llvm-target-arm" }
+serde_json = "1"

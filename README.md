@@ -40,6 +40,13 @@ Run the benchmarks yourself:
 cargo bench -p llvm-bench
 ```
 
+### Golden codegen gate
+
+The deterministic codegen corpus is locked by object checksums and runs in CI.
+Unexpected drift should be investigated before updating baselines; intentional
+updates use `scripts/update_golden_codegen.sh --bless` and require maintainer
+sign-off. See `docs/golden_codegen_gate.md`.
+
 Benchmarks use Criterion and run on stable Rust; no nightly-only bench harness is required.
 
 ### Results (x86_64 macOS, Apple M-series, release build)

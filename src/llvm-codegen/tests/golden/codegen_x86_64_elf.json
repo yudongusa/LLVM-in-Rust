@@ -1,0 +1,43 @@
+{
+  "cases": {
+    "backend_arithmetic_chain": {
+      "category": "backend",
+      "object_format": "elf",
+      "object_hash": "22600cf440396235",
+      "passes": [],
+      "target": "x86_64-unknown-linux-gnu"
+    },
+    "branch_phi_diamond": {
+      "category": "backend/control-flow",
+      "object_format": "elf",
+      "object_hash": "303cf739790af36a",
+      "passes": [],
+      "target": "x86_64-unknown-linux-gnu"
+    },
+    "debug_metadata_sections": {
+      "category": "debug/unwind",
+      "object_format": "elf",
+      "object_hash": "7ac0a3241214237d",
+      "passes": [],
+      "target": "x86_64-unknown-linux-gnu"
+    },
+    "opt_mem2reg_stack_slot": {
+      "category": "optimization/backend",
+      "object_format": "elf",
+      "object_hash": "dbd41f170cb39fe2",
+      "passes": [
+        "mem2reg"
+      ],
+      "target": "x86_64-unknown-linux-gnu"
+    },
+    "parser_return_constant": {
+      "category": "parser/backend",
+      "object_format": "elf",
+      "object_hash": "cb068df158c30642",
+      "passes": [],
+      "target": "x86_64-unknown-linux-gnu"
+    }
+  },
+  "deterministic_mode": "LLVM_IN_RUST_DETERMINISTIC=1",
+  "version": 1
+}
