@@ -21,6 +21,13 @@
       "passes": [],
       "target": "x86_64-unknown-linux-gnu"
     },
+    "link_external_call_relocation": {
+      "category": "link/relocation",
+      "object_format": "elf",
+      "object_hash": "9630ae743bcfd15f",
+      "passes": [],
+      "target": "x86_64-unknown-linux-gnu"
+    },
     "opt_mem2reg_stack_slot": {
       "category": "optimization/backend",
       "object_format": "elf",

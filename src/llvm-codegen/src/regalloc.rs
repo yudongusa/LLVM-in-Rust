@@ -71,9 +71,12 @@ pub fn compute_live_intervals(mf: &MachineFunction) -> Vec<LiveInterval> {
         }
     }
 
-    map.into_iter()
+    let mut intervals: Vec<LiveInterval> = map
+        .into_iter()
         .map(|(vreg, (start, end))| LiveInterval { vreg, start, end })
-        .collect()
+        .collect();
+    intervals.sort_by_key(|i| (i.start, i.end, i.vreg.0));
+    intervals
 }
 
 // ── register allocation result ─────────────────────────────────────────────
@@ -119,9 +122,10 @@ pub fn linear_scan(intervals: &[LiveInterval], allocatable: &[PReg]) -> RegAlloc
         };
     }
 
-    // Sort by start point.
+    // Sort by a full stable key. `compute_live_intervals` internally uses a
+    // HashMap, so equal-start intervals must not inherit randomized map order.
     let mut sorted: Vec<&LiveInterval> = intervals.iter().collect();
-    sorted.sort_unstable_by_key(|i| i.start);
+    sorted.sort_by_key(|i| (i.start, i.end, i.vreg.0));
 
     let mut free: Vec<PReg> = allocatable.to_vec();
     // Active set: (end, vreg, assigned_preg), sorted by end.
@@ -158,7 +162,9 @@ pub fn linear_scan(intervals: &[LiveInterval], allocatable: &[PReg]) -> RegAlloc
                     result.vreg_to_preg.remove(&spill_vr); // revoke previous assignment
                     result.vreg_to_preg.insert(interval.vreg, spill_pr);
                     // Insert in sorted position to maintain invariant.
-                    let pos = active.partition_point(|&(e, _, _)| e <= interval.end);
+                    let pos = active.partition_point(|&(e, vr, _)| {
+                        (e, vr.0) <= (interval.end, interval.vreg.0)
+                    });
                     active.insert(pos, (interval.end, interval.vreg, spill_pr));
                     result.spilled.push(spill_vr);
                 } else {
@@ -173,7 +179,9 @@ pub fn linear_scan(intervals: &[LiveInterval], allocatable: &[PReg]) -> RegAlloc
             result.vreg_to_preg.insert(interval.vreg, pr);
             // Insert in sorted position to maintain the end-sorted invariant without
             // a full O(n log n) sort on every push.
-            let pos = active.partition_point(|&(e, _, _)| e <= interval.end);
+            let pos = active.partition_point(|&(e, vr, _)| {
+                (e, vr.0) <= (interval.end, interval.vreg.0)
+            });
             active.insert(pos, (interval.end, interval.vreg, pr));
         }
     }
@@ -348,6 +356,43 @@ mod tests {
             start,
             end,
         }
+    }
+
+
+    #[test]
+    fn compute_intervals_returns_deterministic_order_for_equal_starts() {
+        use crate::isel::{MInstr, MOpcode, MachineFunction};
+        let mut mf = MachineFunction::new("f".into());
+        let b = mf.add_block("entry");
+        let v0 = mf.fresh_vreg();
+        let v1 = mf.fresh_vreg();
+        let v2 = mf.fresh_vreg();
+
+        mf.push(
+            b,
+            MInstr::new(MOpcode(0))
+                .with_dst(v2)
+                .with_vreg(v1)
+                .with_vreg(v0),
+        );
+
+        let intervals = compute_live_intervals(&mf);
+        let keys: Vec<(usize, usize, u32)> = intervals
+            .iter()
+            .map(|iv| (iv.start, iv.end, iv.vreg.0))
+            .collect();
+        assert_eq!(keys, vec![(0, 1, 0), (0, 1, 1), (0, 1, 2)]);
+    }
+
+    #[test]
+    fn linear_scan_tie_breaks_equal_start_intervals_by_vreg() {
+        let intervals = vec![iv(2, 0, 1), iv(0, 0, 1), iv(1, 0, 1)];
+        let alloc = vec![PReg(0), PReg(1)];
+        let result = linear_scan(&intervals, &alloc);
+
+        assert_eq!(result.vreg_to_preg[&VReg(0)], PReg(0));
+        assert_eq!(result.vreg_to_preg[&VReg(1)], PReg(1));
+        assert_eq!(result.spilled, vec![VReg(2)]);
     }
 
     #[test]

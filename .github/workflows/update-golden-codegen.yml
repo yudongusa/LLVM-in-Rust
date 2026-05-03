@@ -6,7 +6,7 @@ on:
       ref:
         description: "Branch or ref to update"
         required: true
-        default: "fix/issue-178-golden-codegen"
+        default: "main"
 
 permissions:
   contents: write

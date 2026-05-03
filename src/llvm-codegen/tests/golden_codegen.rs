@@ -81,6 +81,21 @@ entry:
 "#,
     },
     GoldenCase {
+        label: "link_external_call_relocation",
+        category: "link/relocation",
+        run_mem2reg: false,
+        src: r#"target triple = "x86_64-unknown-linux-gnu"
+
+declare i32 @callee(i32)
+
+define i32 @main() {
+entry:
+  %v = call i32 @callee(i32 41)
+  ret i32 %v
+}
+"#,
+    },
+    GoldenCase {
         label: "branch_phi_diamond",
         category: "backend/control-flow",
         run_mem2reg: false,
