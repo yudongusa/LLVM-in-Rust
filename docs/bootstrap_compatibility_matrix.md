@@ -21,6 +21,7 @@ This document defines the staged compatibility path toward bootstrap-grade stabi
 
 - `compat_stage_a` job (required): Stage A script pass
 - `compat_stage_b` job (required): Stage B script pass
+- `Sanitizer and UB hardening` workflow: Gate 4 ASan/Miri PR smoke plus nightly/manual/RC TSan lane
 
 ## Blocker Matrix (living)
 
@@ -30,6 +31,7 @@ This document defines the staged compatibility path toward bootstrap-grade stabi
 | Stage B expanded suite | ✅ gated in CI | no dedicated alloc IR fixture family yet | add alloc-oriented fixture pack |
 | Stage C libc compatibility | 🚧 not started | libc fixture corpus + ABI integration harness missing | define Stage C fixture spec + initial tests |
 | Stage D bootstrap experiments | 🚧 not started | frontend/bootstrap harness missing | draft experiment plan + minimal milestone |
+| Gate 4 sanitizer/UB hardening | ✅ targeted matrix added | full-workspace sanitizer coverage may be too slow/flaky | keep ASan/Miri PR smoke green and expand cautiously |
 
 ## Notes
 

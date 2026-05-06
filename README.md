@@ -253,10 +253,18 @@ scripts/reduce_ci_failure.sh \
   --input failing.ll \
   --predicate './repro.sh {{input}}' \
   --evidence-dir ci-failures/example
+
+# Sanitizer/UB hardening lanes (nightly Rust required)
+scripts/sanitizer_matrix.sh asan-core
+scripts/sanitizer_matrix.sh miri-core
+scripts/sanitizer_matrix.sh tsan-core
 ```
 
 Crash and miscompilation triage follows the SLO and evidence package process in
 [`docs/crash_triage_runbook.md`](docs/crash_triage_runbook.md).
+
+The release sanitizer/UB matrix and suppression policy are documented in
+[`docs/sanitizer_ub_gate.md`](docs/sanitizer_ub_gate.md).
 
 ---
 
