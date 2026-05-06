@@ -1650,9 +1650,23 @@ impl<'src> Parser<'src> {
 
     fn skip_param_attrs(&mut self) -> Result<(), ParseError> {
         // Skip param attrs like `noundef`, `nonnull`, `%N` alignment hints.
+        //
+        // Fuzzing found that malformed parameters can otherwise consume through
+        // top-level tokens and then spin forever on EOF. Stop at boundaries that
+        // cannot be part of a parameter attribute so the caller reports a normal
+        // parse error instead of hanging.
         loop {
             match self.lex.peek()? {
-                Token::Comma | Token::RParen | Token::LocalIdent(_) => break,
+                Token::Comma
+                | Token::RParen
+                | Token::LocalIdent(_)
+                | Token::Eof
+                | Token::Kw(Keyword::Define)
+                | Token::Kw(Keyword::Declare)
+                | Token::Kw(Keyword::Source)
+                | Token::Kw(Keyword::Target)
+                | Token::GlobalIdent(_)
+                | Token::Bang => break,
                 Token::Kw(Keyword::Align) => {
                     self.lex.next()?;
                     self.lex.next()?; // alignment number
@@ -2101,6 +2115,21 @@ entry:
         let (_ctx, module) = parse(src).expect("parse failed");
         assert_eq!(module.functions.len(), 1);
         assert!(module.functions[0].is_declaration);
+    }
+
+    #[test]
+    fn malformed_param_attrs_stop_at_module_boundaries() {
+        // Regression for a libFuzzer timeout found from the llvm-stress corpus:
+        // a malformed parameter comment caused skip_param_attrs to consume
+        // across top-level tokens and then spin forever on EOF.
+        let src = "; ModuleID = '/tmp/autogen.bc'\n\
+source_filename = \"/tmp/autogen.bc\"\n\n\
+define void @autogen_SD0(ptr; ModuleID = '/tmp/autogen %0, ptr %1, ptr %2, i32 .bc'\n\
+source_filename = \"/tmp/autogen.bc\"\n\n\
+define void %3, i64@au";
+
+        let err = parse(src).expect_err("malformed input should fail quickly");
+        assert!(err.message.contains("expected RParen"));
     }
 
     #[test]
