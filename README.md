@@ -297,6 +297,10 @@ Reproducible release artifacts, checksum publication, detached signatures, and
 release provenance are covered by the `Release Artifact Provenance` workflow and
 [`docs/release_artifact_pipeline.md`](docs/release_artifact_pipeline.md).
 
+Production operations, observability, incident response, contributor triage paths,
+and the full runbook index are documented in
+[`docs/production_operations.md`](docs/production_operations.md).
+
 ---
 
 ## Installation
