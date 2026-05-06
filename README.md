@@ -272,6 +272,9 @@ scripts/interoperability_conformance.sh debug
 scripts/interoperability_conformance.sh abi
 scripts/interoperability_conformance.sh mixed
 scripts/interoperability_conformance.sh release
+
+# Release artifact provenance dry-run
+scripts/release_artifacts.sh dry-run
 ```
 
 Crash and miscompilation triage follows the SLO and evidence package process in
@@ -289,6 +292,10 @@ platform exceptions live in
 The M2 linker/debugger/ABI conformance suite and release sign-off process are
 documented in
 [`docs/interoperability_conformance.md`](docs/interoperability_conformance.md).
+
+Reproducible release artifacts, checksum publication, detached signatures, and
+release provenance are covered by the `Release Artifact Provenance` workflow and
+[`docs/release_artifact_pipeline.md`](docs/release_artifact_pipeline.md).
 
 ---
 

@@ -1,0 +1,67 @@
+name: Release Artifact Provenance
+
+on:
+  push:
+    branches: [main, "fix/**", "feat/**"]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Ref to build"
+        required: true
+        default: "main"
+      version:
+        description: "Release version override"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  release_artifacts:
+    name: Reproducible signed release artifacts
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.event.pull_request.head.sha || github.sha }}
+
+      - name: Install Rust stable toolchain
+        run: |
+          rustup set profile minimal
+          rustup toolchain install stable
+          rustup default stable
+
+      - name: Cache cargo registry and build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-release-artifacts-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-release-artifacts-
+            ${{ runner.os }}-cargo-
+
+      - name: Build, sign, and verify release artifacts
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+          RELEASE_SIGNING_KEY_ID: ${{ secrets.RELEASE_SIGNING_KEY_ID }}
+        run: |
+          args=()
+          if [[ -n "${{ inputs.version }}" ]]; then
+            args+=(--version "${{ inputs.version }}")
+          fi
+          scripts/release_artifacts.sh dry-run "${args[@]}"
+
+      - name: Upload release artifact bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: llvm-in-rust-release-artifacts-${{ github.run_id }}
+          path: dist/release/**
+          retention-days: 30
