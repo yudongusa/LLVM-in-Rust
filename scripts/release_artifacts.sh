@@ -159,7 +159,7 @@ sign_artifacts() {
     if [[ -n "${RELEASE_SIGNING_KEY_ID:-}" ]]; then
       signer=(--local-user "$RELEASE_SIGNING_KEY_ID")
     fi
-    gpg --batch --yes --armor "${signer[@]}" --detach-sign "$file"
+    gpg --batch --yes --armor "${signer[@]}" --output "$file.sig" --detach-sign "$file"
   done < SHA256SUMS)
 }
 
