@@ -265,6 +265,13 @@ scripts/platform_matrix.sh target-x86_64
 scripts/platform_matrix.sh target-aarch64
 scripts/platform_matrix.sh target-rv64gc
 scripts/platform_matrix.sh known-issues
+
+# Interoperability conformance lanes
+scripts/interoperability_conformance.sh link
+scripts/interoperability_conformance.sh debug
+scripts/interoperability_conformance.sh abi
+scripts/interoperability_conformance.sh mixed
+scripts/interoperability_conformance.sh release
 ```
 
 Crash and miscompilation triage follows the SLO and evidence package process in
@@ -278,6 +285,10 @@ checklist are documented in
 [`docs/platform_support_policy.md`](docs/platform_support_policy.md). Tracked
 platform exceptions live in
 [`docs/platform_known_issues.json`](docs/platform_known_issues.json).
+
+The M2 linker/debugger/ABI conformance suite and release sign-off process are
+documented in
+[`docs/interoperability_conformance.md`](docs/interoperability_conformance.md).
 
 ---
 

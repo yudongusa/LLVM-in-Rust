@@ -1,0 +1,52 @@
+name: Interoperability Conformance Gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: "31 8 * * 2"
+
+jobs:
+  conformance:
+    name: Conformance (${{ matrix.lane }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [link, debug, abi, mixed]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Install Rust stable toolchain
+        run: |
+          rustup set profile minimal
+          rustup toolchain install stable
+          rustup default stable
+
+      - name: Install interoperability tools
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y \
+            binutils \
+            clang-19 \
+            gdb \
+            lld-19 \
+            lldb-19 \
+            llvm-19 \
+            llvm-19-tools
+          sudo update-alternatives --install /usr/bin/clang clang /usr/lib/llvm-19/bin/clang 100
+          sudo update-alternatives --install /usr/bin/ld.lld ld.lld /usr/lib/llvm-19/bin/ld.lld 100
+          sudo update-alternatives --install /usr/bin/lld lld /usr/lib/llvm-19/bin/lld 100
+          sudo update-alternatives --install /usr/bin/llc llc /usr/lib/llvm-19/bin/llc 100
+          sudo update-alternatives --install /usr/bin/llvm-as llvm-as /usr/lib/llvm-19/bin/llvm-as 100
+          sudo update-alternatives --install /usr/bin/llvm-dwarfdump llvm-dwarfdump /usr/lib/llvm-19/bin/llvm-dwarfdump 100
+          sudo update-alternatives --install /usr/bin/llvm-objdump llvm-objdump /usr/lib/llvm-19/bin/llvm-objdump 100
+
+      - name: Run conformance lane
+        run: scripts/interoperability_conformance.sh ${{ matrix.lane }}
