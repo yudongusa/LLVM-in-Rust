@@ -16,7 +16,10 @@ from pathlib import Path
 def load_estimates(root: Path) -> dict[str, float]:
     results: dict[str, float] = {}
     for estimate in root.rglob("estimates.json"):
-        if estimate.parent.name not in {"new", "base"}:
+        # Criterion writes estimates under the current sample directory (`new`)
+        # and under any explicit `--save-baseline <name>` directory. The CI
+        # workflow uses explicit `base`/`head` baselines in separate checkouts.
+        if estimate.parent.name not in {"new", "base", "head"}:
             continue
         rel = estimate.parent.parent.relative_to(root)
         name = "/".join(rel.parts)
