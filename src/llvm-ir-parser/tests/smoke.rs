@@ -14,7 +14,9 @@
 //! proper GlobalRef → RIP-relative address materialisation.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use llvm_codegen::{
     emit_object,
@@ -116,26 +118,33 @@ struct RunResult {
 }
 
 fn run_binary(path: &Path, label: &str, which: &str) -> Option<std::process::Output> {
-    #[cfg(target_os = "linux")]
-    {
-        let out = Command::new("timeout")
-            .args(["5s"])
-            .arg(path)
-            .output()
-            .ok()?;
-        let code = out.status.code().unwrap_or(-1);
-        if code == 124 || code == 137 {
-            eprintln!("[smoke/{label}] {which} timed out after 5s");
-            return None;
-        }
-        Some(out)
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        Command::new(path).output().ok().or_else(|| {
+    let timeout = Duration::from_secs(5);
+    let deadline = Instant::now() + timeout;
+    let mut child = Command::new(path)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .ok()
+        .or_else(|| {
             eprintln!("[smoke/{label}] failed to run {which}");
             None
-        })
+        })?;
+
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => return child.wait_with_output().ok(),
+            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(50)),
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                eprintln!("[smoke/{label}] {which} timed out after {}s", timeout.as_secs());
+                return None;
+            }
+            Err(e) => {
+                eprintln!("[smoke/{label}] failed while waiting for {which}: {e}");
+                return None;
+            }
+        }
     }
 }
 
