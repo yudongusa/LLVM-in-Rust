@@ -45,6 +45,30 @@ jobs:
         continue-on-error: ${{ github.event_name == 'schedule' }}
         run: ./scripts/llvm_stress_fuzz.sh --iterations 10000 --max-total-time 300
 
+      - name: Package reducible fuzz crash evidence
+        if: ${{ failure() || steps.llvm_stress_fuzz.outcome == 'failure' }}
+        continue-on-error: true
+        run: |
+          mkdir -p ci-failures/llvm-stress
+          shopt -s nullglob
+          for artifact in fuzz/artifacts/parser/crash-* fuzz/artifacts/parser/timeout-*; do
+            if grep -q '^define ' "$artifact"; then
+              name=$(basename "$artifact")
+              scripts/reduce_ci_failure.sh \
+                --input "$artifact" \
+                --predicate 'cargo +nightly fuzz run parser {{input}} -- -runs=1' \
+                --evidence-dir "ci-failures/llvm-stress/$name" \
+                --component llvm-ir-parser \
+                --failure-kind fuzz
+            fi
+          done
+
+      - name: Generate crash bucket summary
+        if: ${{ always() }}
+        run: |
+          scripts/crash_bucket_summary.sh ci-failures crash-buckets.md
+          cat crash-buckets.md >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload fuzz artifacts on failure
         if: ${{ failure() || steps.llvm_stress_fuzz.outcome == 'failure' }}
         uses: actions/upload-artifact@v4
@@ -53,6 +77,8 @@ jobs:
           path: |
             fuzz/artifacts/**
             fuzz/corpus/**
+            ci-failures/**
+            crash-buckets.md
           if-no-files-found: warn
           retention-days: 14
 
@@ -82,3 +108,12 @@ jobs:
         env:
           COUNT: ${{ github.event.inputs.csmith_count || '1000' }}
         run: ./scripts/csmith_test.sh --count "$COUNT"
+
+      - name: Upload CSmith failure artifacts
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: csmith-failures-${{ github.run_id }}
+          path: csmith_failures/**
+          if-no-files-found: warn
+          retention-days: 14

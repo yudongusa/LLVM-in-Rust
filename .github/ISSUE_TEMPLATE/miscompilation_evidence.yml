@@ -1,13 +1,14 @@
-name: Miscompilation Evidence Package
-about: Report wrong-code or miscompilation with reproducible evidence.
-title: "miscompile: <short summary>"
-labels: [bug, miscompilation]
+name: Crash / Miscompilation Evidence Package
+about: Report crashes, timeouts, wrong-code, or miscompilations with reproducible evidence.
+title: "bug: <short summary>"
+labels: [bug]
 body:
   - type: markdown
     attributes:
       value: |
         Please provide a reproducible evidence package.
         Reports missing required fields are hard to triage and may be sent back for completion.
+        See docs/crash_triage_runbook.md for the triage SLO, labels, and bucket format.
 
   - type: textarea
     id: summary
@@ -17,6 +18,37 @@ body:
       placeholder: "Program returns 0 instead of 42 at O2 on x86_64"
     validations:
       required: true
+
+  - type: dropdown
+    id: failure_kind
+    attributes:
+      label: Failure kind
+      options:
+        - crash
+        - timeout
+        - panic
+        - wrong-code
+        - miscompilation
+    validations:
+      required: true
+
+  - type: input
+    id: bucket_signature
+    attributes:
+      label: Bucket signature
+      description: Use the runbook format, or write "not assigned yet".
+      placeholder: "llvm-ir-parser:panic:thread 'main' panicked at ...:abcd1234ef56"
+    validations:
+      required: true
+
+  - type: input
+    id: ci_run
+    attributes:
+      label: CI run or artifact URL
+      description: Link to the failing GitHub Actions run/artifact if this came from CI.
+      placeholder: "https://github.com/org/repo/actions/runs/..."
+    validations:
+      required: false
 
   - type: textarea
     id: repro_ir
@@ -88,6 +120,7 @@ body:
         - ours.objdump.txt / oracle.objdump.txt
         - hashes.json
         - reducer.log
+        - bucket-signature.txt
     validations:
       required: true
 
@@ -101,4 +134,6 @@ body:
         - label: I included commands another developer can run as-is.
           required: true
         - label: I attached or pasted a minimized reproducer.
+          required: true
+        - label: I included the reducer command/log or explained why reduction was not applicable.
           required: true

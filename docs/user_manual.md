@@ -466,13 +466,21 @@ cargo run -p llvm --bin llvm-ir-min -- \
   --input failing.ll \
   --predicate './repro.sh {{input}}' \
   --output minimized.ll
+
+# Or generate a full crash-triage evidence package.
+cargo run -p llvm --bin llvm-ir-min -- \
+  --input failing.ll \
+  --predicate './repro.sh {{input}}' \
+  --evidence-dir ci-failures/example
 ```
 
 Notes:
 - `{{input}}` in `--predicate` is replaced with the candidate IR path.
 - Predicate must return **non-zero** when the bug is still reproduced.
 - The tool performs line-based reduction and writes `minimized.ll`.
-- Pair this output with the miscompilation issue template evidence package.
+- With `--evidence-dir`, it also writes `original.ll`, `reducer.log`, `repro.sh`, and `manifest.txt`.
+- Pair this output with the crash/miscompilation issue template evidence package.
+- See [`docs/crash_triage_runbook.md`](crash_triage_runbook.md) for the triage SLO, labels, and bucket process.
 
 ---
 

@@ -247,7 +247,16 @@ cargo fmt                    # auto-format
 
 # Semantic differential fuzzing with CSmith (default 1000 programs)
 ./scripts/csmith_test.sh --count 1000
+
+# Package a failing IR input for crash triage
+scripts/reduce_ci_failure.sh \
+  --input failing.ll \
+  --predicate './repro.sh {{input}}' \
+  --evidence-dir ci-failures/example
 ```
+
+Crash and miscompilation triage follows the SLO and evidence package process in
+[`docs/crash_triage_runbook.md`](docs/crash_triage_runbook.md).
 
 ---
 
