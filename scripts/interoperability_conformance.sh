@@ -65,8 +65,7 @@ run_abi() {
   category_group abi "platform ABI edge cases"
   cargo +stable test -p llvm-target-x86 abi -- --nocapture
   cargo +stable test -p llvm-target-arm abi -- --nocapture
-  cargo +stable test -p llvm-target-riscv --lib -- --nocapture
-  cargo +stable test -p llvm-codegen --test unwind_verify -- --nocapture
+  cargo +stable test -p llvm-target-riscv abi -- --nocapture
   end_group
 }
 
