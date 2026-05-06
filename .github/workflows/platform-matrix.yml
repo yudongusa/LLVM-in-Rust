@@ -1,0 +1,75 @@
+name: Platform Matrix Gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  tier1_hosts:
+    name: Tier-1 host matrix (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14, windows-2022]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Install Rust stable toolchain
+        run: |
+          rustup set profile minimal
+          rustup toolchain install stable
+          rustup default stable
+
+      - name: Run Tier-1 host core checks
+        shell: bash
+        run: scripts/platform_matrix.sh host-core
+
+  tier1_targets:
+    name: Tier-1 artifact generation (${{ matrix.target.name }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - name: x86_64
+            triple: x86_64-unknown-linux-gnu
+            lane: target-x86_64
+          - name: aarch64
+            triple: aarch64-unknown-linux-gnu
+            lane: target-aarch64
+          - name: rv64gc
+            triple: riscv64gc-unknown-linux-gnu
+            lane: target-rv64gc
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Install Rust stable toolchain and target
+        run: |
+          rustup set profile minimal
+          rustup toolchain install stable
+          rustup target add --toolchain stable ${{ matrix.target.triple }}
+          rustup default stable
+
+      - name: Run target artifact-generation check
+        run: scripts/platform_matrix.sh ${{ matrix.target.lane }}
+
+  known_issues:
+    name: Platform known-issues registry
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Validate known-issues registry
+        run: scripts/platform_matrix.sh known-issues

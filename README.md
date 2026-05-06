@@ -258,6 +258,13 @@ scripts/reduce_ci_failure.sh \
 scripts/sanitizer_matrix.sh asan-core
 scripts/sanitizer_matrix.sh miri-core
 scripts/sanitizer_matrix.sh tsan-core
+
+# Platform matrix lanes
+scripts/platform_matrix.sh host-core
+scripts/platform_matrix.sh target-x86_64
+scripts/platform_matrix.sh target-aarch64
+scripts/platform_matrix.sh target-rv64gc
+scripts/platform_matrix.sh known-issues
 ```
 
 Crash and miscompilation triage follows the SLO and evidence package process in
@@ -265,6 +272,12 @@ Crash and miscompilation triage follows the SLO and evidence package process in
 
 The release sanitizer/UB matrix and suppression policy are documented in
 [`docs/sanitizer_ub_gate.md`](docs/sanitizer_ub_gate.md).
+
+Supported platform tiers, Tier-1/Tier-2 expectations, and the release sign-off
+checklist are documented in
+[`docs/platform_support_policy.md`](docs/platform_support_policy.md). Tracked
+platform exceptions live in
+[`docs/platform_known_issues.json`](docs/platform_known_issues.json).
 
 ---
 
