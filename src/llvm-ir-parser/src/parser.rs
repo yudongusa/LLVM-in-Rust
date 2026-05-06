@@ -2128,7 +2128,10 @@ define void @autogen_SD0(ptr; ModuleID = '/tmp/autogen %0, ptr %1, ptr %2, i32 .
 source_filename = \"/tmp/autogen.bc\"\n\n\
 define void %3, i64@au";
 
-        let err = parse(src).expect_err("malformed input should fail quickly");
+        let err = match parse(src) {
+            Ok(_) => panic!("malformed input should fail"),
+            Err(err) => err,
+        };
         assert!(err.message.contains("expected RParen"));
     }
 
