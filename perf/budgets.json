@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "default_threshold_percent": 5.0,
+  "suites": {
+    "compile_time": {
+      "description": "Criterion pipeline benchmarks from llvm-bench on the representative LLVM IR fixture.",
+      "threshold_percent": 5.0,
+      "benchmarks": [
+        "pipeline/parse",
+        "pipeline/print",
+        "pipeline/build",
+        "pipeline/mem2reg",
+        "pipeline/dce",
+        "pipeline/codegen_x86",
+        "pipeline/codegen_x86_integrated_assembler",
+        "pipeline/opt_O0",
+        "pipeline/opt_O2"
+      ]
+    },
+    "runtime": {
+      "description": "Runtime correctness/performance smoke lane; enforced separately by differential and CSmith gates until larger runtime benchmarks are added.",
+      "threshold_percent": 3.0,
+      "benchmarks": []
+    }
+  },
+  "override_label": "perf-regression-accepted"
+}

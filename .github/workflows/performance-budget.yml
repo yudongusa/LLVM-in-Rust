@@ -1,0 +1,63 @@
+name: Performance Budget Gate
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  performance_budget:
+    name: Criterion performance budget
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout base
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: head
+
+      - name: Install Rust stable toolchain
+        run: |
+          rustup set profile minimal
+          rustup toolchain install stable
+          rustup default stable
+
+      - name: Run base benchmarks
+        working-directory: base
+        run: cargo +stable bench -p llvm-bench -- --save-baseline base
+
+      - name: Run PR benchmarks
+        working-directory: head
+        run: cargo +stable bench -p llvm-bench -- --save-baseline head
+
+      - name: Compare against performance budget
+        working-directory: head
+        env:
+          ALLOW_REGRESSION: ${{ contains(github.event.pull_request.labels.*.name, 'perf-regression-accepted') }}
+        run: |
+          args=()
+          if [[ "$ALLOW_REGRESSION" == "true" ]]; then
+            args+=(--allow-regression)
+          fi
+          python3 scripts/perf_budget.py \
+            --base ../base/target/criterion \
+            --head target/criterion \
+            --budgets perf/budgets.json \
+            --report perf-budget-report.md \
+            "${args[@]}"
+
+      - name: Upload performance budget report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-budget-report-${{ github.run_id }}
+          path: head/perf-budget-report.md
+          if-no-files-found: warn
+          retention-days: 30
