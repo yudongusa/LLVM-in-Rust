@@ -23,6 +23,12 @@ def load_estimates(root: Path) -> dict[str, float]:
             continue
         rel = estimate.parent.parent.relative_to(root)
         name = "/".join(rel.parts)
+        # Criterion stores names passed as `group.bench_function("name")` as
+        # `group/name`, but a flat `c.bench_function("group/name")` may appear
+        # as `group_name` on disk. Normalize the existing pipeline benchmarks
+        # so both styles can be budgeted consistently.
+        if name.startswith("pipeline_"):
+            name = name.replace("_", "/", 1)
         try:
             data = json.loads(estimate.read_text())
             point = data["mean"]["point_estimate"]
