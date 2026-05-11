@@ -12,7 +12,10 @@ pub const SYSV_INT_ARGS: &[PReg] = &[RDI, RSI, RDX, RCX, R8, R9];
 pub const SYSV_INT_RET: PReg = RAX;
 
 /// Caller-saved allocatable GPRs for System V AMD64.
-pub const SYSV_ALLOCATABLE: &[PReg] = &[RAX, RCX, RDX, RSI, RDI, R8, R9, R10, R11];
+pub const SYSV_CALLER_SAVED: &[PReg] = &[RAX, RCX, RDX, RSI, RDI, R8, R9, R10, R11];
+
+/// Allocatable GPRs for System V AMD64.
+pub const SYSV_ALLOCATABLE: &[PReg] = SYSV_CALLER_SAVED;
 
 /// Callee-saved GPRs for System V AMD64.
 pub const SYSV_CALLEE_SAVED: &[PReg] = &[RBX, RBP, R12, R13, R14, R15];
@@ -25,8 +28,17 @@ pub const WIN64_INT_ARGS: &[PReg] = &[RCX, RDX, R8, R9];
 /// Integer return register (Windows x64).
 pub const WIN64_INT_RET: PReg = RAX;
 
-/// Caller-saved allocatable GPRs for Windows x64.
-pub const WIN64_ALLOCATABLE: &[PReg] = &[RAX, RCX, RDX, R8, R9, R10, R11];
+/// Caller-saved GPRs for Windows x64.
+pub const WIN64_CALLER_SAVED: &[PReg] = &[RAX, RCX, RDX, R8, R9, R10, R11];
+
+/// Allocatable GPRs for Windows x64.
+///
+/// Include RSI/RDI even though they are callee-saved under Win64. The register
+/// allocator records any callee-saved assignments in `used_callee_saved`, and
+/// the x86 emitter preserves those registers in the prologue/epilogue. Keeping
+/// them allocatable gives Win64 the same low-pressure headroom as the SysV smoke
+/// path while still preserving ABI clobber semantics for calls.
+pub const WIN64_ALLOCATABLE: &[PReg] = &[RAX, RCX, RDX, RSI, RDI, R8, R9, R10, R11];
 
 /// Callee-saved GPRs for Windows x64.
 pub const WIN64_CALLEE_SAVED: &[PReg] = &[RBX, RBP, RSI, RDI, R12, R13, R14, R15];
@@ -95,7 +107,10 @@ impl CallingConvention {
     }
 
     pub fn caller_saved_clobbers(self) -> &'static [PReg] {
-        self.allocatable_pregs()
+        match self {
+            Self::SysV => SYSV_CALLER_SAVED,
+            Self::Win64 => WIN64_CALLER_SAVED,
+        }
     }
 
     pub fn shadow_space_bytes(self) -> u32 {
@@ -141,7 +156,7 @@ pub fn classify_win64_args(n_args: usize) -> Vec<ArgLocation> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::regs::{R8, R9, RCX, RDI, RDX, RSI};
+    use crate::regs::{R10, R11, R8, R9, RAX, RCX, RDI, RDX, RSI};
 
     #[test]
     fn sysv_first_six_in_registers() {
@@ -194,10 +209,15 @@ mod tests {
     }
 
     #[test]
-    fn win64_callee_saved_contains_rsi_rdi() {
+    fn win64_allocates_rsi_rdi_but_does_not_mark_them_call_clobbered() {
         assert!(WIN64_CALLEE_SAVED.contains(&RSI));
         assert!(WIN64_CALLEE_SAVED.contains(&RDI));
-        assert!(!WIN64_ALLOCATABLE.contains(&RSI));
-        assert!(!WIN64_ALLOCATABLE.contains(&RDI));
+        assert!(WIN64_ALLOCATABLE.contains(&RSI));
+        assert!(WIN64_ALLOCATABLE.contains(&RDI));
+
+        let clobbers = CallingConvention::Win64.caller_saved_clobbers();
+        assert_eq!(clobbers, &[RAX, RCX, RDX, R8, R9, R10, R11]);
+        assert!(!clobbers.contains(&RSI));
+        assert!(!clobbers.contains(&RDI));
     }
 }

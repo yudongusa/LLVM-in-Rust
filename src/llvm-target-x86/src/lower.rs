@@ -1066,15 +1066,15 @@ mod tests {
     }
 
     #[test]
-    fn win64_register_sets_mark_rsi_rdi_callee_saved() {
+    fn win64_register_sets_can_allocate_rsi_rdi_as_callee_saved() {
         let (ctx, mut module) = make_add_fn();
         module.target_triple = Some("x86_64-pc-windows-msvc".into());
         let mut be = X86Backend::default();
         let mf = be.lower_function(&ctx, &module, &module.functions[0]);
         assert!(mf.callee_saved_pregs.contains(&crate::regs::RSI));
         assert!(mf.callee_saved_pregs.contains(&crate::regs::RDI));
-        assert!(!mf.allocatable_pregs.contains(&crate::regs::RSI));
-        assert!(!mf.allocatable_pregs.contains(&crate::regs::RDI));
+        assert!(mf.allocatable_pregs.contains(&crate::regs::RSI));
+        assert!(mf.allocatable_pregs.contains(&crate::regs::RDI));
     }
 
     fn make_call_fn(n_args: usize) -> (Context, Module) {
