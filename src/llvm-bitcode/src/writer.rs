@@ -67,24 +67,40 @@ pub fn write_bitcode(ctx: &Context, module: &Module) -> Vec<u8> {
 
 /// Tag bytes for type records.
 mod type_tag {
+    /// Public API for `VOID`.
     pub const VOID: u8 = 0;
+    /// Public API for `INTEGER`.
     pub const INTEGER: u8 = 1;
+    /// Public API for `FLOAT`.
     pub const FLOAT: u8 = 2;
+    /// Public API for `POINTER`.
     pub const POINTER: u8 = 3;
+    /// Public API for `ARRAY`.
     pub const ARRAY: u8 = 4;
+    /// Public API for `VECTOR`.
     pub const VECTOR: u8 = 5;
+    /// Public API for `STRUCT`.
     pub const STRUCT: u8 = 6;
+    /// Public API for `FUNCTION`.
     pub const FUNCTION: u8 = 7;
+    /// Public API for `LABEL`.
     pub const LABEL: u8 = 8;
+    /// Public API for `METADATA`.
     pub const METADATA: u8 = 9;
 }
 
 mod float_tag {
+    /// Public API for `HALF`.
     pub const HALF: u8 = 0;
+    /// Public API for `BFLOAT`.
     pub const BFLOAT: u8 = 1;
+    /// Public API for `SINGLE`.
     pub const SINGLE: u8 = 2;
+    /// Public API for `DOUBLE`.
     pub const DOUBLE: u8 = 3;
+    /// Public API for `FP128`.
     pub const FP128: u8 = 4;
+    /// Public API for `X86FP80`.
     pub const X86FP80: u8 = 5;
 }
 
@@ -161,16 +177,27 @@ fn encode_type(w: &mut Writer, td: &TypeData) {
 // ── constant encoding ─────────────────────────────────────────────────────
 
 mod const_tag {
+    /// Public API for `INT`.
     pub const INT: u8 = 0;
+    /// Public API for `INT_WIDE`.
     pub const INT_WIDE: u8 = 1;
+    /// Public API for `FLOAT`.
     pub const FLOAT: u8 = 2;
+    /// Public API for `NULL`.
     pub const NULL: u8 = 3;
+    /// Public API for `UNDEF`.
     pub const UNDEF: u8 = 4;
+    /// Public API for `POISON`.
     pub const POISON: u8 = 5;
+    /// Public API for `ZERO_INIT`.
     pub const ZERO_INIT: u8 = 6;
+    /// Public API for `ARRAY`.
     pub const ARRAY: u8 = 7;
+    /// Public API for `STRUCT`.
     pub const STRUCT: u8 = 8;
+    /// Public API for `VECTOR`.
     pub const VECTOR: u8 = 9;
+    /// Public API for `GLOBAL_REF`.
     pub const GLOBAL_REF: u8 = 10;
 }
 
@@ -246,14 +273,23 @@ fn encode_const(w: &mut Writer, cd: &ConstantData) {
 // ── function encoding ─────────────────────────────────────────────────────
 
 mod linkage_tag {
+    /// Public API for `PRIVATE`.
     pub const PRIVATE: u8 = 0;
+    /// Public API for `INTERNAL`.
     pub const INTERNAL: u8 = 1;
+    /// Public API for `EXTERNAL`.
     pub const EXTERNAL: u8 = 2;
+    /// Public API for `WEAK`.
     pub const WEAK: u8 = 3;
+    /// Public API for `WEAK_ODR`.
     pub const WEAK_ODR: u8 = 4;
+    /// Public API for `LINK_ONCE`.
     pub const LINK_ONCE: u8 = 5;
+    /// Public API for `LINK_ONCE_ODR`.
     pub const LINK_ONCE_ODR: u8 = 6;
+    /// Public API for `COMMON`.
     pub const COMMON: u8 = 7;
+    /// Public API for `AVAILABLE_EXTERNALLY`.
     pub const AVAILABLE_EXTERNALLY: u8 = 8;
 }
 
@@ -317,57 +353,109 @@ fn encode_block(w: &mut Writer, bb: &BasicBlock, func: &Function) {
 // For the full round-trip, we need the instruction name, type, and kind.
 
 mod instr_tag {
+    /// Public API for `ADD`.
     pub const ADD: u32 = 0;
+    /// Public API for `SUB`.
     pub const SUB: u32 = 1;
+    /// Public API for `MUL`.
     pub const MUL: u32 = 2;
+    /// Public API for `UDIV`.
     pub const UDIV: u32 = 3;
+    /// Public API for `SDIV`.
     pub const SDIV: u32 = 4;
+    /// Public API for `UREM`.
     pub const UREM: u32 = 5;
+    /// Public API for `SREM`.
     pub const SREM: u32 = 6;
+    /// Public API for `AND`.
     pub const AND: u32 = 10;
+    /// Public API for `OR`.
     pub const OR: u32 = 11;
+    /// Public API for `XOR`.
     pub const XOR: u32 = 12;
+    /// Public API for `SHL`.
     pub const SHL: u32 = 13;
+    /// Public API for `LSHR`.
     pub const LSHR: u32 = 14;
+    /// Public API for `ASHR`.
     pub const ASHR: u32 = 15;
+    /// Public API for `FADD`.
     pub const FADD: u32 = 20;
+    /// Public API for `FSUB`.
     pub const FSUB: u32 = 21;
+    /// Public API for `FMUL`.
     pub const FMUL: u32 = 22;
+    /// Public API for `FDIV`.
     pub const FDIV: u32 = 23;
+    /// Public API for `FREM`.
     pub const FREM: u32 = 24;
+    /// Public API for `FNEG`.
     pub const FNEG: u32 = 25;
+    /// Public API for `ICMP`.
     pub const ICMP: u32 = 30;
+    /// Public API for `FCMP`.
     pub const FCMP: u32 = 31;
+    /// Public API for `ALLOCA`.
     pub const ALLOCA: u32 = 40;
+    /// Public API for `LOAD`.
     pub const LOAD: u32 = 41;
+    /// Public API for `STORE`.
     pub const STORE: u32 = 42;
+    /// Public API for `GEP`.
     pub const GEP: u32 = 43;
+    /// Public API for `TRUNC`.
     pub const TRUNC: u32 = 50;
+    /// Public API for `ZEXT`.
     pub const ZEXT: u32 = 51;
+    /// Public API for `SEXT`.
     pub const SEXT: u32 = 52;
+    /// Public API for `FPTRUNC`.
     pub const FPTRUNC: u32 = 53;
+    /// Public API for `FPEXT`.
     pub const FPEXT: u32 = 54;
+    /// Public API for `FPTOUI`.
     pub const FPTOUI: u32 = 55;
+    /// Public API for `FPTOSI`.
     pub const FPTOSI: u32 = 56;
+    /// Public API for `UITOFP`.
     pub const UITOFP: u32 = 57;
+    /// Public API for `SITOFP`.
     pub const SITOFP: u32 = 58;
+    /// Public API for `PTRTOINT`.
     pub const PTRTOINT: u32 = 59;
+    /// Public API for `INTTOPTR`.
     pub const INTTOPTR: u32 = 60;
+    /// Public API for `BITCAST`.
     pub const BITCAST: u32 = 61;
+    /// Public API for `ADDRSPACECAST`.
     pub const ADDRSPACECAST: u32 = 62;
+    /// Public API for `FREEZE`.
     pub const FREEZE: u32 = 63;
+    /// Public API for `SELECT`.
     pub const SELECT: u32 = 70;
+    /// Public API for `PHI`.
     pub const PHI: u32 = 71;
+    /// Public API for `EXTRACTVALUE`.
     pub const EXTRACTVALUE: u32 = 72;
+    /// Public API for `INSERTVALUE`.
     pub const INSERTVALUE: u32 = 73;
+    /// Public API for `EXTRACTELEM`.
     pub const EXTRACTELEM: u32 = 74;
+    /// Public API for `INSERTELEM`.
     pub const INSERTELEM: u32 = 75;
+    /// Public API for `SHUFFLEVEC`.
     pub const SHUFFLEVEC: u32 = 76;
+    /// Public API for `CALL`.
     pub const CALL: u32 = 80;
+    /// Public API for `RET`.
     pub const RET: u32 = 90;
+    /// Public API for `BR`.
     pub const BR: u32 = 91;
+    /// Public API for `CONDBR`.
     pub const CONDBR: u32 = 92;
+    /// Public API for `SWITCH`.
     pub const SWITCH: u32 = 93;
+    /// Public API for `UNREACHABLE`.
     pub const UNREACHABLE: u32 = 94;
 }
 
@@ -866,4 +954,5 @@ impl Writer {
 
 // ── public API re-exported from crate root ────────────────────────────────
 
+/// Public API for `re-export`.
 pub use write_bitcode as write;

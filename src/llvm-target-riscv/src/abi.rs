@@ -3,12 +3,16 @@
 use crate::regs::{ARG_REGS, RET_REG};
 use llvm_codegen::isel::PReg;
 
+/// Public API for `ArgLocation`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ArgLocation {
+    /// `Reg` variant.
     Reg(PReg),
+    /// `Stack` variant.
     Stack(i32),
 }
 
+/// Public API for `classify_rv64_int_args`.
 pub fn classify_rv64_int_args(n_args: usize) -> Vec<ArgLocation> {
     (0..n_args)
         .map(|i| {
@@ -21,6 +25,7 @@ pub fn classify_rv64_int_args(n_args: usize) -> Vec<ArgLocation> {
         .collect()
 }
 
+/// Public API for `INT_RET`.
 pub const INT_RET: PReg = RET_REG;
 
 #[cfg(test)]

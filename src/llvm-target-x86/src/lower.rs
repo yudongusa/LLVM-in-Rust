@@ -1,6 +1,6 @@
 //! x86_64 IR → machine-IR lowering.
 //!
-//! Implements [`IselBackend`] for [`X86Backend`].  Each IR instruction is
+//! Implements `IselBackend` for `X86Backend`.  Each IR instruction is
 //! translated to one or more machine instructions using virtual registers.
 //! Phi-destruction (parallel copy insertion) is also handled here.
 
@@ -19,12 +19,16 @@ use std::collections::HashMap;
 /// CPU feature switches used by x86 lowering decisions.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct TargetFeatures {
+    /// Public API for `sse42`.
     pub sse42: bool,
+    /// Public API for `avx2`.
     pub avx2: bool,
+    /// Public API for `avx512f`.
     pub avx512f: bool,
 }
 
 impl TargetFeatures {
+    /// Public API for `baseline`.
     pub const fn baseline() -> Self {
         Self {
             sse42: false,
@@ -33,6 +37,7 @@ impl TargetFeatures {
         }
     }
 
+    /// Public API for `sse42`.
     pub const fn sse42() -> Self {
         Self {
             sse42: true,
@@ -41,6 +46,7 @@ impl TargetFeatures {
         }
     }
 
+    /// Public API for `avx2`.
     pub const fn avx2() -> Self {
         Self {
             sse42: true,
@@ -49,6 +55,7 @@ impl TargetFeatures {
         }
     }
 
+    /// Public API for `avx512f`.
     pub const fn avx512f() -> Self {
         Self {
             sse42: true,
@@ -57,6 +64,7 @@ impl TargetFeatures {
         }
     }
 
+    /// Public API for `simd_enabled`.
     pub const fn simd_enabled(self) -> bool {
         self.sse42 || self.avx2 || self.avx512f
     }
@@ -64,6 +72,7 @@ impl TargetFeatures {
 
 /// x86_64 instruction-selection backend.
 pub struct X86Backend {
+    /// Public API for `features`.
     pub features: TargetFeatures,
 }
 
@@ -76,6 +85,7 @@ impl Default for X86Backend {
 }
 
 impl X86Backend {
+    /// Public API for `new`.
     pub const fn new(features: TargetFeatures) -> Self {
         Self { features }
     }

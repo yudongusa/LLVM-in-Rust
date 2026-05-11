@@ -5,11 +5,16 @@
 //! depending on the full LLVM bitcode bitstream format.
 
 pub mod error;
+/// Public API for `reader`.
 pub mod reader;
+/// Public API for `writer`.
 pub mod writer;
 
+/// Public API for `re-export`.
 pub use error::BitcodeError;
+/// Public API for `re-export`.
 pub use reader::read_bitcode;
+/// Public API for `re-export`.
 pub use writer::write_bitcode;
 
 // ── tests ──────────────────────────────────────────────────────────────────

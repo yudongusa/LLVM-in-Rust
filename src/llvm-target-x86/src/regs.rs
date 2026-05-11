@@ -4,21 +4,37 @@ use llvm_codegen::isel::PReg;
 
 // ── GPR definitions (REX encoding: 0-7 = rax-rdi, 8-15 = r8-r15) ──────────
 
+/// Public API for `RAX`.
 pub const RAX: PReg = PReg(0);
+/// Public API for `RCX`.
 pub const RCX: PReg = PReg(1);
+/// Public API for `RDX`.
 pub const RDX: PReg = PReg(2);
+/// Public API for `RBX`.
 pub const RBX: PReg = PReg(3);
+/// Public API for `RSP`.
 pub const RSP: PReg = PReg(4);
+/// Public API for `RBP`.
 pub const RBP: PReg = PReg(5);
+/// Public API for `RSI`.
 pub const RSI: PReg = PReg(6);
+/// Public API for `RDI`.
 pub const RDI: PReg = PReg(7);
+/// Public API for `R8`.
 pub const R8: PReg = PReg(8);
+/// Public API for `R9`.
 pub const R9: PReg = PReg(9);
+/// Public API for `R10`.
 pub const R10: PReg = PReg(10);
+/// Public API for `R11`.
 pub const R11: PReg = PReg(11);
+/// Public API for `R12`.
 pub const R12: PReg = PReg(12);
+/// Public API for `R13`.
 pub const R13: PReg = PReg(13);
+/// Public API for `R14`.
 pub const R14: PReg = PReg(14);
+/// Public API for `R15`.
 pub const R15: PReg = PReg(15);
 
 /// Caller-saved registers available for allocation (excludes RSP, RBP and

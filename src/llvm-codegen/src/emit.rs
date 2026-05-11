@@ -9,8 +9,11 @@
 /// Supported object-file formats.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ObjectFormat {
+    /// `Elf` variant.
     Elf,
+    /// `MachO` variant.
     MachO,
+    /// `Coff` variant.
     Coff,
 }
 
@@ -30,6 +33,7 @@ pub struct Reloc {
     pub offset: u64,
     /// Index into `ObjectFile::symbols` for the referenced symbol.
     pub symbol: usize,
+    /// Public API for `kind`.
     pub kind: RelocKind,
     /// Addend (ELF RELA / Mach-O addend).
     pub addend: i64,
@@ -38,16 +42,22 @@ pub struct Reloc {
 /// A single source mapping row for debug line table emission.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DebugLineRow {
+    /// Public API for `address`.
     pub address: u64,
+    /// Public API for `line`.
     pub line: u32,
+    /// Public API for `column`.
     pub column: u32,
 }
 
 /// A named output section (`.text`, `__TEXT,__text`, etc.).
 #[derive(Clone, Debug)]
 pub struct Section {
+    /// Public API for `name`.
     pub name: String,
+    /// Public API for `data`.
     pub data: Vec<u8>,
+    /// Public API for `relocs`.
     pub relocs: Vec<Reloc>,
     /// Address->source rows collected while encoding this section.
     pub debug_rows: Vec<DebugLineRow>,
@@ -56,25 +66,31 @@ pub struct Section {
 /// A symbol definition.
 #[derive(Clone, Debug)]
 pub struct Symbol {
+    /// Public API for `name`.
     pub name: String,
     /// Index of the section this symbol lives in.
     pub section: usize,
     /// Byte offset within that section.
     pub offset: u64,
+    /// Public API for `size`.
     pub size: u64,
+    /// Public API for `global`.
     pub global: bool,
 }
 
 /// Assembled object file ready to be written to disk or passed to a linker.
 #[derive(Clone, Debug)]
 pub struct ObjectFile {
+    /// Public API for `format`.
     pub format: ObjectFormat,
     /// ELF e_machine value when `format == ObjectFormat::Elf`.
     /// Ignored for Mach-O.
     pub elf_machine: u16,
     /// COFF `Machine` field when `format == ObjectFormat::Coff`.
     pub coff_machine: u16,
+    /// Public API for `sections`.
     pub sections: Vec<Section>,
+    /// Public API for `symbols`.
     pub symbols: Vec<Symbol>,
 }
 

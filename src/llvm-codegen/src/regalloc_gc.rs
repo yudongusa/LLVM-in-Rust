@@ -4,12 +4,14 @@ use crate::isel::{PReg, VReg};
 use crate::regalloc::{LiveInterval, RegAllocResult};
 use std::collections::{HashMap, HashSet};
 
+/// Public API for `InterferenceGraph`.
 pub type InterferenceGraph = HashMap<VReg, HashSet<VReg>>;
 
 fn overlaps(a: &LiveInterval, b: &LiveInterval) -> bool {
     a.start < b.end && b.start < a.end
 }
 
+/// Public API for `build_interference_graph`.
 pub fn build_interference_graph(intervals: &[LiveInterval]) -> InterferenceGraph {
     let mut graph: InterferenceGraph = HashMap::new();
     for iv in intervals {

@@ -36,6 +36,7 @@ pub trait ModulePass {
 
 /// Applies a `FunctionPass` to every non-declaration function in the module.
 pub struct FunctionPassAdapter<P: FunctionPass> {
+    /// Public API for `pass`.
     pub pass: P,
 }
 
@@ -61,10 +62,12 @@ impl<P: FunctionPass> ModulePass for FunctionPassAdapter<P> {
 
 /// Sequences module passes and runs them once, or to a fixed point.
 pub struct PassManager {
+    // `passes` field.
     passes: Vec<Box<dyn ModulePass>>,
 }
 
 impl PassManager {
+    /// Public API for `new`.
     pub fn new() -> Self {
         PassManager { passes: Vec::new() }
     }

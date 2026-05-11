@@ -42,6 +42,7 @@ pub struct Loop {
 
 /// Loop nesting information for a single function.
 pub struct LoopInfo {
+    // `loops` field.
     loops: Vec<Loop>,
     /// Maps each block to the index of its innermost containing loop.
     block_loop: HashMap<BlockId, usize>,

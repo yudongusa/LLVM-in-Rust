@@ -9,15 +9,19 @@ use crate::types::{FloatKind, StructType, TypeData};
 use crate::value::ConstantData;
 use std::fmt::Write as FmtWrite;
 
+/// Public API for `Printer`.
 pub struct Printer<'a> {
+    // `ctx` field.
     ctx: &'a Context,
 }
 
 impl<'a> Printer<'a> {
+    /// Public API for `new`.
     pub fn new(ctx: &'a Context) -> Self {
         Printer { ctx }
     }
 
+    /// Public API for `print_module`.
     pub fn print_module(&self, module: &Module) -> String {
         let mut out = String::new();
 

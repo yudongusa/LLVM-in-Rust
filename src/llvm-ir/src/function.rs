@@ -8,6 +8,7 @@ use std::collections::HashMap;
 
 /// A function definition or declaration.
 pub struct Function {
+    /// Public API for `name`.
     pub name: String,
     /// Function type (FunctionType TypeId).
     pub ty: TypeId,
@@ -27,12 +28,14 @@ pub struct Function {
     pub arg_names: HashMap<String, ArgId>,
     /// True if this is a declaration (no body).
     pub is_declaration: bool,
+    /// Public API for `linkage`.
     pub linkage: Linkage,
     /// Counter for generating unique names.
     next_name_id: u32,
 }
 
 impl Function {
+    /// Public API for `new`.
     pub fn new(name: impl Into<String>, ty: TypeId, args: Vec<Argument>, linkage: Linkage) -> Self {
         let mut f = Function {
             name: name.into(),
@@ -58,6 +61,7 @@ impl Function {
         f
     }
 
+    /// Public API for `new_declaration`.
     pub fn new_declaration(
         name: impl Into<String>,
         ty: TypeId,
@@ -80,14 +84,17 @@ impl Function {
         id
     }
 
+    /// Public API for `block`.
     pub fn block(&self, id: BlockId) -> &BasicBlock {
         &self.blocks[id.0 as usize]
     }
 
+    /// Public API for `block_mut`.
     pub fn block_mut(&mut self, id: BlockId) -> &mut BasicBlock {
         &mut self.blocks[id.0 as usize]
     }
 
+    /// Public API for `num_blocks`.
     pub fn num_blocks(&self) -> usize {
         self.blocks.len()
     }
@@ -114,26 +121,32 @@ impl Function {
         id
     }
 
+    /// Public API for `instr`.
     pub fn instr(&self, id: InstrId) -> &Instruction {
         &self.instructions[id.0 as usize]
     }
 
+    /// Public API for `instr_mut`.
     pub fn instr_mut(&mut self, id: InstrId) -> &mut Instruction {
         &mut self.instructions[id.0 as usize]
     }
 
+    /// Public API for `num_instrs`.
     pub fn num_instrs(&self) -> usize {
         self.instructions.len()
     }
 
+    /// Public API for `set_instr_dbg_loc`.
     pub fn set_instr_dbg_loc(&mut self, id: InstrId, loc_id: u32) {
         self.instr_dbg_locs.insert(id, loc_id);
     }
 
+    /// Public API for `instr_dbg_loc`.
     pub fn instr_dbg_loc(&self, id: InstrId) -> Option<u32> {
         self.instr_dbg_locs.get(&id).copied()
     }
 
+    /// Public API for `add_instr_metadata`.
     pub fn add_instr_metadata(&mut self, id: InstrId, key: impl Into<String>, value: impl Into<String>) {
         self.instr_metadata
             .entry(id)
@@ -141,6 +154,7 @@ impl Function {
             .push((key.into(), value.into()));
     }
 
+    /// Public API for `instr_metadata`.
     pub fn instr_metadata(&self, id: InstrId) -> Option<&[(String, String)]> {
         self.instr_metadata.get(&id).map(Vec::as_slice)
     }
@@ -149,10 +163,12 @@ impl Function {
     // Arguments
     // -----------------------------------------------------------------------
 
+    /// Public API for `arg`.
     pub fn arg(&self, id: ArgId) -> &Argument {
         &self.args[id.0 as usize]
     }
 
+    /// Public API for `num_args`.
     pub fn num_args(&self) -> usize {
         self.args.len()
     }
@@ -161,6 +177,7 @@ impl Function {
     // Name lookups
     // -----------------------------------------------------------------------
 
+    /// Public API for `lookup_value`.
     pub fn lookup_value(&self, name: &str) -> Option<ValueRef> {
         if let Some(&iid) = self.value_names.get(name) {
             return Some(ValueRef::Instruction(iid));
@@ -171,6 +188,7 @@ impl Function {
         None
     }
 
+    /// Public API for `lookup_block`.
     pub fn lookup_block(&self, name: &str) -> Option<BlockId> {
         self.blocks
             .iter()
@@ -183,6 +201,7 @@ impl Function {
     // Type of SSA values
     // -----------------------------------------------------------------------
 
+    /// Public API for `type_of_value`.
     pub fn type_of_value(&self, vref: ValueRef) -> Option<TypeId> {
         match vref {
             ValueRef::Instruction(id) => Some(self.instructions[id.0 as usize].ty),

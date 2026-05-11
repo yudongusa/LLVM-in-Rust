@@ -8,37 +8,69 @@ use llvm_codegen::isel::PReg;
 // X31 is context-dependent: XZR (zero register) in most instructions,
 // SP (stack pointer) in load/store addressing.
 
+/// Public API for `X0`.
 pub const X0: PReg = PReg(0);
+/// Public API for `X1`.
 pub const X1: PReg = PReg(1);
+/// Public API for `X2`.
 pub const X2: PReg = PReg(2);
+/// Public API for `X3`.
 pub const X3: PReg = PReg(3);
+/// Public API for `X4`.
 pub const X4: PReg = PReg(4);
+/// Public API for `X5`.
 pub const X5: PReg = PReg(5);
+/// Public API for `X6`.
 pub const X6: PReg = PReg(6);
+/// Public API for `X7`.
 pub const X7: PReg = PReg(7);
+/// Public API for `X8`.
 pub const X8: PReg = PReg(8);
+/// Public API for `X9`.
 pub const X9: PReg = PReg(9);
+/// Public API for `X10`.
 pub const X10: PReg = PReg(10);
+/// Public API for `X11`.
 pub const X11: PReg = PReg(11);
+/// Public API for `X12`.
 pub const X12: PReg = PReg(12);
+/// Public API for `X13`.
 pub const X13: PReg = PReg(13);
+/// Public API for `X14`.
 pub const X14: PReg = PReg(14);
+/// Public API for `X15`.
 pub const X15: PReg = PReg(15);
+/// Public API for `X16`.
 pub const X16: PReg = PReg(16); // IP0 (intra-procedure-call scratch)
+/// Public API for `X17`.
 pub const X17: PReg = PReg(17); // IP1
+/// Public API for `X18`.
 pub const X18: PReg = PReg(18); // platform register (reserved on some ABIs)
+/// Public API for `X19`.
 pub const X19: PReg = PReg(19);
+/// Public API for `X20`.
 pub const X20: PReg = PReg(20);
+/// Public API for `X21`.
 pub const X21: PReg = PReg(21);
+/// Public API for `X22`.
 pub const X22: PReg = PReg(22);
+/// Public API for `X23`.
 pub const X23: PReg = PReg(23);
+/// Public API for `X24`.
 pub const X24: PReg = PReg(24);
+/// Public API for `X25`.
 pub const X25: PReg = PReg(25);
+/// Public API for `X26`.
 pub const X26: PReg = PReg(26);
+/// Public API for `X27`.
 pub const X27: PReg = PReg(27);
+/// Public API for `X28`.
 pub const X28: PReg = PReg(28);
+/// Public API for `X29`.
 pub const X29: PReg = PReg(29); // frame pointer
+/// Public API for `X30`.
 pub const X30: PReg = PReg(30); // link register
+/// Public API for `XZR`.
 pub const XZR: PReg = PReg(31); // zero register (read: 0, write: discard)
 
 /// Registers available for the register allocator.

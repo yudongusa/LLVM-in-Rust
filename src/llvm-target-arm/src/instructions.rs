@@ -92,13 +92,23 @@ pub const NOP: MOpcode = MOpcode(0x70);
 // ── condition codes (used as Imm operands with B_COND / CSET) ────────────
 //
 // These map to AArch64 condition codes as defined in the ISA.
+/// Public API for `CC_EQ`.
 pub const CC_EQ: i64 = 0; // EQ — equal (Z=1)
+/// Public API for `CC_NE`.
 pub const CC_NE: i64 = 1; // NE — not equal (Z=0)
+/// Public API for `CC_LT`.
 pub const CC_LT: i64 = 2; // LT — signed less than
+/// Public API for `CC_LE`.
 pub const CC_LE: i64 = 3; // LE — signed less than or equal
+/// Public API for `CC_GT`.
 pub const CC_GT: i64 = 4; // GT — signed greater than
+/// Public API for `CC_GE`.
 pub const CC_GE: i64 = 5; // GE — signed greater than or equal
+/// Public API for `CC_LO`.
 pub const CC_LO: i64 = 6; // LO — unsigned lower (C=0)
+/// Public API for `CC_LS`.
 pub const CC_LS: i64 = 7; // LS — unsigned lower or same (C=0 or Z=1)
+/// Public API for `CC_HI`.
 pub const CC_HI: i64 = 8; // HI — unsigned higher (C=1 and Z=0)
+/// Public API for `CC_HS`.
 pub const CC_HS: i64 = 9; // HS — unsigned higher or same (C=1)

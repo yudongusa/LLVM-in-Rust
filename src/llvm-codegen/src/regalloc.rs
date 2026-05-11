@@ -11,6 +11,7 @@
 //!    - Otherwise spill the interval with the largest end point.
 
 use crate::isel::{MInstr, MOpcode, MOperand, MachineFunction, PReg, VReg};
+/// Public API for `re-export`.
 pub use crate::regalloc_gc::graph_color;
 use std::collections::HashMap;
 
@@ -19,6 +20,7 @@ use std::collections::HashMap;
 /// Half-open live interval `[start, end)` in flat instruction program order.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LiveInterval {
+    /// Public API for `vreg`.
     pub vreg: VReg,
     /// Index of the first instruction that defines (or uses) this vreg.
     pub start: usize,
@@ -84,6 +86,7 @@ pub fn compute_live_intervals(mf: &MachineFunction) -> Vec<LiveInterval> {
 /// Maps each VReg to the PReg it was assigned, or records it as spilled.
 #[derive(Debug, Default)]
 pub struct RegAllocResult {
+    /// Public API for `vreg_to_preg`.
     pub vreg_to_preg: HashMap<VReg, PReg>,
     /// VRegs for which no physical register was available.
     pub spilled: Vec<VReg>,
@@ -94,6 +97,7 @@ pub struct RegAllocResult {
 pub enum RegAllocStrategy {
     #[default]
     LinearScan,
+    /// `GraphColor` variant.
     GraphColor,
 }
 

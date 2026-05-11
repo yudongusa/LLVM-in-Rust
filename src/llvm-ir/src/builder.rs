@@ -15,13 +15,18 @@ use crate::value::{Argument, GlobalVariable, Linkage};
 /// Holds mutable references to the `Context` and `Module` so that a single
 /// builder instance can construct multiple functions and look up types.
 pub struct Builder<'a> {
+    /// Public API for `ctx`.
     pub ctx: &'a mut Context,
+    /// Public API for `module`.
     pub module: &'a mut Module,
+    // `current_function` field.
     current_function: Option<FunctionId>,
+    // `current_block` field.
     current_block: Option<BlockId>,
 }
 
 impl<'a> Builder<'a> {
+    /// Public API for `new`.
     pub fn new(ctx: &'a mut Context, module: &'a mut Module) -> Self {
         Builder {
             ctx,
@@ -35,6 +40,7 @@ impl<'a> Builder<'a> {
     // Function creation
     // -----------------------------------------------------------------------
 
+    /// Public API for `add_function`.
     pub fn add_function(
         &mut self,
         name: impl Into<String>,
@@ -62,6 +68,7 @@ impl<'a> Builder<'a> {
         id
     }
 
+    /// Public API for `add_declaration`.
     pub fn add_declaration(
         &mut self,
         name: impl Into<String>,
@@ -87,6 +94,7 @@ impl<'a> Builder<'a> {
     // Block management
     // -----------------------------------------------------------------------
 
+    /// Public API for `add_block`.
     pub fn add_block(&mut self, name: impl Into<String>) -> BlockId {
         let fid = self.current_function.expect("no current function");
         let bb = BasicBlock::new(name);
@@ -94,14 +102,17 @@ impl<'a> Builder<'a> {
         bid
     }
 
+    /// Public API for `position_at_end`.
     pub fn position_at_end(&mut self, block: BlockId) {
         self.current_block = Some(block);
     }
 
+    /// Public API for `current_function`.
     pub fn current_function(&self) -> Option<FunctionId> {
         self.current_function
     }
 
+    /// Public API for `current_block`.
     pub fn current_block(&self) -> Option<BlockId> {
         self.current_block
     }
@@ -110,6 +121,7 @@ impl<'a> Builder<'a> {
     // Argument access
     // -----------------------------------------------------------------------
 
+    /// Public API for `get_arg`.
     pub fn get_arg(&self, index: u32) -> ValueRef {
         ValueRef::Argument(crate::context::ArgId(index))
     }
@@ -118,46 +130,56 @@ impl<'a> Builder<'a> {
     // Constant helpers
     // -----------------------------------------------------------------------
 
+    /// Public API for `const_int`.
     pub fn const_int(&mut self, ty: TypeId, val: u64) -> ValueRef {
         ValueRef::Constant(self.ctx.const_int(ty, val))
     }
 
+    /// Public API for `const_bool`.
     pub fn const_bool(&mut self, val: bool) -> ValueRef {
         ValueRef::Constant(self.ctx.const_int(self.ctx.i1_ty, val as u64))
     }
 
+    /// Public API for `const_i32`.
     pub fn const_i32(&mut self, val: i32) -> ValueRef {
         let ty = self.ctx.i32_ty;
         ValueRef::Constant(self.ctx.const_int(ty, val as u64))
     }
 
+    /// Public API for `const_i64`.
     pub fn const_i64(&mut self, val: i64) -> ValueRef {
         let ty = self.ctx.i64_ty;
         ValueRef::Constant(self.ctx.const_int(ty, val as u64))
     }
 
+    /// Public API for `const_f32`.
     pub fn const_f32(&mut self, val: f32) -> ValueRef {
         let ty = self.ctx.f32_ty;
         ValueRef::Constant(self.ctx.const_float(ty, val.to_bits() as u64))
     }
 
+    /// Public API for `const_f64`.
     pub fn const_f64(&mut self, val: f64) -> ValueRef {
         let ty = self.ctx.f64_ty;
         ValueRef::Constant(self.ctx.const_float(ty, val.to_bits()))
     }
 
+    /// Public API for `const_null`.
     pub fn const_null(&mut self, ty: TypeId) -> ValueRef {
         ValueRef::Constant(self.ctx.const_null(ty))
     }
 
+    /// Public API for `undef`.
     pub fn undef(&mut self, ty: TypeId) -> ValueRef {
         ValueRef::Constant(self.ctx.const_undef(ty))
     }
 
+    /// Public API for `poison`.
     pub fn poison(&mut self, ty: TypeId) -> ValueRef {
         ValueRef::Constant(self.ctx.const_poison(ty))
     }
 
+    /// Public API for `const_zero`.
     pub fn const_zero(&mut self, ty: TypeId) -> ValueRef {
         ValueRef::Constant(self.ctx.const_zero(ty))
     }
@@ -166,6 +188,7 @@ impl<'a> Builder<'a> {
     // Global variables
     // -----------------------------------------------------------------------
 
+    /// Public API for `add_global`.
     pub fn add_global(
         &mut self,
         name: impl Into<String>,
@@ -212,6 +235,7 @@ impl<'a> Builder<'a> {
     // Integer arithmetic
     // -----------------------------------------------------------------------
 
+    /// Public API for `build_add`.
     pub fn build_add(&mut self, name: impl Into<String>, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
         let ty = self.type_of(lhs);
         self.append_instr(
@@ -225,6 +249,7 @@ impl<'a> Builder<'a> {
         )
     }
 
+    /// Public API for `build_add_nsw`.
     pub fn build_add_nsw(
         &mut self,
         name: impl Into<String>,
@@ -246,6 +271,7 @@ impl<'a> Builder<'a> {
         )
     }
 
+    /// Public API for `build_sub`.
     pub fn build_sub(&mut self, name: impl Into<String>, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
         let ty = self.type_of(lhs);
         self.append_instr(
@@ -259,6 +285,7 @@ impl<'a> Builder<'a> {
         )
     }
 
+    /// Public API for `build_mul`.
     pub fn build_mul(&mut self, name: impl Into<String>, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
         let ty = self.type_of(lhs);
         self.append_instr(
@@ -272,6 +299,7 @@ impl<'a> Builder<'a> {
         )
     }
 
+    /// Public API for `build_udiv`.
     pub fn build_udiv(
         &mut self,
         name: impl Into<String>,
@@ -290,6 +318,7 @@ impl<'a> Builder<'a> {
         )
     }
 
+    /// Public API for `build_sdiv`.
     pub fn build_sdiv(
         &mut self,
         name: impl Into<String>,
@@ -308,6 +337,7 @@ impl<'a> Builder<'a> {
         )
     }
 
+    /// Public API for `build_urem`.
     pub fn build_urem(
         &mut self,
         name: impl Into<String>,
@@ -318,6 +348,7 @@ impl<'a> Builder<'a> {
         self.append_instr(Some(name.into()), ty, InstrKind::URem { lhs, rhs })
     }
 
+    /// Public API for `build_srem`.
     pub fn build_srem(
         &mut self,
         name: impl Into<String>,
@@ -330,21 +361,25 @@ impl<'a> Builder<'a> {
 
     // --- Bitwise ---
 
+    /// Public API for `build_and`.
     pub fn build_and(&mut self, name: impl Into<String>, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
         let ty = self.type_of(lhs);
         self.append_instr(Some(name.into()), ty, InstrKind::And { lhs, rhs })
     }
 
+    /// Public API for `build_or`.
     pub fn build_or(&mut self, name: impl Into<String>, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
         let ty = self.type_of(lhs);
         self.append_instr(Some(name.into()), ty, InstrKind::Or { lhs, rhs })
     }
 
+    /// Public API for `build_xor`.
     pub fn build_xor(&mut self, name: impl Into<String>, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
         let ty = self.type_of(lhs);
         self.append_instr(Some(name.into()), ty, InstrKind::Xor { lhs, rhs })
     }
 
+    /// Public API for `build_shl`.
     pub fn build_shl(&mut self, name: impl Into<String>, lhs: ValueRef, rhs: ValueRef) -> ValueRef {
         let ty = self.type_of(lhs);
         self.append_instr(
@@ -358,6 +393,7 @@ impl<'a> Builder<'a> {
         )
     }
 
+    /// Public API for `build_lshr`.
     pub fn build_lshr(
         &mut self,
         name: impl Into<String>,
@@ -376,6 +412,7 @@ impl<'a> Builder<'a> {
         )
     }
 
+    /// Public API for `build_ashr`.
     pub fn build_ashr(
         &mut self,
         name: impl Into<String>,
@@ -396,6 +433,7 @@ impl<'a> Builder<'a> {
 
     // --- FP arithmetic ---
 
+    /// Public API for `build_fadd`.
     pub fn build_fadd(
         &mut self,
         name: impl Into<String>,
@@ -414,6 +452,7 @@ impl<'a> Builder<'a> {
         )
     }
 
+    /// Public API for `build_fsub`.
     pub fn build_fsub(
         &mut self,
         name: impl Into<String>,
@@ -432,6 +471,7 @@ impl<'a> Builder<'a> {
         )
     }
 
+    /// Public API for `build_fmul`.
     pub fn build_fmul(
         &mut self,
         name: impl Into<String>,
@@ -450,6 +490,7 @@ impl<'a> Builder<'a> {
         )
     }
 
+    /// Public API for `build_fdiv`.
     pub fn build_fdiv(
         &mut self,
         name: impl Into<String>,
@@ -468,6 +509,7 @@ impl<'a> Builder<'a> {
         )
     }
 
+    /// Public API for `build_fneg`.
     pub fn build_fneg(&mut self, name: impl Into<String>, val: ValueRef) -> ValueRef {
         let ty = self.type_of(val);
         self.append_instr(
@@ -482,6 +524,7 @@ impl<'a> Builder<'a> {
 
     // --- Comparisons ---
 
+    /// Public API for `build_icmp`.
     pub fn build_icmp(
         &mut self,
         name: impl Into<String>,
@@ -493,6 +536,7 @@ impl<'a> Builder<'a> {
         self.append_instr(Some(name.into()), i1, InstrKind::ICmp { pred, lhs, rhs })
     }
 
+    /// Public API for `build_fcmp`.
     pub fn build_fcmp(
         &mut self,
         name: impl Into<String>,
@@ -515,6 +559,7 @@ impl<'a> Builder<'a> {
 
     // --- Memory ---
 
+    /// Public API for `build_alloca`.
     pub fn build_alloca(&mut self, name: impl Into<String>, alloc_ty: TypeId) -> ValueRef {
         let ptr_ty = self.ctx.ptr_ty;
         self.append_instr(
@@ -528,6 +573,7 @@ impl<'a> Builder<'a> {
         )
     }
 
+    /// Public API for `build_alloca_aligned`.
     pub fn build_alloca_aligned(
         &mut self,
         name: impl Into<String>,
@@ -546,6 +592,7 @@ impl<'a> Builder<'a> {
         )
     }
 
+    /// Public API for `build_load`.
     pub fn build_load(&mut self, name: impl Into<String>, ty: TypeId, ptr: ValueRef) -> ValueRef {
         self.append_instr(
             Some(name.into()),
@@ -559,6 +606,7 @@ impl<'a> Builder<'a> {
         )
     }
 
+    /// Public API for `build_load_aligned`.
     pub fn build_load_aligned(
         &mut self,
         name: impl Into<String>,
@@ -578,6 +626,7 @@ impl<'a> Builder<'a> {
         )
     }
 
+    /// Public API for `build_store`.
     pub fn build_store(&mut self, val: ValueRef, ptr: ValueRef) -> ValueRef {
         let void_ty = self.ctx.void_ty;
         self.append_instr(
@@ -592,6 +641,7 @@ impl<'a> Builder<'a> {
         )
     }
 
+    /// Public API for `build_store_aligned`.
     pub fn build_store_aligned(&mut self, val: ValueRef, ptr: ValueRef, align: u32) -> ValueRef {
         let void_ty = self.ctx.void_ty;
         self.append_instr(
@@ -606,6 +656,7 @@ impl<'a> Builder<'a> {
         )
     }
 
+    /// Public API for `build_gep`.
     pub fn build_gep(
         &mut self,
         name: impl Into<String>,
@@ -626,6 +677,7 @@ impl<'a> Builder<'a> {
         )
     }
 
+    /// Public API for `build_gep_inbounds`.
     pub fn build_gep_inbounds(
         &mut self,
         name: impl Into<String>,
@@ -648,15 +700,19 @@ impl<'a> Builder<'a> {
 
     // --- Casts ---
 
+    /// Public API for `build_trunc`.
     pub fn build_trunc(&mut self, name: impl Into<String>, val: ValueRef, to: TypeId) -> ValueRef {
         self.append_instr(Some(name.into()), to, InstrKind::Trunc { val, to })
     }
+    /// Public API for `build_zext`.
     pub fn build_zext(&mut self, name: impl Into<String>, val: ValueRef, to: TypeId) -> ValueRef {
         self.append_instr(Some(name.into()), to, InstrKind::ZExt { val, to })
     }
+    /// Public API for `build_sext`.
     pub fn build_sext(&mut self, name: impl Into<String>, val: ValueRef, to: TypeId) -> ValueRef {
         self.append_instr(Some(name.into()), to, InstrKind::SExt { val, to })
     }
+    /// Public API for `build_fptrunc`.
     pub fn build_fptrunc(
         &mut self,
         name: impl Into<String>,
@@ -665,21 +721,27 @@ impl<'a> Builder<'a> {
     ) -> ValueRef {
         self.append_instr(Some(name.into()), to, InstrKind::FPTrunc { val, to })
     }
+    /// Public API for `build_fpext`.
     pub fn build_fpext(&mut self, name: impl Into<String>, val: ValueRef, to: TypeId) -> ValueRef {
         self.append_instr(Some(name.into()), to, InstrKind::FPExt { val, to })
     }
+    /// Public API for `build_fptoui`.
     pub fn build_fptoui(&mut self, name: impl Into<String>, val: ValueRef, to: TypeId) -> ValueRef {
         self.append_instr(Some(name.into()), to, InstrKind::FPToUI { val, to })
     }
+    /// Public API for `build_fptosi`.
     pub fn build_fptosi(&mut self, name: impl Into<String>, val: ValueRef, to: TypeId) -> ValueRef {
         self.append_instr(Some(name.into()), to, InstrKind::FPToSI { val, to })
     }
+    /// Public API for `build_uitofp`.
     pub fn build_uitofp(&mut self, name: impl Into<String>, val: ValueRef, to: TypeId) -> ValueRef {
         self.append_instr(Some(name.into()), to, InstrKind::UIToFP { val, to })
     }
+    /// Public API for `build_sitofp`.
     pub fn build_sitofp(&mut self, name: impl Into<String>, val: ValueRef, to: TypeId) -> ValueRef {
         self.append_instr(Some(name.into()), to, InstrKind::SIToFP { val, to })
     }
+    /// Public API for `build_ptrtoint`.
     pub fn build_ptrtoint(
         &mut self,
         name: impl Into<String>,
@@ -688,6 +750,7 @@ impl<'a> Builder<'a> {
     ) -> ValueRef {
         self.append_instr(Some(name.into()), to, InstrKind::PtrToInt { val, to })
     }
+    /// Public API for `build_inttoptr`.
     pub fn build_inttoptr(
         &mut self,
         name: impl Into<String>,
@@ -696,6 +759,7 @@ impl<'a> Builder<'a> {
     ) -> ValueRef {
         self.append_instr(Some(name.into()), to, InstrKind::IntToPtr { val, to })
     }
+    /// Public API for `build_bitcast`.
     pub fn build_bitcast(
         &mut self,
         name: impl Into<String>,
@@ -705,6 +769,7 @@ impl<'a> Builder<'a> {
         self.append_instr(Some(name.into()), to, InstrKind::BitCast { val, to })
     }
 
+    /// Public API for `build_freeze`.
     pub fn build_freeze(&mut self, name: impl Into<String>, val: ValueRef) -> ValueRef {
         let ty = self.type_of(val);
         self.append_instr(Some(name.into()), ty, InstrKind::Freeze { val })
@@ -712,6 +777,7 @@ impl<'a> Builder<'a> {
 
     // --- Misc ---
 
+    /// Public API for `build_select`.
     pub fn build_select(
         &mut self,
         name: impl Into<String>,
@@ -731,6 +797,7 @@ impl<'a> Builder<'a> {
         )
     }
 
+    /// Public API for `build_phi`.
     pub fn build_phi(
         &mut self,
         name: impl Into<String>,
@@ -740,6 +807,7 @@ impl<'a> Builder<'a> {
         self.append_instr(Some(name.into()), ty, InstrKind::Phi { ty, incoming })
     }
 
+    /// Public API for `build_extractvalue`.
     pub fn build_extractvalue(
         &mut self,
         name: impl Into<String>,
@@ -754,6 +822,7 @@ impl<'a> Builder<'a> {
         )
     }
 
+    /// Public API for `build_insertvalue`.
     pub fn build_insertvalue(
         &mut self,
         name: impl Into<String>,
@@ -773,6 +842,7 @@ impl<'a> Builder<'a> {
         )
     }
 
+    /// Public API for `build_extractelement`.
     pub fn build_extractelement(
         &mut self,
         name: impl Into<String>,
@@ -787,6 +857,7 @@ impl<'a> Builder<'a> {
         )
     }
 
+    /// Public API for `build_insertelement`.
     pub fn build_insertelement(
         &mut self,
         name: impl Into<String>,
@@ -798,6 +869,7 @@ impl<'a> Builder<'a> {
         self.append_instr(Some(name.into()), ty, InstrKind::InsertElement { vec, val, idx })
     }
 
+    /// Public API for `build_shufflevector`.
     pub fn build_shufflevector(
         &mut self,
         name: impl Into<String>,
@@ -815,6 +887,7 @@ impl<'a> Builder<'a> {
 
     // --- Call ---
 
+    /// Public API for `build_call`.
     pub fn build_call(
         &mut self,
         name: impl Into<String>,
@@ -843,21 +916,25 @@ impl<'a> Builder<'a> {
 
     // --- Terminators ---
 
+    /// Public API for `build_ret_void`.
     pub fn build_ret_void(&mut self) -> ValueRef {
         let void_ty = self.ctx.void_ty;
         self.append_instr(None, void_ty, InstrKind::Ret { val: None })
     }
 
+    /// Public API for `build_ret`.
     pub fn build_ret(&mut self, val: ValueRef) -> ValueRef {
         let void_ty = self.ctx.void_ty;
         self.append_instr(None, void_ty, InstrKind::Ret { val: Some(val) })
     }
 
+    /// Public API for `build_br`.
     pub fn build_br(&mut self, dest: BlockId) -> ValueRef {
         let void_ty = self.ctx.void_ty;
         self.append_instr(None, void_ty, InstrKind::Br { dest })
     }
 
+    /// Public API for `build_cond_br`.
     pub fn build_cond_br(
         &mut self,
         cond: ValueRef,
@@ -876,6 +953,7 @@ impl<'a> Builder<'a> {
         )
     }
 
+    /// Public API for `build_switch`.
     pub fn build_switch(
         &mut self,
         val: ValueRef,
@@ -894,6 +972,7 @@ impl<'a> Builder<'a> {
         )
     }
 
+    /// Public API for `build_unreachable`.
     pub fn build_unreachable(&mut self) -> ValueRef {
         let void_ty = self.ctx.void_ty;
         self.append_instr(None, void_ty, InstrKind::Unreachable)

@@ -3,27 +3,38 @@
 use llvm_ir::{Context, FunctionId, InstrKind, Module, ValueRef};
 use std::collections::{BTreeSet, HashSet};
 
+/// Public API for `CallEdgeKind`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum CallEdgeKind {
+    /// `Direct` variant.
     Direct,
+    /// `Indirect` variant.
     Indirect,
+    /// `External` variant.
     External,
 }
 
+/// Public API for `CallEdge`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct CallEdge {
+    /// Public API for `to`.
     pub to: Option<FunctionId>,
+    /// Public API for `kind`.
     pub kind: CallEdgeKind,
 }
 
 /// Call graph over all functions in a module.
 pub struct CallGraph {
+    // `direct_callees` field.
     direct_callees: Vec<Vec<FunctionId>>,
+    // `direct_callers` field.
     direct_callers: Vec<Vec<FunctionId>>,
+    // `edges` field.
     edges: Vec<Vec<CallEdge>>,
 }
 
 impl CallGraph {
+    /// Public API for `build`.
     pub fn build(_ctx: &Context, module: &Module) -> Self {
         let n = module.functions.len();
         let mut direct_callees_sets: Vec<BTreeSet<FunctionId>> = vec![BTreeSet::new(); n];
@@ -81,14 +92,17 @@ impl CallGraph {
         }
     }
 
+    /// Public API for `callees`.
     pub fn callees(&self, f: FunctionId) -> &[FunctionId] {
         &self.direct_callees[f.0 as usize]
     }
 
+    /// Public API for `callers`.
     pub fn callers(&self, f: FunctionId) -> &[FunctionId] {
         &self.direct_callers[f.0 as usize]
     }
 
+    /// Public API for `edges`.
     pub fn edges(&self, f: FunctionId) -> &[CallEdge] {
         &self.edges[f.0 as usize]
     }

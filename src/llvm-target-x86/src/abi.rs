@@ -58,7 +58,9 @@ pub enum ArgLocation {
 /// Active x86-64 calling convention.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CallingConvention {
+    /// `SysV` variant.
     SysV,
+    /// `Win64` variant.
     Win64,
 }
 
@@ -78,6 +80,7 @@ impl CallingConvention {
         }
     }
 
+    /// Public API for `classify_int_args`.
     pub fn classify_int_args(self, n_args: usize) -> Vec<ArgLocation> {
         match self {
             Self::SysV => classify_sysv_args(n_args),
@@ -85,6 +88,7 @@ impl CallingConvention {
         }
     }
 
+    /// Public API for `int_ret`.
     pub fn int_ret(self) -> PReg {
         match self {
             Self::SysV => SYSV_INT_RET,
@@ -92,6 +96,7 @@ impl CallingConvention {
         }
     }
 
+    /// Public API for `allocatable_pregs`.
     pub fn allocatable_pregs(self) -> &'static [PReg] {
         match self {
             Self::SysV => SYSV_ALLOCATABLE,
@@ -99,6 +104,7 @@ impl CallingConvention {
         }
     }
 
+    /// Public API for `callee_saved_pregs`.
     pub fn callee_saved_pregs(self) -> &'static [PReg] {
         match self {
             Self::SysV => SYSV_CALLEE_SAVED,
@@ -106,6 +112,7 @@ impl CallingConvention {
         }
     }
 
+    /// Public API for `caller_saved_clobbers`.
     pub fn caller_saved_clobbers(self) -> &'static [PReg] {
         match self {
             Self::SysV => SYSV_CALLER_SAVED,
@@ -113,6 +120,7 @@ impl CallingConvention {
         }
     }
 
+    /// Public API for `shadow_space_bytes`.
     pub fn shadow_space_bytes(self) -> u32 {
         match self {
             Self::SysV => 0,

@@ -24,11 +24,15 @@ use llvm_ir::{BlockId, Function};
 /// | `rpo()` / `post_order()` | no |
 /// | `is_reachable()` | — |
 pub struct Cfg {
+    // `num_blocks` field.
     num_blocks: usize,
+    // `succs` field.
     succs: Vec<Vec<BlockId>>,
+    // `preds` field.
     preds: Vec<Vec<BlockId>>,
     /// `reachable[i]` is `true` iff `BlockId(i)` is reachable from entry.
     reachable: Vec<bool>,
+    // `reachable_count` field.
     reachable_count: usize,
 }
 

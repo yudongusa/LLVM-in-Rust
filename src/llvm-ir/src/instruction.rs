@@ -18,18 +18,26 @@ pub struct IntArithFlags {
 /// `exact` flag for division/shift instructions.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ExactFlag {
+    /// Public API for `exact`.
     pub exact: bool,
 }
 
 /// Fast-math flags for floating-point instructions.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct FastMathFlags {
+    /// Public API for `nnan`.
     pub nnan: bool,
+    /// Public API for `ninf`.
     pub ninf: bool,
+    /// Public API for `nsz`.
     pub nsz: bool,
+    /// Public API for `arcp`.
     pub arcp: bool,
+    /// Public API for `contract`.
     pub contract: bool,
+    /// Public API for `afn`.
     pub afn: bool,
+    /// Public API for `reassoc`.
     pub reassoc: bool,
     /// Shorthand for all flags set.
     pub fast: bool,
@@ -39,21 +47,33 @@ pub struct FastMathFlags {
 // Predicates
 // ---------------------------------------------------------------------------
 
+/// Public API for `IntPredicate`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum IntPredicate {
+    /// `Eq` variant.
     Eq,
+    /// `Ne` variant.
     Ne,
+    /// `Ugt` variant.
     Ugt,
+    /// `Uge` variant.
     Uge,
+    /// `Ult` variant.
     Ult,
+    /// `Ule` variant.
     Ule,
+    /// `Sgt` variant.
     Sgt,
+    /// `Sge` variant.
     Sge,
+    /// `Slt` variant.
     Slt,
+    /// `Sle` variant.
     Sle,
 }
 
 impl IntPredicate {
+    /// Public API for `as_str`.
     pub fn as_str(self) -> &'static str {
         match self {
             IntPredicate::Eq => "eq",
@@ -70,27 +90,45 @@ impl IntPredicate {
     }
 }
 
+/// Public API for `FloatPredicate`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FloatPredicate {
+    /// `False` variant.
     False,
+    /// `Oeq` variant.
     Oeq,
+    /// `Ogt` variant.
     Ogt,
+    /// `Oge` variant.
     Oge,
+    /// `Olt` variant.
     Olt,
+    /// `Ole` variant.
     Ole,
+    /// `One` variant.
     One,
+    /// `Ord` variant.
     Ord,
+    /// `Uno` variant.
     Uno,
+    /// `Ueq` variant.
     Ueq,
+    /// `Ugt` variant.
     Ugt,
+    /// `Uge` variant.
     Uge,
+    /// `Ult` variant.
     Ult,
+    /// `Ule` variant.
     Ule,
+    /// `Une` variant.
     Une,
+    /// `True` variant.
     True,
 }
 
 impl FloatPredicate {
+    /// Public API for `as_str`.
     pub fn as_str(self) -> &'static str {
         match self {
             FloatPredicate::False => "false",
@@ -116,9 +154,13 @@ impl FloatPredicate {
 /// Tail call optimization hint.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TailCallKind {
+    /// `None` variant.
     None,
+    /// `Tail` variant.
     Tail,
+    /// `MustTail` variant.
     MustTail,
+    /// `NoTail` variant.
     NoTail,
 }
 
@@ -126,66 +168,80 @@ pub enum TailCallKind {
 // Instruction kind
 // ---------------------------------------------------------------------------
 
+/// Public API for `InstrKind`.
 #[derive(Clone, Debug, PartialEq)]
 pub enum InstrKind {
     // --- Integer arithmetic ---
+    /// `Add` variant.
     Add {
         flags: IntArithFlags,
         lhs: ValueRef,
         rhs: ValueRef,
     },
+    /// `Sub` variant.
     Sub {
         flags: IntArithFlags,
         lhs: ValueRef,
         rhs: ValueRef,
     },
+    /// `Mul` variant.
     Mul {
         flags: IntArithFlags,
         lhs: ValueRef,
         rhs: ValueRef,
     },
+    /// `UDiv` variant.
     UDiv {
         exact: bool,
         lhs: ValueRef,
         rhs: ValueRef,
     },
+    /// `SDiv` variant.
     SDiv {
         exact: bool,
         lhs: ValueRef,
         rhs: ValueRef,
     },
+    /// `URem` variant.
     URem {
         lhs: ValueRef,
         rhs: ValueRef,
     },
+    /// `SRem` variant.
     SRem {
         lhs: ValueRef,
         rhs: ValueRef,
     },
 
     // --- Bitwise ---
+    /// `And` variant.
     And {
         lhs: ValueRef,
         rhs: ValueRef,
     },
+    /// `Or` variant.
     Or {
         lhs: ValueRef,
         rhs: ValueRef,
     },
+    /// `Xor` variant.
     Xor {
         lhs: ValueRef,
         rhs: ValueRef,
     },
+    /// `Shl` variant.
     Shl {
         flags: IntArithFlags,
         lhs: ValueRef,
         rhs: ValueRef,
     },
+    /// `LShr` variant.
     LShr {
         exact: bool,
         lhs: ValueRef,
         rhs: ValueRef,
     },
+    /// `AShr` variant.
     AShr {
         exact: bool,
         lhs: ValueRef,
@@ -193,42 +249,50 @@ pub enum InstrKind {
     },
 
     // --- Floating-point arithmetic ---
+    /// `FAdd` variant.
     FAdd {
         flags: FastMathFlags,
         lhs: ValueRef,
         rhs: ValueRef,
     },
+    /// `FSub` variant.
     FSub {
         flags: FastMathFlags,
         lhs: ValueRef,
         rhs: ValueRef,
     },
+    /// `FMul` variant.
     FMul {
         flags: FastMathFlags,
         lhs: ValueRef,
         rhs: ValueRef,
     },
+    /// `FDiv` variant.
     FDiv {
         flags: FastMathFlags,
         lhs: ValueRef,
         rhs: ValueRef,
     },
+    /// `FRem` variant.
     FRem {
         flags: FastMathFlags,
         lhs: ValueRef,
         rhs: ValueRef,
     },
+    /// `FNeg` variant.
     FNeg {
         flags: FastMathFlags,
         operand: ValueRef,
     },
 
     // --- Comparisons ---
+    /// `ICmp` variant.
     ICmp {
         pred: IntPredicate,
         lhs: ValueRef,
         rhs: ValueRef,
     },
+    /// `FCmp` variant.
     FCmp {
         flags: FastMathFlags,
         pred: FloatPredicate,
@@ -237,23 +301,27 @@ pub enum InstrKind {
     },
 
     // --- Memory ---
+    /// `Alloca` variant.
     Alloca {
         alloc_ty: TypeId,
         num_elements: Option<ValueRef>,
         align: Option<u32>,
     },
+    /// `Load` variant.
     Load {
         ty: TypeId,
         ptr: ValueRef,
         align: Option<u32>,
         volatile: bool,
     },
+    /// `Store` variant.
     Store {
         val: ValueRef,
         ptr: ValueRef,
         align: Option<u32>,
         volatile: bool,
     },
+    /// `GetElementPtr` variant.
     GetElementPtr {
         inbounds: bool,
         base_ty: TypeId,
@@ -262,90 +330,111 @@ pub enum InstrKind {
     },
 
     // --- Casts ---
+    /// `Trunc` variant.
     Trunc {
         val: ValueRef,
         to: TypeId,
     },
+    /// `ZExt` variant.
     ZExt {
         val: ValueRef,
         to: TypeId,
     },
+    /// `SExt` variant.
     SExt {
         val: ValueRef,
         to: TypeId,
     },
+    /// `FPTrunc` variant.
     FPTrunc {
         val: ValueRef,
         to: TypeId,
     },
+    /// `FPExt` variant.
     FPExt {
         val: ValueRef,
         to: TypeId,
     },
+    /// `FPToUI` variant.
     FPToUI {
         val: ValueRef,
         to: TypeId,
     },
+    /// `FPToSI` variant.
     FPToSI {
         val: ValueRef,
         to: TypeId,
     },
+    /// `UIToFP` variant.
     UIToFP {
         val: ValueRef,
         to: TypeId,
     },
+    /// `SIToFP` variant.
     SIToFP {
         val: ValueRef,
         to: TypeId,
     },
+    /// `PtrToInt` variant.
     PtrToInt {
         val: ValueRef,
         to: TypeId,
     },
+    /// `IntToPtr` variant.
     IntToPtr {
         val: ValueRef,
         to: TypeId,
     },
+    /// `BitCast` variant.
     BitCast {
         val: ValueRef,
         to: TypeId,
     },
+    /// `AddrSpaceCast` variant.
     AddrSpaceCast {
         val: ValueRef,
         to: TypeId,
     },
+    /// `Freeze` variant.
     Freeze {
         val: ValueRef,
     },
 
     // --- Misc ---
+    /// `Select` variant.
     Select {
         cond: ValueRef,
         then_val: ValueRef,
         else_val: ValueRef,
     },
+    /// `Phi` variant.
     Phi {
         ty: TypeId,
         incoming: Vec<(ValueRef, BlockId)>,
     },
+    /// `ExtractValue` variant.
     ExtractValue {
         aggregate: ValueRef,
         indices: Vec<u32>,
     },
+    /// `InsertValue` variant.
     InsertValue {
         aggregate: ValueRef,
         val: ValueRef,
         indices: Vec<u32>,
     },
+    /// `ExtractElement` variant.
     ExtractElement {
         vec: ValueRef,
         idx: ValueRef,
     },
+    /// `InsertElement` variant.
     InsertElement {
         vec: ValueRef,
         val: ValueRef,
         idx: ValueRef,
     },
+    /// `ShuffleVector` variant.
     ShuffleVector {
         v1: ValueRef,
         v2: ValueRef,
@@ -353,6 +442,7 @@ pub enum InstrKind {
     },
 
     // --- Call ---
+    /// `Call` variant.
     Call {
         tail: TailCallKind,
         callee_ty: TypeId,
@@ -361,26 +451,32 @@ pub enum InstrKind {
     },
 
     // --- Terminators ---
+    /// `Ret` variant.
     Ret {
         val: Option<ValueRef>,
     },
+    /// `Br` variant.
     Br {
         dest: BlockId,
     },
+    /// `CondBr` variant.
     CondBr {
         cond: ValueRef,
         then_dest: BlockId,
         else_dest: BlockId,
     },
+    /// `Switch` variant.
     Switch {
         val: ValueRef,
         default: BlockId,
         cases: Vec<(ValueRef, BlockId)>,
     },
+    /// `Unreachable` variant.
     Unreachable,
 }
 
 impl InstrKind {
+    /// Public API for `is_terminator`.
     pub fn is_terminator(&self) -> bool {
         matches!(
             self,
@@ -616,22 +712,27 @@ pub struct Instruction {
     pub name: Option<String>,
     /// Type of the result (void_ty for void instructions and terminators).
     pub ty: TypeId,
+    /// Public API for `kind`.
     pub kind: InstrKind,
 }
 
 impl Instruction {
+    /// Public API for `new`.
     pub fn new(name: Option<String>, ty: TypeId, kind: InstrKind) -> Self {
         Instruction { name, ty, kind }
     }
 
+    /// Public API for `is_terminator`.
     pub fn is_terminator(&self) -> bool {
         self.kind.is_terminator()
     }
 
+    /// Public API for `operands`.
     pub fn operands(&self) -> Vec<ValueRef> {
         self.kind.operands()
     }
 
+    /// Public API for `successors`.
     pub fn successors(&self) -> Vec<BlockId> {
         self.kind.successors()
     }

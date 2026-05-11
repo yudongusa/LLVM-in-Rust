@@ -1,3 +1,16 @@
+//! llvm bench crate for LLVM-in-Rust.
+//!
+//! This crate provides one layer of the compiler pipeline and exposes the
+//! public types used by downstream crates and examples. The API is intentionally
+//! small and mirrors LLVM concepts where practical.
+//!
+//! # Example
+//!
+//! ```text
+//! // Import the crate and compose it with the rest of LLVM-in-Rust.
+//! // See the crate items below for focused examples and data structures.
+//! ```
+
 #[cfg(test)]
 mod tests {
     use llvm_ir::{Builder, GlobalId, Linkage, Module, ValueRef};

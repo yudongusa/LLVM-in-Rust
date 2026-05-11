@@ -4,6 +4,7 @@ use crate::regs::{ARG_REGS, RET_REG};
 use llvm_codegen::isel::PReg;
 
 // Re-export for convenience.
+/// Public API for `re-export`.
 pub use crate::regs::RET_REG as AAPCS64_INT_RET;
 
 /// Where a single argument lands after ABI classification.

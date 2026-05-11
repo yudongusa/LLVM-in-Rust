@@ -8,24 +8,31 @@ use std::collections::HashMap;
 // Newtype index types — all u32, Copy
 // ---------------------------------------------------------------------------
 
+/// Public API for `TypeId`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TypeId(pub u32);
 
+/// Public API for `FunctionId`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FunctionId(pub u32);
 
+/// Public API for `BlockId`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct BlockId(pub u32);
 
+/// Public API for `InstrId`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct InstrId(pub u32);
 
+/// Public API for `ArgId`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ArgId(pub u32);
 
+/// Public API for `ConstId`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ConstId(pub u32);
 
+/// Public API for `GlobalId`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct GlobalId(pub u32);
 
@@ -36,9 +43,13 @@ pub struct GlobalId(pub u32);
 /// A `Copy` reference to any SSA value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ValueRef {
+    /// `Instruction` variant.
     Instruction(InstrId),
+    /// `Argument` variant.
     Argument(ArgId),
+    /// `Constant` variant.
     Constant(ConstId),
+    /// `Global` variant.
     Global(GlobalId),
 }
 
@@ -46,13 +57,20 @@ pub enum ValueRef {
 // Constant deduplication key (scalars only)
 // ---------------------------------------------------------------------------
 
+/// Public API for `ConstantKey`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum ConstantKey {
+    /// `Int` variant.
     Int(TypeId, u64),
+    /// `Float` variant.
     Float(TypeId, u64), // raw bits
+    /// `Null` variant.
     Null(TypeId),
+    /// `Undef` variant.
     Undef(TypeId),
+    /// `Poison` variant.
     Poison(TypeId),
+    /// `ZeroInitializer` variant.
     ZeroInitializer(TypeId),
 }
 
@@ -60,7 +78,9 @@ pub enum ConstantKey {
 // Context
 // ---------------------------------------------------------------------------
 
+/// Public API for `Context`.
 pub struct Context {
+    // `types` field.
     types: Vec<TypeData>,
     /// Structural type interning (anonymous types).
     type_map: HashMap<TypeData, TypeId>,
@@ -68,38 +88,65 @@ pub struct Context {
     named_struct_map: HashMap<String, TypeId>,
     /// Constant pool.
     pub constants: Vec<ConstantData>,
+    // `const_map` field.
     const_map: HashMap<ConstantKey, ConstId>,
 
     // Pre-interned singletons.
+    /// Public API for `void_ty`.
     pub void_ty: TypeId,
+    /// Public API for `i1_ty`.
     pub i1_ty: TypeId,
+    /// Public API for `i8_ty`.
     pub i8_ty: TypeId,
+    /// Public API for `i16_ty`.
     pub i16_ty: TypeId,
+    /// Public API for `i32_ty`.
     pub i32_ty: TypeId,
+    /// Public API for `i64_ty`.
     pub i64_ty: TypeId,
+    /// Public API for `f32_ty`.
     pub f32_ty: TypeId,
+    /// Public API for `f64_ty`.
     pub f64_ty: TypeId,
+    /// Public API for `ptr_ty`.
     pub ptr_ty: TypeId,
+    /// Public API for `label_ty`.
     pub label_ty: TypeId,
 }
 
 impl Context {
+    /// Public API for `new`.
     pub fn new() -> Self {
         let mut ctx = Context {
+            // `types` field.
             types: Vec::new(),
+            // `type_map` field.
             type_map: HashMap::new(),
+            // `named_struct_map` field.
             named_struct_map: HashMap::new(),
+            // `constants` field.
             constants: Vec::new(),
+            // `const_map` field.
             const_map: HashMap::new(),
+            // `void_ty` field.
             void_ty: TypeId(0),
+            // `i1_ty` field.
             i1_ty: TypeId(0),
+            // `i8_ty` field.
             i8_ty: TypeId(0),
+            // `i16_ty` field.
             i16_ty: TypeId(0),
+            // `i32_ty` field.
             i32_ty: TypeId(0),
+            // `i64_ty` field.
             i64_ty: TypeId(0),
+            // `f32_ty` field.
             f32_ty: TypeId(0),
+            // `f64_ty` field.
             f64_ty: TypeId(0),
+            // `ptr_ty` field.
             ptr_ty: TypeId(0),
+            // `label_ty` field.
             label_ty: TypeId(0),
         };
         ctx.void_ty = ctx.intern_anon(TypeData::Void);
@@ -130,30 +177,37 @@ impl Context {
     // Type constructors
     // -----------------------------------------------------------------------
 
+    /// Public API for `mk_int`.
     pub fn mk_int(&mut self, bits: u32) -> TypeId {
         self.intern_anon(TypeData::Integer(bits))
     }
 
+    /// Public API for `mk_float`.
     pub fn mk_float(&mut self, kind: FloatKind) -> TypeId {
         self.intern_anon(TypeData::Float(kind))
     }
 
+    /// Public API for `mk_ptr`.
     pub fn mk_ptr(&mut self) -> TypeId {
         self.ptr_ty
     }
 
+    /// Public API for `mk_label`.
     pub fn mk_label(&mut self) -> TypeId {
         self.label_ty
     }
 
+    /// Public API for `mk_metadata`.
     pub fn mk_metadata(&mut self) -> TypeId {
         self.intern_anon(TypeData::Metadata)
     }
 
+    /// Public API for `mk_array`.
     pub fn mk_array(&mut self, element: TypeId, len: u64) -> TypeId {
         self.intern_anon(TypeData::Array { element, len })
     }
 
+    /// Public API for `mk_vector`.
     pub fn mk_vector(&mut self, element: TypeId, len: u32, scalable: bool) -> TypeId {
         self.intern_anon(TypeData::Vector {
             element,
@@ -162,6 +216,7 @@ impl Context {
         })
     }
 
+    /// Public API for `mk_fn_type`.
     pub fn mk_fn_type(&mut self, ret: TypeId, params: Vec<TypeId>, variadic: bool) -> TypeId {
         self.intern_anon(TypeData::Function(FunctionType {
             ret,
@@ -170,6 +225,7 @@ impl Context {
         }))
     }
 
+    /// Public API for `mk_struct_anon`.
     pub fn mk_struct_anon(&mut self, fields: Vec<TypeId>, packed: bool) -> TypeId {
         self.intern_anon(TypeData::Struct(StructType {
             name: None,
@@ -211,10 +267,12 @@ impl Context {
     // Type accessors
     // -----------------------------------------------------------------------
 
+    /// Public API for `get_type`.
     pub fn get_type(&self, id: TypeId) -> &TypeData {
         &self.types[id.0 as usize]
     }
 
+    /// Public API for `get_type_mut`.
     pub fn get_type_mut(&mut self, id: TypeId) -> &mut TypeData {
         &mut self.types[id.0 as usize]
     }
@@ -236,6 +294,7 @@ impl Context {
     // Constant constructors
     // -----------------------------------------------------------------------
 
+    /// Public API for `const_int`.
     pub fn const_int(&mut self, ty: TypeId, val: u64) -> ConstId {
         let key = ConstantKey::Int(ty, val);
         if let Some(&id) = self.const_map.get(&key) {
@@ -260,6 +319,7 @@ impl Context {
         id
     }
 
+    /// Public API for `const_null`.
     pub fn const_null(&mut self, ty: TypeId) -> ConstId {
         let key = ConstantKey::Null(ty);
         if let Some(&id) = self.const_map.get(&key) {
@@ -271,6 +331,7 @@ impl Context {
         id
     }
 
+    /// Public API for `const_undef`.
     pub fn const_undef(&mut self, ty: TypeId) -> ConstId {
         let key = ConstantKey::Undef(ty);
         if let Some(&id) = self.const_map.get(&key) {
@@ -282,6 +343,7 @@ impl Context {
         id
     }
 
+    /// Public API for `const_poison`.
     pub fn const_poison(&mut self, ty: TypeId) -> ConstId {
         let key = ConstantKey::Poison(ty);
         if let Some(&id) = self.const_map.get(&key) {
@@ -293,6 +355,7 @@ impl Context {
         id
     }
 
+    /// Public API for `const_zero`.
     pub fn const_zero(&mut self, ty: TypeId) -> ConstId {
         let key = ConstantKey::ZeroInitializer(ty);
         if let Some(&id) = self.const_map.get(&key) {
@@ -315,10 +378,12 @@ impl Context {
     // Constant accessors
     // -----------------------------------------------------------------------
 
+    /// Public API for `get_const`.
     pub fn get_const(&self, id: ConstId) -> &ConstantData {
         &self.constants[id.0 as usize]
     }
 
+    /// Public API for `type_of_const`.
     pub fn type_of_const(&self, id: ConstId) -> TypeId {
         match &self.constants[id.0 as usize] {
             ConstantData::Int { ty, .. } => *ty,

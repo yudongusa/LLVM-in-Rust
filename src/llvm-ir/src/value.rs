@@ -37,14 +37,18 @@ pub enum ConstantData {
 /// A function argument (SSA value produced by function entry).
 #[derive(Clone, Debug)]
 pub struct Argument {
+    /// Public API for `name`.
     pub name: String,
+    /// Public API for `ty`.
     pub ty: TypeId,
+    /// Public API for `index`.
     pub index: u32,
 }
 
 /// A global variable definition.
 #[derive(Clone, Debug)]
 pub struct GlobalVariable {
+    /// Public API for `name`.
     pub name: String,
     /// Type of the value stored (not the pointer type).
     pub ty: TypeId,
@@ -52,24 +56,35 @@ pub struct GlobalVariable {
     pub initializer: Option<ConstId>,
     /// If true, the global is read-only.
     pub is_constant: bool,
+    /// Public API for `linkage`.
     pub linkage: Linkage,
 }
 
 /// Linkage kinds matching LLVM IR semantics.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Linkage {
+    /// `Private` variant.
     Private,
+    /// `Internal` variant.
     Internal,
+    /// `External` variant.
     External,
+    /// `Weak` variant.
     Weak,
+    /// `WeakOdr` variant.
     WeakOdr,
+    /// `LinkOnce` variant.
     LinkOnce,
+    /// `LinkOnceOdr` variant.
     LinkOnceOdr,
+    /// `Common` variant.
     Common,
+    /// `AvailableExternally` variant.
     AvailableExternally,
 }
 
 impl Linkage {
+    /// Public API for `as_str`.
     pub fn as_str(self) -> &'static str {
         match self {
             Linkage::Private => "private",
@@ -84,6 +99,7 @@ impl Linkage {
         }
     }
 
+    /// Public API for `is_external`.
     pub fn is_external(self) -> bool {
         self == Linkage::External
     }

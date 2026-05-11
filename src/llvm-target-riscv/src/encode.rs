@@ -4,11 +4,14 @@ use crate::instructions::*;
 use llvm_codegen::emit::{DebugLineRow, Emitter, ObjectFormat, Section};
 use llvm_codegen::isel::{MInstr, MOpcode, MOperand, MachineFunction, PReg, VReg};
 
+/// Public API for `RiscVEmitter`.
 pub struct RiscVEmitter {
+    /// Public API for `format`.
     pub format: ObjectFormat,
 }
 
 impl RiscVEmitter {
+    /// Public API for `new`.
     pub fn new(format: ObjectFormat) -> Self {
         Self { format }
     }

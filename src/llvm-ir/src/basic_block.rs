@@ -9,6 +9,7 @@ use crate::context::InstrId;
 /// `Function`'s flat `instructions` pool.
 #[derive(Clone, Debug)]
 pub struct BasicBlock {
+    /// Public API for `name`.
     pub name: String,
     /// Non-terminator instructions, in order.
     pub body: Vec<InstrId>,
@@ -17,6 +18,7 @@ pub struct BasicBlock {
 }
 
 impl BasicBlock {
+    /// Public API for `new`.
     pub fn new(name: impl Into<String>) -> Self {
         BasicBlock {
             name: name.into(),
@@ -50,6 +52,7 @@ impl BasicBlock {
         self.body.len() + if self.terminator.is_some() { 1 } else { 0 }
     }
 
+    /// Public API for `is_empty`.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }

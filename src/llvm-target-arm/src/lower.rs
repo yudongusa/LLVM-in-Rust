@@ -1,6 +1,6 @@
 //! AArch64 IR → machine-IR lowering.
 //!
-//! Implements [`IselBackend`] for [`AArch64Backend`].  Each IR instruction is
+//! Implements `IselBackend` for `AArch64Backend`.  Each IR instruction is
 //! translated to one or more machine instructions using virtual registers.
 //! Phi-destruction (parallel copy insertion) is also handled here.
 
@@ -22,8 +22,11 @@ pub struct AArch64Backend;
 impl IselBackend for AArch64Backend {
     fn lower_function(
         &mut self,
+        // `ctx` field.
         ctx: &Context,
+        // `module` field.
         module: &Module,
+        // `func` field.
         func: &Function,
     ) -> MachineFunction {
         let mut mf = MachineFunction::new(func.name.clone());

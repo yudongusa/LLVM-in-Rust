@@ -22,9 +22,13 @@ pub const MOVSX_16: MOpcode = MOpcode(0x06);
 pub const MOV_PR: MOpcode = MOpcode(0x05);
 
 // ── integer arithmetic ─────────────────────────────────────────────────────
+/// Public API for `ADD_RR`.
 pub const ADD_RR: MOpcode = MOpcode(0x10);
+/// Public API for `ADD_RI`.
 pub const ADD_RI: MOpcode = MOpcode(0x11);
+/// Public API for `SUB_RR`.
 pub const SUB_RR: MOpcode = MOpcode(0x12);
+/// Public API for `SUB_RI`.
 pub const SUB_RI: MOpcode = MOpcode(0x13);
 /// `imul dst, src`  (2-operand: dst *= src)
 pub const IMUL_RR: MOpcode = MOpcode(0x14);
@@ -40,12 +44,19 @@ pub const CQO: MOpcode = MOpcode(0x18);
 pub const DIV_R: MOpcode = MOpcode(0x19);
 
 // ── bitwise ────────────────────────────────────────────────────────────────
+/// Public API for `AND_RR`.
 pub const AND_RR: MOpcode = MOpcode(0x20);
+/// Public API for `AND_RI`.
 pub const AND_RI: MOpcode = MOpcode(0x21);
+/// Public API for `OR_RR`.
 pub const OR_RR: MOpcode = MOpcode(0x22);
+/// Public API for `OR_RI`.
 pub const OR_RI: MOpcode = MOpcode(0x23);
+/// Public API for `XOR_RR`.
 pub const XOR_RR: MOpcode = MOpcode(0x24);
+/// Public API for `XOR_RI`.
 pub const XOR_RI: MOpcode = MOpcode(0x25);
+/// Public API for `NOT_R`.
 pub const NOT_R: MOpcode = MOpcode(0x26);
 
 // ── shifts ─────────────────────────────────────────────────────────────────
@@ -63,13 +74,17 @@ pub const SAR_RR: MOpcode = MOpcode(0x34);
 pub const SAR_RI: MOpcode = MOpcode(0x35);
 
 // ── comparisons ────────────────────────────────────────────────────────────
+/// Public API for `CMP_RR`.
 pub const CMP_RR: MOpcode = MOpcode(0x40);
+/// Public API for `CMP_RI`.
 pub const CMP_RI: MOpcode = MOpcode(0x41);
+/// Public API for `TEST_RR`.
 pub const TEST_RR: MOpcode = MOpcode(0x42);
 /// `setcc dst`  — condition code stored as `Imm(CC_*)` in first operand.
 pub const SETCC: MOpcode = MOpcode(0x43);
 
 // ── control flow ───────────────────────────────────────────────────────────
+/// Public API for `JMP`.
 pub const JMP: MOpcode = MOpcode(0x50);
 /// `jcc target`  — condition code stored as `Imm(CC_*)`, target as `Block`.
 pub const JCC: MOpcode = MOpcode(0x51);
@@ -77,13 +92,17 @@ pub const JCC: MOpcode = MOpcode(0x51);
 pub const CALL_DIRECT: MOpcode = MOpcode(0x52);
 /// `call *reg`
 pub const CALL_R: MOpcode = MOpcode(0x53);
+/// Public API for `RET`.
 pub const RET: MOpcode = MOpcode(0x54);
 
 // ── stack ──────────────────────────────────────────────────────────────────
+/// Public API for `PUSH_R`.
 pub const PUSH_R: MOpcode = MOpcode(0x60);
+/// Public API for `POP_R`.
 pub const POP_R: MOpcode = MOpcode(0x61);
 
 // ── miscellaneous ──────────────────────────────────────────────────────────
+/// Public API for `NOP`.
 pub const NOP: MOpcode = MOpcode(0x70);
 /// `lea dst, [base + imm]`  — imm stored as `Imm` operand.
 pub const LEA_RI: MOpcode = MOpcode(0x71);
@@ -95,27 +114,49 @@ pub const MOV_LOAD_MR: MOpcode = MOpcode(0x72);
 pub const MOV_STORE_RM: MOpcode = MOpcode(0x73);
 
 // ── SIMD / vector (SSE4.2 baseline for vector lowering) ───────────────────
+/// Public API for `PADDD_RR`.
 pub const PADDD_RR: MOpcode = MOpcode(0x80);
+/// Public API for `PSUBD_RR`.
 pub const PSUBD_RR: MOpcode = MOpcode(0x81);
+/// Public API for `PMULLD_RR`.
 pub const PMULLD_RR: MOpcode = MOpcode(0x82);
+/// Public API for `ADDPS_RR`.
 pub const ADDPS_RR: MOpcode = MOpcode(0x83);
+/// Public API for `MULPS_RR`.
 pub const MULPS_RR: MOpcode = MOpcode(0x84);
+/// Public API for `DIVPS_RR`.
 pub const DIVPS_RR: MOpcode = MOpcode(0x85);
+/// Public API for `ADDPD_RR`.
 pub const ADDPD_RR: MOpcode = MOpcode(0x86);
+/// Public API for `MULPD_RR`.
 pub const MULPD_RR: MOpcode = MOpcode(0x87);
+/// Public API for `MOVAPS_RR`.
 pub const MOVAPS_RR: MOpcode = MOpcode(0x88);
+/// Public API for `MOVDQU_LOAD_MR`.
 pub const MOVDQU_LOAD_MR: MOpcode = MOpcode(0x89);
+/// Public API for `MOVDQU_STORE_RM`.
 pub const MOVDQU_STORE_RM: MOpcode = MOpcode(0x8A);
+/// Public API for `MOVAPS_LOAD_MR`.
 pub const MOVAPS_LOAD_MR: MOpcode = MOpcode(0x8B);
 
 // ── condition codes (used as Imm operands with JCC / SETCC) ────────────────
+/// Public API for `CC_EQ`.
 pub const CC_EQ: i64 = 0; // je  / jz
+/// Public API for `CC_NE`.
 pub const CC_NE: i64 = 1; // jne / jnz
+/// Public API for `CC_LT`.
 pub const CC_LT: i64 = 2; // jl  (signed)
+/// Public API for `CC_LE`.
 pub const CC_LE: i64 = 3; // jle (signed)
+/// Public API for `CC_GT`.
 pub const CC_GT: i64 = 4; // jg  (signed)
+/// Public API for `CC_GE`.
 pub const CC_GE: i64 = 5; // jge (signed)
+/// Public API for `CC_ULT`.
 pub const CC_ULT: i64 = 6; // jb  (unsigned below)
+/// Public API for `CC_ULE`.
 pub const CC_ULE: i64 = 7; // jbe (unsigned below-or-equal)
+/// Public API for `CC_UGT`.
 pub const CC_UGT: i64 = 8; // ja  (unsigned above)
+/// Public API for `CC_UGE`.
 pub const CC_UGE: i64 = 9; // jae (unsigned above-or-equal)

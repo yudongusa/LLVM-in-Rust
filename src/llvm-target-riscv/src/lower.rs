@@ -12,14 +12,18 @@ use llvm_ir::{
 };
 use std::collections::HashMap;
 
+/// Public API for `RiscVBackend`.
 #[derive(Default)]
 pub struct RiscVBackend;
 
 impl IselBackend for RiscVBackend {
     fn lower_function(
         &mut self,
+        // `ctx` field.
         ctx: &Context,
+        // `module` field.
         module: &Module,
+        // `func` field.
         func: &Function,
     ) -> MachineFunction {
         let mut mf = MachineFunction::new(func.name.clone());

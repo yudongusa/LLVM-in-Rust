@@ -43,6 +43,7 @@ use std::collections::HashMap;
 /// Set `size_limit` to control the maximum callee body size (number of
 /// non-terminator instructions) that will be inlined.  The default is 50.
 pub struct Inliner {
+    /// Public API for `size_limit`.
     pub size_limit: usize,
     /// Maximum number of inlining rounds per module run.
     pub max_inline_depth: usize,

@@ -6,148 +6,274 @@ use std::fmt;
 // Keyword enum
 // ---------------------------------------------------------------------------
 
+/// Public API for `Keyword`.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Keyword {
     // Directives
+    /// `Source` variant.
     Source,     // source_filename
+    /// `Target` variant.
     Target,     // target
+    /// `Triple` variant.
     Triple,     // triple
+    /// `Datalayout` variant.
     Datalayout, // datalayout
+    /// `Define` variant.
     Define,
+    /// `Declare` variant.
     Declare,
+    /// `Type` variant.
     Type, // "type" keyword after %Foo =
 
     // Linkage
+    /// `Private` variant.
     Private,
+    /// `Internal` variant.
     Internal,
+    /// `External` variant.
     External,
+    /// `Weak` variant.
     Weak,
+    /// `WeakOdr` variant.
     WeakOdr,
+    /// `Linkonce` variant.
     Linkonce,
+    /// `LinkonceOdr` variant.
     LinkonceOdr,
+    /// `Common` variant.
     Common,
+    /// `AvailableExternally` variant.
     AvailableExternally,
 
     // Type keywords
+    /// `Void` variant.
     Void,
+    /// `Half` variant.
     Half,
+    /// `Bfloat` variant.
     Bfloat,
+    /// `Float` variant.
     Float,
+    /// `Double` variant.
     Double,
+    /// `Fp128` variant.
     Fp128,
+    /// `X86Fp80` variant.
     X86Fp80,
+    /// `Label` variant.
     Label,
+    /// `Metadata` variant.
     Metadata,
+    /// `Ptr` variant.
     Ptr,
 
     // Storage
+    /// `Global` variant.
     Global,
+    /// `Constant` variant.
     Constant,
 
     // Modifiers
+    /// `Inbounds` variant.
     Inbounds,
+    /// `Exact` variant.
     Exact,
+    /// `Nuw` variant.
     Nuw,
+    /// `Nsw` variant.
     Nsw,
+    /// `Volatile` variant.
     Volatile,
+    /// `Tail` variant.
     Tail,
+    /// `Musttail` variant.
     Musttail,
+    /// `Notail` variant.
     Notail,
+    /// `Fast` variant.
     Fast,
+    /// `Nnan` variant.
     Nnan,
+    /// `Ninf` variant.
     Ninf,
+    /// `Nsz` variant.
     Nsz,
+    /// `Arcp` variant.
     Arcp,
+    /// `Contract` variant.
     Contract,
+    /// `Afn` variant.
     Afn,
+    /// `Reassoc` variant.
     Reassoc,
 
     // Opcodes
+    /// `Add` variant.
     Add,
+    /// `Sub` variant.
     Sub,
+    /// `Mul` variant.
     Mul,
+    /// `Udiv` variant.
     Udiv,
+    /// `Sdiv` variant.
     Sdiv,
+    /// `Urem` variant.
     Urem,
+    /// `Srem` variant.
     Srem,
+    /// `And` variant.
     And,
+    /// `Or` variant.
     Or,
+    /// `Xor` variant.
     Xor,
+    /// `Shl` variant.
     Shl,
+    /// `Lshr` variant.
     Lshr,
+    /// `Ashr` variant.
     Ashr,
+    /// `Fadd` variant.
     Fadd,
+    /// `Fsub` variant.
     Fsub,
+    /// `Fmul` variant.
     Fmul,
+    /// `Fdiv` variant.
     Fdiv,
+    /// `Frem` variant.
     Frem,
+    /// `Fneg` variant.
     Fneg,
+    /// `Icmp` variant.
     Icmp,
+    /// `Fcmp` variant.
     Fcmp,
+    /// `Alloca` variant.
     Alloca,
+    /// `Load` variant.
     Load,
+    /// `Store` variant.
     Store,
+    /// `Getelementptr` variant.
     Getelementptr,
+    /// `Trunc` variant.
     Trunc,
+    /// `Zext` variant.
     Zext,
+    /// `Sext` variant.
     Sext,
+    /// `Fptrunc` variant.
     Fptrunc,
+    /// `Fpext` variant.
     Fpext,
+    /// `Fptoui` variant.
     Fptoui,
+    /// `Fptosi` variant.
     Fptosi,
+    /// `Uitofp` variant.
     Uitofp,
+    /// `Sitofp` variant.
     Sitofp,
+    /// `Ptrtoint` variant.
     Ptrtoint,
+    /// `Inttoptr` variant.
     Inttoptr,
+    /// `Bitcast` variant.
     Bitcast,
+    /// `Addrspacecast` variant.
     Addrspacecast,
+    /// `Freeze` variant.
     Freeze,
+    /// `Select` variant.
     Select,
+    /// `Phi` variant.
     Phi,
+    /// `Extractvalue` variant.
     Extractvalue,
+    /// `Insertvalue` variant.
     Insertvalue,
+    /// `Extractelement` variant.
     Extractelement,
+    /// `Insertelement` variant.
     Insertelement,
+    /// `Shufflevector` variant.
     Shufflevector,
+    /// `Call` variant.
     Call,
+    /// `Ret` variant.
     Ret,
+    /// `Br` variant.
     Br,
+    /// `Switch` variant.
     Switch,
+    /// `Unreachable` variant.
     Unreachable,
 
     // ICmp predicates
+    /// `Eq` variant.
     Eq,
+    /// `Ne` variant.
     Ne,
+    /// `Ugt` variant.
     Ugt,
+    /// `Uge` variant.
     Uge,
+    /// `Ult` variant.
     Ult,
+    /// `Ule` variant.
     Ule,
+    /// `Sgt` variant.
     Sgt,
+    /// `Sge` variant.
     Sge,
+    /// `Slt` variant.
     Slt,
+    /// `Sle` variant.
     Sle,
     // FCmp predicates
+    /// `False` variant.
     False,
+    /// `Oeq` variant.
     Oeq,
+    /// `Ogt` variant.
     Ogt,
+    /// `Oge` variant.
     Oge,
+    /// `Olt` variant.
     Olt,
+    /// `Ole` variant.
     Ole,
+    /// `One` variant.
     One,
+    /// `Ord` variant.
     Ord,
+    /// `Uno` variant.
     Uno,
+    /// `Ueq` variant.
     Ueq,
+    /// `Une` variant.
     Une,
+    /// `True` variant.
     True,
 
     // Aggregate/misc constants
+    /// `Zeroinitializer` variant.
     Zeroinitializer,
+    /// `Undef` variant.
     Undef,
+    /// `Poison` variant.
     Poison,
+    /// `Null` variant.
     Null,
+    /// `Align` variant.
     Align,
+    /// `To` variant.
     To,
+    /// `X` variant.
     X,      // "x" in vector / array size
+    /// `Vscale` variant.
     Vscale, // "vscale" before "x" in scalable vector
 }
 
@@ -155,6 +281,7 @@ pub enum Keyword {
 // Token
 // ---------------------------------------------------------------------------
 
+/// Public API for `Token`.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Token {
     /// %name  (local identifier)
@@ -211,10 +338,14 @@ pub enum Token {
 // Lex error
 // ---------------------------------------------------------------------------
 
+/// Public API for `LexError`.
 #[derive(Clone, Debug)]
 pub struct LexError {
+    /// Public API for `line`.
     pub line: usize,
+    /// Public API for `col`.
     pub col: usize,
+    /// Public API for `message`.
     pub message: String,
 }
 
@@ -232,16 +363,22 @@ impl fmt::Display for LexError {
 // Lexer
 // ---------------------------------------------------------------------------
 
+/// Public API for `Lexer`.
 pub struct Lexer<'src> {
+    // `src` field.
     src: &'src [u8],
+    // `pos` field.
     pos: usize,
+    // `line` field.
     line: usize,
+    // `col` field.
     col: usize,
     /// One-token lookahead.
     peeked: Option<Result<Token, LexError>>,
 }
 
 impl<'src> Lexer<'src> {
+    /// Public API for `new`.
     pub fn new(src: &'src str) -> Self {
         Lexer {
             src: src.as_bytes(),
@@ -334,6 +471,7 @@ impl<'src> Lexer<'src> {
         }
     }
 
+    /// Public API for `eat_kw`.
     pub fn eat_kw(&mut self, kw: Keyword) -> bool {
         self.eat(&Token::Kw(kw))
     }
@@ -348,6 +486,7 @@ impl<'src> Lexer<'src> {
         }
     }
 
+    /// Public API for `expect_kw`.
     pub fn expect_kw(&mut self, kw: &Keyword) -> Result<(), LexError> {
         let tok = self.next()?;
         if tok == Token::Kw(kw.clone()) {
@@ -357,6 +496,7 @@ impl<'src> Lexer<'src> {
         }
     }
 
+    /// Public API for `expect_local_ident`.
     pub fn expect_local_ident(&mut self) -> Result<String, LexError> {
         match self.next()? {
             Token::LocalIdent(s) => Ok(s),
@@ -364,6 +504,7 @@ impl<'src> Lexer<'src> {
         }
     }
 
+    /// Public API for `expect_global_ident`.
     pub fn expect_global_ident(&mut self) -> Result<String, LexError> {
         match self.next()? {
             Token::GlobalIdent(s) => Ok(s),
@@ -371,6 +512,7 @@ impl<'src> Lexer<'src> {
         }
     }
 
+    /// Public API for `expect_int_lit`.
     pub fn expect_int_lit(&mut self) -> Result<i64, LexError> {
         match self.next()? {
             Token::IntLit(n) => Ok(n),
@@ -379,6 +521,7 @@ impl<'src> Lexer<'src> {
         }
     }
 
+    /// Public API for `expect_uint_lit`.
     pub fn expect_uint_lit(&mut self) -> Result<u64, LexError> {
         match self.next()? {
             Token::IntLit(n) => Ok(n as u64),
@@ -387,6 +530,7 @@ impl<'src> Lexer<'src> {
         }
     }
 
+    /// Public API for `expect_string_lit`.
     pub fn expect_string_lit(&mut self) -> Result<String, LexError> {
         match self.next()? {
             Token::StringLit(s) => Ok(s),
@@ -394,9 +538,11 @@ impl<'src> Lexer<'src> {
         }
     }
 
+    /// Public API for `current_line`.
     pub fn current_line(&self) -> usize {
         self.line
     }
+    /// Public API for `current_col`.
     pub fn current_col(&self) -> usize {
         self.col
     }

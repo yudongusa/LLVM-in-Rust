@@ -1,6 +1,6 @@
 //! x86_64 machine-instruction encoding.
 //!
-//! Implements [`Emitter`] for x86_64, converting a [`MachineFunction`] into
+//! Implements `Emitter` for x86_64, converting a `MachineFunction` into
 //! a byte sequence and producing relocation records for unresolved branch
 //! targets and call destinations.
 //!
@@ -20,10 +20,12 @@ use std::collections::HashMap;
 
 /// x86_64 code emitter.
 pub struct X86Emitter {
+    /// Public API for `format`.
     pub format: ObjectFormat,
 }
 
 impl X86Emitter {
+    /// Public API for `new`.
     pub fn new(format: ObjectFormat) -> Self {
         Self { format }
     }

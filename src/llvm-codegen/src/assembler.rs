@@ -10,17 +10,24 @@ use crate::isel::MachineFunction;
 /// Summary metrics for one assembly invocation.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct McAssemblyReport {
+    /// Public API for `section_count`.
     pub section_count: usize,
+    /// Public API for `symbol_count`.
     pub symbol_count: usize,
+    /// Public API for `reloc_count`.
     pub reloc_count: usize,
+    /// Public API for `bytes`.
     pub bytes: usize,
 }
 
 /// Result of integrated assembly.
 #[derive(Clone, Debug)]
 pub struct AssembledObject {
+    /// Public API for `object`.
     pub object: ObjectFile,
+    /// Public API for `bytes`.
     pub bytes: Vec<u8>,
+    /// Public API for `report`.
     pub report: McAssemblyReport,
 }
 

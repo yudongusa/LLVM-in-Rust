@@ -1,6 +1,6 @@
 //! AArch64 machine-instruction encoding.
 //!
-//! Implements [`Emitter`] for AArch64, converting a [`MachineFunction`] into
+//! Implements `Emitter` for AArch64, converting a `MachineFunction` into
 //! a byte sequence of fixed-width 32-bit instruction words and producing
 //! relocation records for unresolved branch targets and call destinations.
 //!
@@ -16,10 +16,12 @@ use std::collections::HashMap;
 
 /// AArch64 code emitter.
 pub struct AArch64Emitter {
+    /// Public API for `format`.
     pub format: ObjectFormat,
 }
 
 impl AArch64Emitter {
+    /// Public API for `new`.
     pub fn new(format: ObjectFormat) -> Self {
         Self { format }
     }

@@ -11,9 +11,13 @@ use crate::{
 /// Optimization level preset.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OptLevel {
+    /// `O0` variant.
     O0,
+    /// `O1` variant.
     O1,
+    /// `O2` variant.
     O2,
+    /// `O3` variant.
     O3,
 }
 

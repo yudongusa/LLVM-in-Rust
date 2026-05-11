@@ -17,10 +17,14 @@ use crate::lexer::{Keyword, LexError, Lexer, Token};
 // ParseError
 // ---------------------------------------------------------------------------
 
+/// Public API for `ParseError`.
 #[derive(Clone, Debug)]
 pub struct ParseError {
+    /// Public API for `line`.
     pub line: usize,
+    /// Public API for `col`.
     pub col: usize,
+    /// Public API for `message`.
     pub message: String,
 }
 
@@ -2069,6 +2073,7 @@ impl<'src> Parser<'src> {
 // Public entry point
 // ---------------------------------------------------------------------------
 
+/// Public API for `parse`.
 pub fn parse(src: &str) -> Result<(Context, Module), ParseError> {
     let mut parser = Parser::new(src);
     parser.parse_module()?;

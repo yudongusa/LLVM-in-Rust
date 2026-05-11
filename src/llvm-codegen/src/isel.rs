@@ -23,7 +23,9 @@ pub struct MOpcode(pub u32);
 /// Source-level debug location carried with machine instructions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DebugLoc {
+    /// Public API for `line`.
     pub line: u32,
+    /// Public API for `column`.
     pub column: u32,
 }
 
@@ -64,33 +66,45 @@ pub struct MInstr {
 }
 
 impl MInstr {
+    /// Public API for `new`.
     pub fn new(opcode: MOpcode) -> Self {
+        // `Self` variant.
         Self {
             opcode,
+            // `dst` field.
             dst: None,
+            // `operands` field.
             operands: Vec::new(),
+            // `phys_uses` field.
             phys_uses: Vec::new(),
+            // `clobbers` field.
             clobbers: Vec::new(),
+            // `debug_loc` field.
             debug_loc: None,
         }
     }
 
+    /// Public API for `with_dst`.
     pub fn with_dst(mut self, dst: VReg) -> Self {
         self.dst = Some(dst);
         self
     }
+    /// Public API for `with_vreg`.
     pub fn with_vreg(mut self, r: VReg) -> Self {
         self.operands.push(MOperand::VReg(r));
         self
     }
+    /// Public API for `with_preg`.
     pub fn with_preg(mut self, r: PReg) -> Self {
         self.operands.push(MOperand::PReg(r));
         self
     }
+    /// Public API for `with_imm`.
     pub fn with_imm(mut self, imm: i64) -> Self {
         self.operands.push(MOperand::Imm(imm));
         self
     }
+    /// Public API for `with_block`.
     pub fn with_block(mut self, b: usize) -> Self {
         self.operands.push(MOperand::Block(b));
         self
@@ -141,6 +155,7 @@ pub struct MachineFunction {
 }
 
 impl MachineFunction {
+    /// Public API for `new`.
     pub fn new(name: String) -> Self {
         Self {
             name,
