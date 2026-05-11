@@ -4,5 +4,10 @@ version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 
+description = "Compact bitcode reader and writer for LLVM-in-Rust IR modules."
+repository = "https://github.com/yudongusa/LLVM-in-Rust"
+homepage = "https://github.com/yudongusa/LLVM-in-Rust"
+keywords = ["llvm", "compiler", "ir", "codegen", "rust"]
+categories = ["compilers", "development-tools"]
 [dependencies]
-llvm-ir = { path = "../llvm-ir" }
+llvm-ir = { version = "0.1.0", path = "../llvm-ir" }

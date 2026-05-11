@@ -4,9 +4,14 @@ version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 
+description = "Machine-independent code generation infrastructure for LLVM-in-Rust."
+repository = "https://github.com/yudongusa/LLVM-in-Rust"
+homepage = "https://github.com/yudongusa/LLVM-in-Rust"
+keywords = ["llvm", "compiler", "ir", "codegen", "rust"]
+categories = ["compilers", "development-tools"]
 [dependencies]
-llvm-ir = { path = "../llvm-ir" }
-llvm-analysis = { path = "../llvm-analysis" }
+llvm-ir = { version = "0.1.0", path = "../llvm-ir" }
+llvm-analysis = { version = "0.1.0", path = "../llvm-analysis" }
 
 [dev-dependencies]
 llvm-ir-parser = { path = "../llvm-ir-parser" }

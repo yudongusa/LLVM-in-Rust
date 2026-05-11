@@ -4,4 +4,9 @@ version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 
+description = "Core LLVM-inspired intermediate representation data structures and builders for LLVM-in-Rust."
+repository = "https://github.com/yudongusa/LLVM-in-Rust"
+homepage = "https://github.com/yudongusa/LLVM-in-Rust"
+keywords = ["llvm", "compiler", "ir", "codegen", "rust"]
+categories = ["compilers", "development-tools"]
 [dependencies]

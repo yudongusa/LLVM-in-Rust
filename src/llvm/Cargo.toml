@@ -4,13 +4,18 @@ version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 
+description = "Top-level facade crate for the LLVM-in-Rust compiler pipeline."
+repository = "https://github.com/yudongusa/LLVM-in-Rust"
+homepage = "https://github.com/yudongusa/LLVM-in-Rust"
+keywords = ["llvm", "compiler", "ir", "codegen", "rust"]
+categories = ["compilers", "development-tools"]
 [dependencies]
-llvm-ir = { path = "../llvm-ir" }
-llvm-ir-parser = { path = "../llvm-ir-parser" }
-llvm-analysis = { path = "../llvm-analysis" }
-llvm-transforms = { path = "../llvm-transforms" }
-llvm-codegen = { path = "../llvm-codegen" }
-llvm-target-x86 = { path = "../llvm-target-x86" }
-llvm-target-arm = { path = "../llvm-target-arm" }
-llvm-target-riscv = { path = "../llvm-target-riscv" }
-llvm-bitcode = { path = "../llvm-bitcode" }
+llvm-ir = { version = "0.1.0", path = "../llvm-ir" }
+llvm-ir-parser = { version = "0.1.0", path = "../llvm-ir-parser" }
+llvm-analysis = { version = "0.1.0", path = "../llvm-analysis" }
+llvm-transforms = { version = "0.1.0", path = "../llvm-transforms" }
+llvm-codegen = { version = "0.1.0", path = "../llvm-codegen" }
+llvm-target-x86 = { version = "0.1.0", path = "../llvm-target-x86" }
+llvm-target-arm = { version = "0.1.0", path = "../llvm-target-arm" }
+llvm-target-riscv = { version = "0.1.0", path = "../llvm-target-riscv" }
+llvm-bitcode = { version = "0.1.0", path = "../llvm-bitcode" }

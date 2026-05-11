@@ -4,9 +4,14 @@ version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 
+description = "RISC-V target backend for LLVM-in-Rust code generation."
+repository = "https://github.com/yudongusa/LLVM-in-Rust"
+homepage = "https://github.com/yudongusa/LLVM-in-Rust"
+keywords = ["llvm", "compiler", "ir", "codegen", "rust"]
+categories = ["compilers", "development-tools"]
 [dependencies]
-llvm-ir = { path = "../llvm-ir" }
-llvm-codegen = { path = "../llvm-codegen" }
+llvm-ir = { version = "0.1.0", path = "../llvm-ir" }
+llvm-codegen = { version = "0.1.0", path = "../llvm-codegen" }
 
 [dev-dependencies]
 llvm-ir-parser = { path = "../llvm-ir-parser" }

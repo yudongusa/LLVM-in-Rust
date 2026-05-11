@@ -4,5 +4,10 @@ version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 
+description = "Control-flow, call-graph, dominance, loop, and use-def analyses for LLVM-in-Rust IR."
+repository = "https://github.com/yudongusa/LLVM-in-Rust"
+homepage = "https://github.com/yudongusa/LLVM-in-Rust"
+keywords = ["llvm", "compiler", "ir", "codegen", "rust"]
+categories = ["compilers", "development-tools"]
 [dependencies]
-llvm-ir = { path = "../llvm-ir" }
+llvm-ir = { version = "0.1.0", path = "../llvm-ir" }
