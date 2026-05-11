@@ -29,6 +29,18 @@ Core roadmap phases are implemented and actively extended. Current workspace tes
 
 ---
 
+## Versioning
+
+LLVM-in-Rust follows [Semantic Versioning](https://semver.org/) with an explicit pre-1.0 stability policy:
+
+- **`0.x.y` releases:** no public API stability guarantee. Any `0.x` minor-version bump may include breaking public API changes as the IR model, pass interfaces, and backend traits continue to mature.
+- **`1.0.0` readiness:** the project will not declare a stable 1.0 API until at least one real compiler frontend integration is validated end-to-end, all Milestone B IR coverage gaps are closed, and COFF object emission is complete.
+- **Post-1.0 releases:** standard SemVer rules apply. Breaking API changes are reserved for major versions and include a documented deprecation/migration cycle.
+
+Release notes live in [CHANGELOG.md](CHANGELOG.md); the `v0.1.0` GitHub release should link to the [`0.1.0` changelog entry](CHANGELOG.md#010---unreleased).
+
+---
+
 ## Performance
 
 Benchmarks compare this project against LLVM 19.1.7 (Homebrew) on a 15-function
