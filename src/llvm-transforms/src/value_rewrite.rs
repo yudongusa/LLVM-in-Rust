@@ -166,6 +166,7 @@ where
         InstrKind::IntToPtr { val, to } => InstrKind::IntToPtr { val: f(val), to },
         InstrKind::BitCast { val, to } => InstrKind::BitCast { val: f(val), to },
         InstrKind::AddrSpaceCast { val, to } => InstrKind::AddrSpaceCast { val: f(val), to },
+        InstrKind::Freeze { val } => InstrKind::Freeze { val: f(val) },
         InstrKind::Select {
             cond,
             then_val,

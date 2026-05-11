@@ -314,6 +314,9 @@ pub enum InstrKind {
         val: ValueRef,
         to: TypeId,
     },
+    Freeze {
+        val: ValueRef,
+    },
 
     // --- Misc ---
     Select {
@@ -430,6 +433,7 @@ impl InstrKind {
             InstrKind::IntToPtr { .. } => "inttoptr",
             InstrKind::BitCast { .. } => "bitcast",
             InstrKind::AddrSpaceCast { .. } => "addrspacecast",
+            InstrKind::Freeze { .. } => "freeze",
             InstrKind::Select { .. } => "select",
             InstrKind::Phi { .. } => "phi",
             InstrKind::ExtractValue { .. } => "extractvalue",
@@ -493,7 +497,8 @@ impl InstrKind {
             | InstrKind::PtrToInt { val, .. }
             | InstrKind::IntToPtr { val, .. }
             | InstrKind::BitCast { val, .. }
-            | InstrKind::AddrSpaceCast { val, .. } => vec![*val],
+            | InstrKind::AddrSpaceCast { val, .. }
+            | InstrKind::Freeze { val } => vec![*val],
 
             InstrKind::Select {
                 cond,
@@ -591,6 +596,7 @@ impl InstrKind {
             | InstrKind::IntToPtr { .. }
             | InstrKind::BitCast { .. }
             | InstrKind::AddrSpaceCast { .. }
+            | InstrKind::Freeze { .. }
             | InstrKind::Select { .. }
             | InstrKind::Phi { .. }
             | InstrKind::ExtractValue { .. }

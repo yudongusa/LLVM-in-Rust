@@ -620,7 +620,8 @@ fn lower_instr(
         | FPToSI { val, .. }
         | UIToFP { val, .. }
         | SIToFP { val, .. }
-        | AddrSpaceCast { val, .. } => {
+        | AddrSpaceCast { val, .. }
+        | Freeze { val } => {
             let dst = new_dst!();
             let src = res!(*val);
             mf.push(mblock, MInstr::new(MOV_RR).with_dst(dst).with_vreg(src));

@@ -645,3 +645,17 @@ entry:
 "#,
     );
 }
+
+#[test]
+fn smoke_freeze_identity() {
+    smoke_oracle(
+        "freeze_identity",
+        r#"define i32 @main() {
+entry:
+  %x = add i32 40, 2
+  %y = freeze i32 %x
+  ret i32 %y
+}
+"#,
+    );
+}

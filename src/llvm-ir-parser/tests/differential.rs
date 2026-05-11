@@ -878,3 +878,16 @@ fn check_regression_hashes() {
         check_fixture_hash(name, src);
     }
 }
+
+#[test]
+fn roundtrip_freeze_instruction() {
+    roundtrip_and_validate(
+        "freeze_instruction",
+        r#"define i32 @freeze_id(i32 %x) {
+entry:
+  %y = freeze i32 %x
+  ret i32 %y
+}
+"#,
+    );
+}

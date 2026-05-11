@@ -705,6 +705,11 @@ impl<'a> Builder<'a> {
         self.append_instr(Some(name.into()), to, InstrKind::BitCast { val, to })
     }
 
+    pub fn build_freeze(&mut self, name: impl Into<String>, val: ValueRef) -> ValueRef {
+        let ty = self.type_of(val);
+        self.append_instr(Some(name.into()), ty, InstrKind::Freeze { val })
+    }
+
     // --- Misc ---
 
     pub fn build_select(

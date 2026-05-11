@@ -1034,6 +1034,11 @@ impl<'src> Parser<'src> {
                 let to = self.parse_type()?;
                 Ok((InstrKind::AddrSpaceCast { val, to }, to))
             }
+            Token::Kw(Keyword::Freeze) => {
+                self.lex.next()?;
+                let (val, ty) = self.parse_typed_value()?;
+                Ok((InstrKind::Freeze { val }, ty))
+            }
             // --- Misc ---
             Token::Kw(Keyword::Select) => {
                 self.lex.next()?;
@@ -2007,6 +2012,7 @@ impl<'src> Parser<'src> {
             Keyword::Inttoptr => "inttoptr",
             Keyword::Bitcast => "bitcast",
             Keyword::Addrspacecast => "addrspacecast",
+            Keyword::Freeze => "freeze",
             Keyword::Select => "select",
             Keyword::Phi => "phi",
             Keyword::Extractvalue => "extractvalue",

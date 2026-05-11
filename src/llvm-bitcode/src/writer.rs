@@ -355,6 +355,7 @@ mod instr_tag {
     pub const INTTOPTR: u32 = 60;
     pub const BITCAST: u32 = 61;
     pub const ADDRSPACECAST: u32 = 62;
+    pub const FREEZE: u32 = 63;
     pub const SELECT: u32 = 70;
     pub const PHI: u32 = 71;
     pub const EXTRACTVALUE: u32 = 72;
@@ -658,6 +659,10 @@ fn encode_instr(w: &mut Writer, instr: &Instruction) {
             w.u32(instr_tag::ADDRSPACECAST);
             encode_vref(w, val);
             w.u32(to.0);
+        }
+        Freeze { val } => {
+            w.u32(instr_tag::FREEZE);
+            encode_vref(w, val);
         }
         Select {
             cond,

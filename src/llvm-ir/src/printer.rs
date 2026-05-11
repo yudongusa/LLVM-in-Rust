@@ -673,6 +673,10 @@ impl<'a> Printer<'a> {
                 out.push_str(" to ");
                 self.write_type(out, *to);
             }
+            InstrKind::Freeze { val } => {
+                out.push_str("freeze ");
+                self.write_typed_value(out, *val, func);
+            }
             InstrKind::Select {
                 cond,
                 then_val,

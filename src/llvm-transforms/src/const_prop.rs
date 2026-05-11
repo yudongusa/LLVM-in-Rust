@@ -253,6 +253,7 @@ pub(crate) fn subst_kind(kind: InstrKind, subst: &HashMap<InstrId, ValueRef>) ->
         InstrKind::IntToPtr { val, to } => InstrKind::IntToPtr { val: s(val), to },
         InstrKind::BitCast { val, to } => InstrKind::BitCast { val: s(val), to },
         InstrKind::AddrSpaceCast { val, to } => InstrKind::AddrSpaceCast { val: s(val), to },
+        InstrKind::Freeze { val } => InstrKind::Freeze { val: s(val) },
         // --- Misc ---
         InstrKind::Select {
             cond,

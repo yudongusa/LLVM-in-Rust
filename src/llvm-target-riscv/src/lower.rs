@@ -286,6 +286,7 @@ fn lower_instr(
         | UIToFP { val, .. }
         | SIToFP { val, .. }
         | AddrSpaceCast { val, .. }
+        | Freeze { val }
         | SExt { val, .. } => {
             let dst = new_dst!();
             let src = res!(*val);

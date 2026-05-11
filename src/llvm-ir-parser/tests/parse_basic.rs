@@ -165,3 +165,20 @@ fn parse_named_struct() {
     assert_eq!(module.named_types.len(), 1);
     assert_eq!(module.named_types[0].0, "Point");
 }
+
+/// Parse LLVM 10+ `freeze` as a value-producing identity instruction.
+#[test]
+fn parse_freeze_instruction() {
+    let src = r#"
+define i32 @freeze_test(i32 %x) {
+entry:
+  %y = freeze i32 %x
+  ret i32 %y
+}
+"#;
+    let (_ctx, module) = parse(src).expect("parse failed");
+    let f = &module.functions[0];
+    let bb = &f.blocks[0];
+    assert_eq!(bb.body.len(), 1);
+    assert_eq!(f.instr(bb.body[0]).kind.opcode(), "freeze");
+}

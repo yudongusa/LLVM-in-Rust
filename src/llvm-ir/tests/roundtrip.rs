@@ -135,3 +135,30 @@ fn roundtrip_global() {
     assert!(ir.contains("internal"), "missing linkage:\n{}", ir);
     assert!(ir.contains("constant"), "missing constant keyword:\n{}", ir);
 }
+
+/// Build and print a function containing LLVM 10+ `freeze`.
+#[test]
+fn roundtrip_freeze() {
+    let mut ctx = Context::new();
+    let mut module = Module::new("freeze");
+    let mut b = Builder::new(&mut ctx, &mut module);
+
+    b.add_function(
+        "freeze_id",
+        b.ctx.i32_ty,
+        vec![b.ctx.i32_ty],
+        vec!["x".to_string()],
+        false,
+        Linkage::External,
+    );
+    let entry = b.add_block("entry");
+    b.position_at_end(entry);
+    let x = b.get_arg(0);
+    let y = b.build_freeze("y", x);
+    b.build_ret(y);
+
+    let p = Printer::new(b.ctx);
+    let ir = p.print_module(b.module);
+    assert!(ir.contains("%y = freeze i32 %x"), "missing freeze:\n{}", ir);
+    assert!(ir.contains("ret i32 %y"), "missing ret:\n{}", ir);
+}

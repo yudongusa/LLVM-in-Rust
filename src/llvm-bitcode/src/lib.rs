@@ -70,6 +70,32 @@ mod tests {
     }
 
     #[test]
+    fn write_then_read_preserves_freeze_instruction() {
+        let mut ctx = Context::new();
+        let mut module = Module::new("freeze");
+        let mut b = Builder::new(&mut ctx, &mut module);
+        b.add_function(
+            "freeze_id",
+            b.ctx.i32_ty,
+            vec![b.ctx.i32_ty],
+            vec!["x".into()],
+            false,
+            Linkage::External,
+        );
+        let entry = b.add_block("entry");
+        b.position_at_end(entry);
+        let x = b.get_arg(0);
+        let y = b.build_freeze("y", x);
+        b.build_ret(y);
+
+        let bytes = write_bitcode(&ctx, &module);
+        let (_, module2) = read_bitcode(&bytes).expect("round-trip must succeed");
+        let func = &module2.functions[0];
+        let iid = func.blocks[0].body[0];
+        assert_eq!(func.instr(iid).kind.opcode(), "freeze");
+    }
+
+    #[test]
     fn write_then_read_preserves_function_names() {
         let (ctx, module) = make_add_fn();
         let bytes = write_bitcode(&ctx, &module);

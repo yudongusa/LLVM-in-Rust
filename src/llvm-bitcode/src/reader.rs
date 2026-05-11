@@ -459,6 +459,7 @@ mod instr_tag {
     pub const INTTOPTR: u32 = 60;
     pub const BITCAST: u32 = 61;
     pub const ADDRSPACECAST: u32 = 62;
+    pub const FREEZE: u32 = 63;
     pub const SELECT: u32 = 70;
     pub const PHI: u32 = 71;
     pub const EXTRACTVALUE: u32 = 72;
@@ -807,6 +808,9 @@ fn decode_instr(
             let to = map_type_id(type_id_map, r.u32()? as usize)?;
             InstrKind::AddrSpaceCast { val, to }
         }
+        instr_tag::FREEZE => InstrKind::Freeze {
+            val: decode_vref(r)?,
+        },
         instr_tag::SELECT => InstrKind::Select {
             cond: decode_vref(r)?,
             then_val: decode_vref(r)?,
