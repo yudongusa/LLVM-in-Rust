@@ -202,6 +202,12 @@ pub enum Keyword {
     Shufflevector,
     /// `Call` variant.
     Call,
+    /// `Fence` variant.
+    Fence,
+    /// `Cmpxchg` variant.
+    Cmpxchg,
+    /// `Atomicrmw` variant.
+    Atomicrmw,
     /// `Ret` variant.
     Ret,
     /// `Br` variant.
@@ -944,6 +950,9 @@ impl<'src> Lexer<'src> {
             "insertelement" => Keyword::Insertelement,
             "shufflevector" => Keyword::Shufflevector,
             "call" => Keyword::Call,
+            "fence" => Keyword::Fence,
+            "cmpxchg" => Keyword::Cmpxchg,
+            "atomicrmw" => Keyword::Atomicrmw,
             "ret" => Keyword::Ret,
             "br" => Keyword::Br,
             "switch" => Keyword::Switch,

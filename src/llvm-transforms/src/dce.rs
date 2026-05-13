@@ -60,6 +60,12 @@ pub fn is_dce_safe(kind: &InstrKind) -> bool {
             | InstrKind::Load { .. }
             | InstrKind::Store { .. }
             | InstrKind::Call { .. }
+            // Atomics (issue #205) — all three have observable memory side
+            // effects and / or cross-thread ordering implications, so they
+            // must never be deleted just because the result is unused.
+            | InstrKind::Fence { .. }
+            | InstrKind::CmpXchg { .. }
+            | InstrKind::AtomicRmw { .. }
             | InstrKind::Ret { .. }
             | InstrKind::Br { .. }
             | InstrKind::CondBr { .. }

@@ -449,6 +449,12 @@ mod instr_tag {
     pub const CALL: u32 = 80;
     /// Public API for `INLINE_ASM`.
     pub const INLINE_ASM: u32 = 81;
+    /// Public API for `FENCE`.
+    pub const FENCE: u32 = 82;
+    /// Public API for `CMPXCHG`.
+    pub const CMPXCHG: u32 = 83;
+    /// Public API for `ATOMICRMW`.
+    pub const ATOMICRMW: u32 = 84;
     /// Public API for `RET`.
     pub const RET: u32 = 90;
     /// Public API for `BR`.
@@ -853,6 +859,42 @@ fn encode_instr(w: &mut Writer, instr: &Instruction) {
                 encode_vref(w, arg);
             }
         }
+        Fence { ordering } => {
+            w.u32(instr_tag::FENCE);
+            w.u8(encode_mem_ordering(*ordering));
+        }
+        CmpXchg {
+            ptr,
+            cmp,
+            new_val,
+            success_ord,
+            fail_ord,
+            weak,
+            volatile,
+        } => {
+            w.u32(instr_tag::CMPXCHG);
+            encode_vref(w, ptr);
+            encode_vref(w, cmp);
+            encode_vref(w, new_val);
+            w.u8(encode_mem_ordering(*success_ord));
+            w.u8(encode_mem_ordering(*fail_ord));
+            w.u8(if *weak { 1 } else { 0 });
+            w.u8(if *volatile { 1 } else { 0 });
+        }
+        AtomicRmw {
+            op,
+            ptr,
+            val,
+            ordering,
+            volatile,
+        } => {
+            w.u32(instr_tag::ATOMICRMW);
+            w.u8(encode_rmw_op(*op));
+            encode_vref(w, ptr);
+            encode_vref(w, val);
+            w.u8(encode_mem_ordering(*ordering));
+            w.u8(if *volatile { 1 } else { 0 });
+        }
         Ret { val } => {
             w.u32(instr_tag::RET);
             encode_opt_vref(w, val);
@@ -900,6 +942,37 @@ fn encode_opt_u32(w: &mut Writer, v: Option<u32>) {
         None => {
             w.u8(0);
         }
+    }
+}
+
+fn encode_mem_ordering(o: llvm_ir::MemOrdering) -> u8 {
+    use llvm_ir::MemOrdering::*;
+    match o {
+        Unordered => 0,
+        Monotonic => 1,
+        Acquire => 2,
+        Release => 3,
+        AcqRel => 4,
+        SeqCst => 5,
+    }
+}
+
+fn encode_rmw_op(op: llvm_ir::RmwOp) -> u8 {
+    use llvm_ir::RmwOp::*;
+    match op {
+        Xchg => 0,
+        Add => 1,
+        Sub => 2,
+        And => 3,
+        Nand => 4,
+        Or => 5,
+        Xor => 6,
+        Max => 7,
+        Min => 8,
+        UMax => 9,
+        UMin => 10,
+        FAdd => 11,
+        FSub => 12,
     }
 }
 

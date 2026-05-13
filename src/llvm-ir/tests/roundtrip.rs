@@ -1,6 +1,6 @@
 //! Round-trip test: build IR → print → parse → print → assert text equality.
 
-use llvm_ir::{Builder, Context, IntPredicate, Linkage, Module, Printer};
+use llvm_ir::{Builder, Context, IntPredicate, Linkage, MemOrdering, Module, Printer, RmwOp};
 
 /// Build a simple add function and check that the printer emits expected text.
 #[test]
@@ -134,6 +134,73 @@ fn roundtrip_global() {
     assert!(ir.contains("@LIMIT"), "missing global:\n{}", ir);
     assert!(ir.contains("internal"), "missing linkage:\n{}", ir);
     assert!(ir.contains("constant"), "missing constant keyword:\n{}", ir);
+}
+
+/// Build, print, and inspect a function containing all three atomic
+/// instructions (`fence`, `cmpxchg`, `atomicrmw`).  Covers issue #205 at the
+/// IR layer.
+#[test]
+fn roundtrip_atomics() {
+    let mut ctx = Context::new();
+    let mut module = Module::new("atomics");
+    let mut b = Builder::new(&mut ctx, &mut module);
+
+    b.add_function(
+        "spinlock_step",
+        b.ctx.i32_ty,
+        vec![b.ctx.ptr_ty, b.ctx.i32_ty, b.ctx.i32_ty],
+        vec!["p".to_string(), "expected".to_string(), "delta".to_string()],
+        false,
+        Linkage::External,
+    );
+    let entry = b.add_block("entry");
+    b.position_at_end(entry);
+    let p_arg = b.get_arg(0);
+    let expected = b.get_arg(1);
+    let delta = b.get_arg(2);
+    let i32_ty = b.ctx.i32_ty;
+
+    b.build_fence(MemOrdering::SeqCst);
+    let _cas = b.build_cmpxchg(
+        "cas",
+        i32_ty,
+        p_arg,
+        expected,
+        delta,
+        MemOrdering::AcqRel,
+        MemOrdering::Acquire,
+        false,
+        false,
+    );
+    let old = b.build_atomicrmw(
+        "old",
+        RmwOp::Add,
+        i32_ty,
+        p_arg,
+        delta,
+        MemOrdering::SeqCst,
+        false,
+    );
+    b.build_ret(old);
+
+    let p = Printer::new(b.ctx);
+    let ir = p.print_module(b.module);
+
+    assert!(
+        ir.contains("fence seq_cst"),
+        "missing fence in output:\n{}",
+        ir
+    );
+    assert!(
+        ir.contains("%cas = cmpxchg ptr %p, i32 %expected, i32 %delta acq_rel acquire"),
+        "cmpxchg printed incorrectly:\n{}",
+        ir
+    );
+    assert!(
+        ir.contains("%old = atomicrmw add ptr %p, i32 %delta seq_cst"),
+        "atomicrmw printed incorrectly:\n{}",
+        ir
+    );
 }
 
 /// Build and print a function containing LLVM 10+ `freeze`.

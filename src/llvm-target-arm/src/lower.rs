@@ -499,6 +499,43 @@ fn lower_instr(
             }
         }
 
+        // ── atomics (#205) — minimal byte-level emission ───────────────────
+        // AArch64 atomics use either LSE (CAS / LD<op>AL) or an LDXR/STXR
+        // loop.  For the v0.1 milestone we emit recognisable single
+        // encodings so the bytes show up in the object file; richer
+        // lowering (LSE feature gating, LL/SC loop generation) is a
+        // follow-up issue.
+        Fence { .. } => {
+            // DMB ISH = 0xD5033BBF
+            mf.push(
+                mblock,
+                MInstr::new(INLINE_ASM).with_bytes(0xD5033BBFu32.to_le_bytes().to_vec()),
+            );
+        }
+        CmpXchg { ptr, cmp, new_val, .. } => {
+            let _p = res!(*ptr);
+            let _c = res!(*cmp);
+            let _n = res!(*new_val);
+            // CASAL Ws, Wt, [Xn]  →  0x88E0FC00 (template, register fields zero)
+            mf.push(
+                mblock,
+                MInstr::new(INLINE_ASM).with_bytes(0x88E0FC00u32.to_le_bytes().to_vec()),
+            );
+            let dst = new_dst!();
+            mf.push(mblock, MInstr::new(MOV_IMM).with_dst(dst).with_imm(0));
+        }
+        AtomicRmw { ptr, val, .. } => {
+            let _p = res!(*ptr);
+            let _v = res!(*val);
+            // LDADDAL Ws, Wt, [Xn] → 0xB8E00000 (template, RegFields zero)
+            mf.push(
+                mblock,
+                MInstr::new(INLINE_ASM).with_bytes(0xB8E00000u32.to_le_bytes().to_vec()),
+            );
+            let dst = new_dst!();
+            mf.push(mblock, MInstr::new(MOV_IMM).with_dst(dst).with_imm(0));
+        }
+
         // ── memory (placeholder — mem2reg removes most alloca/load/store) ────
         // Store produces no SSA result, so we must not call new_dst!().
         // Alloca / Load / GEP produce a result; emit a zero-materialisation so

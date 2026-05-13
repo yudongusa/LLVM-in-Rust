@@ -101,6 +101,89 @@ mod tests {
     }
 
     #[test]
+    fn write_then_read_preserves_atomic_instructions() {
+        use llvm_ir::{InstrKind, MemOrdering, RmwOp};
+        let mut ctx = Context::new();
+        let mut module = Module::new("atomics_bc");
+        let mut b = Builder::new(&mut ctx, &mut module);
+        b.add_function(
+            "atomic_pipeline",
+            b.ctx.void_ty,
+            vec![b.ctx.ptr_ty, b.ctx.i32_ty, b.ctx.i32_ty],
+            vec!["p".into(), "cmp".into(), "new".into()],
+            false,
+            Linkage::External,
+        );
+        let entry = b.add_block("entry");
+        b.position_at_end(entry);
+        let p = b.get_arg(0);
+        let cmp = b.get_arg(1);
+        let new_val = b.get_arg(2);
+        let i32_ty = b.ctx.i32_ty;
+        b.build_fence(MemOrdering::SeqCst);
+        b.build_cmpxchg(
+            "cas",
+            i32_ty,
+            p,
+            cmp,
+            new_val,
+            MemOrdering::AcqRel,
+            MemOrdering::Acquire,
+            true,
+            true,
+        );
+        b.build_atomicrmw(
+            "old",
+            RmwOp::Xchg,
+            i32_ty,
+            p,
+            new_val,
+            MemOrdering::Release,
+            false,
+        );
+        b.build_ret_void();
+
+        let bytes = write_bitcode(&ctx, &module);
+        let (_, module2) = read_bitcode(&bytes).expect("round-trip must succeed");
+        let func = &module2.functions[0];
+        let bb = &func.blocks[0];
+        assert_eq!(bb.body.len(), 3);
+
+        match &func.instr(bb.body[0]).kind {
+            InstrKind::Fence { ordering } => assert_eq!(*ordering, MemOrdering::SeqCst),
+            other => panic!("expected Fence, got {other:?}"),
+        }
+        match &func.instr(bb.body[1]).kind {
+            InstrKind::CmpXchg {
+                success_ord,
+                fail_ord,
+                weak,
+                volatile,
+                ..
+            } => {
+                assert_eq!(*success_ord, MemOrdering::AcqRel);
+                assert_eq!(*fail_ord, MemOrdering::Acquire);
+                assert!(*weak);
+                assert!(*volatile);
+            }
+            other => panic!("expected CmpXchg, got {other:?}"),
+        }
+        match &func.instr(bb.body[2]).kind {
+            InstrKind::AtomicRmw {
+                op,
+                ordering,
+                volatile,
+                ..
+            } => {
+                assert_eq!(*op, RmwOp::Xchg);
+                assert_eq!(*ordering, MemOrdering::Release);
+                assert!(!*volatile);
+            }
+            other => panic!("expected AtomicRmw, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn write_then_read_preserves_function_names() {
         let (ctx, module) = make_add_fn();
         let bytes = write_bitcode(&ctx, &module);

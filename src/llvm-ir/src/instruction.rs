@@ -164,6 +164,96 @@ pub enum TailCallKind {
     NoTail,
 }
 
+/// Memory ordering for atomic instructions (fence / cmpxchg / atomicrmw).
+///
+/// Variants follow the LLVM IR spelling.  Stronger orderings are towards the
+/// bottom of the list, matching LLVM's documented `AtomicOrdering` enum.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MemOrdering {
+    /// `unordered` — no atomicity, racing reads/writes are UB at the language level.
+    Unordered,
+    /// `monotonic` — atomic load/store with no ordering wrt other locations.
+    Monotonic,
+    /// `acquire` — load-acquire.
+    Acquire,
+    /// `release` — store-release.
+    Release,
+    /// `acq_rel` — acquire on the load half, release on the store half.
+    AcqRel,
+    /// `seq_cst` — sequentially consistent.
+    SeqCst,
+}
+
+impl MemOrdering {
+    /// Textual IR spelling.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            MemOrdering::Unordered => "unordered",
+            MemOrdering::Monotonic => "monotonic",
+            MemOrdering::Acquire => "acquire",
+            MemOrdering::Release => "release",
+            MemOrdering::AcqRel => "acq_rel",
+            MemOrdering::SeqCst => "seq_cst",
+        }
+    }
+}
+
+/// Operation kind for `atomicrmw`.
+///
+/// Mirrors LLVM's `AtomicRMWInst::BinOp`.  Each variant pairs the operation
+/// with the existing value at the target pointer and writes the result back
+/// atomically; the instruction's result is the *old* value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RmwOp {
+    /// Replace the value (swap).
+    Xchg,
+    /// Integer add.
+    Add,
+    /// Integer subtract.
+    Sub,
+    /// Bitwise and.
+    And,
+    /// Bitwise nand (`!(old & val)`).
+    Nand,
+    /// Bitwise or.
+    Or,
+    /// Bitwise xor.
+    Xor,
+    /// Signed max.
+    Max,
+    /// Signed min.
+    Min,
+    /// Unsigned max.
+    UMax,
+    /// Unsigned min.
+    UMin,
+    /// Floating-point add.
+    FAdd,
+    /// Floating-point subtract.
+    FSub,
+}
+
+impl RmwOp {
+    /// Textual IR spelling.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RmwOp::Xchg => "xchg",
+            RmwOp::Add => "add",
+            RmwOp::Sub => "sub",
+            RmwOp::And => "and",
+            RmwOp::Nand => "nand",
+            RmwOp::Or => "or",
+            RmwOp::Xor => "xor",
+            RmwOp::Max => "max",
+            RmwOp::Min => "min",
+            RmwOp::UMax => "umax",
+            RmwOp::UMin => "umin",
+            RmwOp::FAdd => "fadd",
+            RmwOp::FSub => "fsub",
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Instruction kind
 // ---------------------------------------------------------------------------
@@ -463,6 +553,47 @@ pub enum InstrKind {
         args: Vec<ValueRef>,
     },
 
+    // --- Atomics (issue #205) ---
+    /// Standalone memory fence.  Result type is `void`.
+    Fence {
+        /// Memory ordering.
+        ordering: MemOrdering,
+    },
+    /// Atomic compare-and-exchange.
+    ///
+    /// Result type is the struct `{ <value-ty>, i1 }` — the old value at
+    /// `*ptr` followed by a boolean success flag.  Backends are expected to
+    /// emit LOCK CMPXCHG on x86 or LDXR/STXR (or LSE CASAL) on AArch64.
+    CmpXchg {
+        /// Pointer operand.
+        ptr: ValueRef,
+        /// Expected old value.
+        cmp: ValueRef,
+        /// Replacement value.
+        new_val: ValueRef,
+        /// Ordering on success.
+        success_ord: MemOrdering,
+        /// Ordering on failure (must not be stronger than `success_ord`).
+        fail_ord: MemOrdering,
+        /// `true` for `cmpxchg weak` — the implementation may spuriously fail.
+        weak: bool,
+        /// `volatile` flag (no optimization across this op).
+        volatile: bool,
+    },
+    /// Atomic read-modify-write.  Result type is the same as the value type.
+    AtomicRmw {
+        /// Operation kind (xchg/add/and/...).
+        op: RmwOp,
+        /// Pointer operand.
+        ptr: ValueRef,
+        /// Right-hand side / new value depending on `op`.
+        val: ValueRef,
+        /// Memory ordering.
+        ordering: MemOrdering,
+        /// `volatile` flag.
+        volatile: bool,
+    },
+
     // --- Terminators ---
     /// `Ret` variant.
     Ret {
@@ -552,6 +683,9 @@ impl InstrKind {
             InstrKind::ShuffleVector { .. } => "shufflevector",
             InstrKind::Call { .. } => "call",
             InstrKind::InlineAsm { .. } => "call asm",
+            InstrKind::Fence { .. } => "fence",
+            InstrKind::CmpXchg { .. } => "cmpxchg",
+            InstrKind::AtomicRmw { .. } => "atomicrmw",
             InstrKind::Ret { .. } => "ret",
             InstrKind::Br { .. } => "br",
             InstrKind::CondBr { .. } => "br",
@@ -629,6 +763,11 @@ impl InstrKind {
                 v
             }
             InstrKind::InlineAsm { args, .. } => args.clone(),
+            InstrKind::Fence { .. } => vec![],
+            InstrKind::CmpXchg {
+                ptr, cmp, new_val, ..
+            } => vec![*ptr, *cmp, *new_val],
+            InstrKind::AtomicRmw { ptr, val, .. } => vec![*ptr, *val],
             InstrKind::Ret { val } => val.iter().copied().collect(),
             InstrKind::Br { .. } | InstrKind::Unreachable => vec![],
             InstrKind::CondBr { cond, .. } => vec![*cond],
@@ -716,7 +855,10 @@ impl InstrKind {
             | InstrKind::InsertElement { .. }
             | InstrKind::ShuffleVector { .. }
             | InstrKind::Call { .. }
-            | InstrKind::InlineAsm { .. } => vec![],
+            | InstrKind::InlineAsm { .. }
+            | InstrKind::Fence { .. }
+            | InstrKind::CmpXchg { .. }
+            | InstrKind::AtomicRmw { .. } => vec![],
         }
     }
 }
@@ -1292,5 +1434,112 @@ mod tests {
         for k in cases {
             assert_eq!(k.successors(), vec![], "{:?} should have no successors", k);
         }
+    }
+
+    // ── operands() — atomics (#205) ──────────────────────────────────────────
+
+    #[test]
+    fn operands_fence_has_no_value_operands() {
+        let k = InstrKind::Fence { ordering: MemOrdering::SeqCst };
+        assert_eq!(k.operands(), vec![]);
+    }
+
+    #[test]
+    fn operands_cmpxchg_returns_ptr_cmp_new() {
+        let k = InstrKind::CmpXchg {
+            ptr: c0(),
+            cmp: c1(),
+            new_val: c2(),
+            success_ord: MemOrdering::AcqRel,
+            fail_ord: MemOrdering::Acquire,
+            weak: false,
+            volatile: false,
+        };
+        assert_eq!(k.operands(), vec![c0(), c1(), c2()]);
+    }
+
+    #[test]
+    fn operands_atomicrmw_returns_ptr_val() {
+        let k = InstrKind::AtomicRmw {
+            op: RmwOp::Add,
+            ptr: c0(),
+            val: c1(),
+            ordering: MemOrdering::SeqCst,
+            volatile: false,
+        };
+        assert_eq!(k.operands(), vec![c0(), c1()]);
+    }
+
+    // ── successors() — atomics are not terminators ───────────────────────────
+
+    #[test]
+    fn successors_atomics_are_empty() {
+        let fence = InstrKind::Fence { ordering: MemOrdering::SeqCst };
+        let cas = InstrKind::CmpXchg {
+            ptr: c0(),
+            cmp: c1(),
+            new_val: c2(),
+            success_ord: MemOrdering::SeqCst,
+            fail_ord: MemOrdering::Monotonic,
+            weak: true,
+            volatile: false,
+        };
+        let rmw = InstrKind::AtomicRmw {
+            op: RmwOp::Xchg,
+            ptr: c0(),
+            val: c1(),
+            ordering: MemOrdering::Acquire,
+            volatile: false,
+        };
+        assert_eq!(fence.successors(), vec![]);
+        assert_eq!(cas.successors(), vec![]);
+        assert_eq!(rmw.successors(), vec![]);
+        assert!(!fence.is_terminator());
+        assert!(!cas.is_terminator());
+        assert!(!rmw.is_terminator());
+    }
+
+    #[test]
+    fn opcode_names_atomics() {
+        let fence = InstrKind::Fence { ordering: MemOrdering::SeqCst };
+        let cas = InstrKind::CmpXchg {
+            ptr: c0(),
+            cmp: c1(),
+            new_val: c2(),
+            success_ord: MemOrdering::SeqCst,
+            fail_ord: MemOrdering::Monotonic,
+            weak: false,
+            volatile: false,
+        };
+        let rmw = InstrKind::AtomicRmw {
+            op: RmwOp::Add,
+            ptr: c0(),
+            val: c1(),
+            ordering: MemOrdering::SeqCst,
+            volatile: false,
+        };
+        assert_eq!(fence.opcode(), "fence");
+        assert_eq!(cas.opcode(), "cmpxchg");
+        assert_eq!(rmw.opcode(), "atomicrmw");
+    }
+
+    #[test]
+    fn mem_ordering_as_str_matches_ir_syntax() {
+        assert_eq!(MemOrdering::Unordered.as_str(), "unordered");
+        assert_eq!(MemOrdering::Monotonic.as_str(), "monotonic");
+        assert_eq!(MemOrdering::Acquire.as_str(), "acquire");
+        assert_eq!(MemOrdering::Release.as_str(), "release");
+        assert_eq!(MemOrdering::AcqRel.as_str(), "acq_rel");
+        assert_eq!(MemOrdering::SeqCst.as_str(), "seq_cst");
+    }
+
+    #[test]
+    fn rmw_op_as_str_matches_ir_syntax() {
+        assert_eq!(RmwOp::Xchg.as_str(), "xchg");
+        assert_eq!(RmwOp::Add.as_str(), "add");
+        assert_eq!(RmwOp::Sub.as_str(), "sub");
+        assert_eq!(RmwOp::Nand.as_str(), "nand");
+        assert_eq!(RmwOp::UMax.as_str(), "umax");
+        assert_eq!(RmwOp::FAdd.as_str(), "fadd");
     }
 }

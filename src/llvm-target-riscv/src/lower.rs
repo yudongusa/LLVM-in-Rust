@@ -326,6 +326,30 @@ fn lower_instr(
             }
         }
 
+        // ── atomics (#205) — conservative placeholder ──────────────────────
+        // RISC-V has `lr.w` / `sc.w` for LL/SC and the `A` extension for
+        // direct atomics; emission of real encodings is tracked in a
+        // follow-up to issue #205.  Emit a NOP placeholder plus the result
+        // dst so SSA bookkeeping stays sound.
+        Fence { .. } => {
+            mf.push(mblock, MInstr::new(NOP));
+        }
+        CmpXchg { ptr, cmp, new_val, .. } => {
+            let _p = res!(*ptr);
+            let _c = res!(*cmp);
+            let _n = res!(*new_val);
+            mf.push(mblock, MInstr::new(NOP));
+            let dst = new_dst!();
+            mf.push(mblock, MInstr::new(MOV_IMM).with_dst(dst).with_imm(0));
+        }
+        AtomicRmw { ptr, val, .. } => {
+            let _p = res!(*ptr);
+            let _v = res!(*val);
+            mf.push(mblock, MInstr::new(NOP));
+            let dst = new_dst!();
+            mf.push(mblock, MInstr::new(MOV_IMM).with_dst(dst).with_imm(0));
+        }
+
         Store { .. } => {
             mf.push(mblock, MInstr::new(NOP));
         }

@@ -5,7 +5,7 @@ use llvm_ir::value::Argument;
 use llvm_ir::{
     ArgId, BasicBlock, BlockId, ConstId, ConstantData, Context, FastMathFlags, FloatKind,
     FloatPredicate, Function, GlobalId, InstrId, InstrKind, Instruction, IntArithFlags,
-    IntPredicate, Linkage, Module, TailCallKind, TypeData, TypeId, ValueRef,
+    IntPredicate, Linkage, MemOrdering, Module, RmwOp, TailCallKind, TypeData, TypeId, ValueRef,
 };
 
 /// Magic bytes for the LRIR format.
@@ -553,6 +553,12 @@ mod instr_tag {
     pub const CALL: u32 = 80;
     /// Public API for `INLINE_ASM`.
     pub const INLINE_ASM: u32 = 81;
+    /// Public API for `FENCE`.
+    pub const FENCE: u32 = 82;
+    /// Public API for `CMPXCHG`.
+    pub const CMPXCHG: u32 = 83;
+    /// Public API for `ATOMICRMW`.
+    pub const ATOMICRMW: u32 = 84;
     /// Public API for `RET`.
     pub const RET: u32 = 90;
     /// Public API for `BR`.
@@ -592,6 +598,37 @@ fn decode_opt_u32(r: &mut Reader) -> Result<Option<u32>, BitcodeError> {
         Ok(Some(r.u32()?))
     } else {
         Ok(None)
+    }
+}
+
+fn decode_mem_ordering(tag: u8) -> Result<MemOrdering, BitcodeError> {
+    match tag {
+        0 => Ok(MemOrdering::Unordered),
+        1 => Ok(MemOrdering::Monotonic),
+        2 => Ok(MemOrdering::Acquire),
+        3 => Ok(MemOrdering::Release),
+        4 => Ok(MemOrdering::AcqRel),
+        5 => Ok(MemOrdering::SeqCst),
+        other => Err(BitcodeError::UnsupportedRecord(other as u32)),
+    }
+}
+
+fn decode_rmw_op(tag: u8) -> Result<RmwOp, BitcodeError> {
+    match tag {
+        0 => Ok(RmwOp::Xchg),
+        1 => Ok(RmwOp::Add),
+        2 => Ok(RmwOp::Sub),
+        3 => Ok(RmwOp::And),
+        4 => Ok(RmwOp::Nand),
+        5 => Ok(RmwOp::Or),
+        6 => Ok(RmwOp::Xor),
+        7 => Ok(RmwOp::Max),
+        8 => Ok(RmwOp::Min),
+        9 => Ok(RmwOp::UMax),
+        10 => Ok(RmwOp::UMin),
+        11 => Ok(RmwOp::FAdd),
+        12 => Ok(RmwOp::FSub),
+        other => Err(BitcodeError::UnsupportedRecord(other as u32)),
     }
 }
 
@@ -1003,6 +1040,41 @@ fn decode_instr(
                 side_effect,
                 align_stack,
                 args,
+            }
+        }
+        instr_tag::FENCE => InstrKind::Fence {
+            ordering: decode_mem_ordering(r.u8()?)?,
+        },
+        instr_tag::CMPXCHG => {
+            let ptr = decode_vref(r)?;
+            let cmp = decode_vref(r)?;
+            let new_val = decode_vref(r)?;
+            let success_ord = decode_mem_ordering(r.u8()?)?;
+            let fail_ord = decode_mem_ordering(r.u8()?)?;
+            let weak = r.u8()? != 0;
+            let volatile = r.u8()? != 0;
+            InstrKind::CmpXchg {
+                ptr,
+                cmp,
+                new_val,
+                success_ord,
+                fail_ord,
+                weak,
+                volatile,
+            }
+        }
+        instr_tag::ATOMICRMW => {
+            let op = decode_rmw_op(r.u8()?)?;
+            let ptr = decode_vref(r)?;
+            let val = decode_vref(r)?;
+            let ordering = decode_mem_ordering(r.u8()?)?;
+            let volatile = r.u8()? != 0;
+            InstrKind::AtomicRmw {
+                op,
+                ptr,
+                val,
+                ordering,
+                volatile,
             }
         }
         instr_tag::RET => InstrKind::Ret {

@@ -4,8 +4,8 @@ use crate::basic_block::BasicBlock;
 use crate::context::{BlockId, ConstId, Context, FunctionId, GlobalId, TypeId, ValueRef};
 use crate::function::Function;
 use crate::instruction::{
-    FastMathFlags, FloatPredicate, InstrKind, Instruction, IntArithFlags, IntPredicate,
-    TailCallKind,
+    FastMathFlags, FloatPredicate, InstrKind, Instruction, IntArithFlags, IntPredicate, MemOrdering,
+    RmwOp, TailCallKind,
 };
 use crate::module::Module;
 use crate::value::{Argument, GlobalVariable, Linkage};
@@ -949,6 +949,76 @@ impl<'a> Builder<'a> {
                 side_effect,
                 align_stack,
                 args,
+            },
+        )
+    }
+
+    // --- Atomics (issue #205) ---
+
+    /// Emit a standalone memory `fence` instruction.  Returns the `void`
+    /// instruction reference for ordering control; the result is not nameable.
+    pub fn build_fence(&mut self, ordering: MemOrdering) -> ValueRef {
+        let void_ty = self.ctx.void_ty;
+        self.append_instr(None, void_ty, InstrKind::Fence { ordering })
+    }
+
+    /// Emit an atomic `cmpxchg`.
+    ///
+    /// `val_ty` is the value type pointed to by `ptr` (and the type of `cmp`
+    /// and `new_val`).  The instruction result is the anonymous struct
+    /// `{ <val_ty>, i1 }` — the old value followed by a success flag.
+    #[allow(clippy::too_many_arguments)]
+    pub fn build_cmpxchg(
+        &mut self,
+        name: impl Into<String>,
+        val_ty: TypeId,
+        ptr: ValueRef,
+        cmp: ValueRef,
+        new_val: ValueRef,
+        success_ord: MemOrdering,
+        fail_ord: MemOrdering,
+        weak: bool,
+        volatile: bool,
+    ) -> ValueRef {
+        let i1_ty = self.ctx.i1_ty;
+        let result_ty = self.ctx.mk_struct_anon(vec![val_ty, i1_ty], false);
+        self.append_instr(
+            Some(name.into()),
+            result_ty,
+            InstrKind::CmpXchg {
+                ptr,
+                cmp,
+                new_val,
+                success_ord,
+                fail_ord,
+                weak,
+                volatile,
+            },
+        )
+    }
+
+    /// Emit an atomic read-modify-write.  Result type is `val_ty` (the value
+    /// type at `ptr`); the result is the *old* value at `*ptr`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn build_atomicrmw(
+        &mut self,
+        name: impl Into<String>,
+        op: RmwOp,
+        val_ty: TypeId,
+        ptr: ValueRef,
+        val: ValueRef,
+        ordering: MemOrdering,
+        volatile: bool,
+    ) -> ValueRef {
+        self.append_instr(
+            Some(name.into()),
+            val_ty,
+            InstrKind::AtomicRmw {
+                op,
+                ptr,
+                val,
+                ordering,
+                volatile,
             },
         )
     }

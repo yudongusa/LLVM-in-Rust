@@ -1,6 +1,6 @@
 //! Integration tests: parse representative `.ll` snippets and assert structure.
 
-use llvm_ir::{printer::Printer, InstrKind};
+use llvm_ir::{printer::Printer, InstrKind, MemOrdering, RmwOp};
 use llvm_ir_parser::parser::parse;
 
 /// Verify that a minimal function with only `ret void` parses correctly.
@@ -76,6 +76,135 @@ entry:
 
     let printed = Printer::new(&ctx).print_module(&module);
     assert!(printed.contains("call void asm sideeffect \"nop\", \"\"()"));
+}
+
+/// Parse `fence`, `cmpxchg`, and `atomicrmw` and confirm the IR structure
+/// + the result of the print → parse round-trip is stable.  Covers issue #205
+/// at the parser layer.
+#[test]
+fn parse_atomics_round_trip() {
+    let src = r#"
+define i32 @atomic_step(ptr %p, i32 %cmp, i32 %new) {
+entry:
+  fence seq_cst
+  %cas = cmpxchg ptr %p, i32 %cmp, i32 %new acq_rel acquire
+  %old = atomicrmw add ptr %p, i32 %new seq_cst
+  ret i32 %old
+}
+"#;
+    let (ctx, module) = parse(src).expect("parse failed");
+    let f = &module.functions[0];
+    let bb = &f.blocks[0];
+    assert_eq!(bb.body.len(), 3);
+
+    // Fence
+    let fence_kind = &f.instr(bb.body[0]).kind;
+    match fence_kind {
+        InstrKind::Fence { ordering } => assert_eq!(*ordering, MemOrdering::SeqCst),
+        other => panic!("expected Fence, got {other:?}"),
+    }
+
+    // CmpXchg
+    match &f.instr(bb.body[1]).kind {
+        InstrKind::CmpXchg {
+            success_ord,
+            fail_ord,
+            weak,
+            volatile,
+            ..
+        } => {
+            assert_eq!(*success_ord, MemOrdering::AcqRel);
+            assert_eq!(*fail_ord, MemOrdering::Acquire);
+            assert!(!*weak);
+            assert!(!*volatile);
+        }
+        other => panic!("expected CmpXchg, got {other:?}"),
+    }
+
+    // AtomicRmw
+    match &f.instr(bb.body[2]).kind {
+        InstrKind::AtomicRmw {
+            op,
+            ordering,
+            volatile,
+            ..
+        } => {
+            assert_eq!(*op, RmwOp::Add);
+            assert_eq!(*ordering, MemOrdering::SeqCst);
+            assert!(!*volatile);
+        }
+        other => panic!("expected AtomicRmw, got {other:?}"),
+    }
+
+    // print → parse round-trip preserves all three instructions
+    let printed = Printer::new(&ctx).print_module(&module);
+    assert!(printed.contains("fence seq_cst"), "{printed}");
+    assert!(
+        printed
+            .contains("%cas = cmpxchg ptr %p, i32 %cmp, i32 %new acq_rel acquire"),
+        "{printed}"
+    );
+    assert!(
+        printed.contains("%old = atomicrmw add ptr %p, i32 %new seq_cst"),
+        "{printed}"
+    );
+
+    let (_ctx2, module2) = parse(&printed).expect("re-parse of printed IR failed");
+    let printed2 = Printer::new(&_ctx2).print_module(&module2);
+    assert_eq!(printed, printed2, "print → parse → print not idempotent");
+}
+
+/// `cmpxchg weak volatile` must parse and round-trip the modifiers.
+#[test]
+fn parse_atomics_weak_volatile_modifiers() {
+    let src = r#"
+define void @cas(ptr %p, i32 %cmp, i32 %new) {
+entry:
+  %r = cmpxchg weak volatile ptr %p, i32 %cmp, i32 %new seq_cst monotonic
+  ret void
+}
+"#;
+    let (ctx, module) = parse(src).expect("parse failed");
+    let f = &module.functions[0];
+    match &f.instr(f.blocks[0].body[0]).kind {
+        InstrKind::CmpXchg { weak, volatile, .. } => {
+            assert!(*weak);
+            assert!(*volatile);
+        }
+        other => panic!("expected CmpXchg, got {other:?}"),
+    }
+    let printed = Printer::new(&ctx).print_module(&module);
+    assert!(printed.contains("cmpxchg weak volatile"), "{printed}");
+    assert!(printed.contains("seq_cst monotonic"), "{printed}");
+}
+
+/// `atomicrmw xchg` exercises the `LocalIdent` op-name branch (the keyword
+/// branch is exercised by the `add` op above).
+#[test]
+fn parse_atomicrmw_xchg() {
+    let src = r#"
+define i32 @swap(ptr %p, i32 %v) {
+entry:
+  %old = atomicrmw xchg ptr %p, i32 %v acquire
+  ret i32 %old
+}
+"#;
+    let (ctx, module) = parse(src).expect("parse failed");
+    match &module.functions[0]
+        .instr(module.functions[0].blocks[0].body[0])
+        .kind
+    {
+        InstrKind::AtomicRmw { op, ordering, .. } => {
+            assert_eq!(*op, RmwOp::Xchg);
+            assert_eq!(*ordering, MemOrdering::Acquire);
+        }
+        other => panic!("expected AtomicRmw, got {other:?}"),
+    }
+    let printed = Printer::new(&ctx).print_module(&module);
+    assert!(
+        printed.contains("atomicrmw xchg ptr %p, i32 %v acquire"),
+        "{printed}"
+    );
 }
 
 /// Parse a function declaration (no body).

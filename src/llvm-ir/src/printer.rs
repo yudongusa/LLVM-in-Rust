@@ -831,6 +831,55 @@ impl<'a> Printer<'a> {
                 }
                 out.push(')');
             }
+            InstrKind::Fence { ordering } => {
+                out.push_str("fence ");
+                out.push_str(ordering.as_str());
+            }
+            InstrKind::CmpXchg {
+                ptr,
+                cmp,
+                new_val,
+                success_ord,
+                fail_ord,
+                weak,
+                volatile,
+            } => {
+                out.push_str("cmpxchg ");
+                if *weak {
+                    out.push_str("weak ");
+                }
+                if *volatile {
+                    out.push_str("volatile ");
+                }
+                self.write_typed_value(out, *ptr, func);
+                out.push_str(", ");
+                self.write_typed_value(out, *cmp, func);
+                out.push_str(", ");
+                self.write_typed_value(out, *new_val, func);
+                out.push(' ');
+                out.push_str(success_ord.as_str());
+                out.push(' ');
+                out.push_str(fail_ord.as_str());
+            }
+            InstrKind::AtomicRmw {
+                op,
+                ptr,
+                val,
+                ordering,
+                volatile,
+            } => {
+                out.push_str("atomicrmw ");
+                if *volatile {
+                    out.push_str("volatile ");
+                }
+                out.push_str(op.as_str());
+                out.push(' ');
+                self.write_typed_value(out, *ptr, func);
+                out.push_str(", ");
+                self.write_typed_value(out, *val, func);
+                out.push(' ');
+                out.push_str(ordering.as_str());
+            }
             InstrKind::Ret { val: None } => {
                 out.push_str("ret void");
             }

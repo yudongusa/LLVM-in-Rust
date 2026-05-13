@@ -320,6 +320,38 @@ pub(crate) fn subst_kind(kind: InstrKind, subst: &HashMap<InstrId, ValueRef>) ->
             align_stack,
             args: args.into_iter().map(s).collect(),
         },
+        // --- Atomics (issue #205) ---
+        InstrKind::Fence { ordering } => InstrKind::Fence { ordering },
+        InstrKind::CmpXchg {
+            ptr,
+            cmp,
+            new_val,
+            success_ord,
+            fail_ord,
+            weak,
+            volatile,
+        } => InstrKind::CmpXchg {
+            ptr: s(ptr),
+            cmp: s(cmp),
+            new_val: s(new_val),
+            success_ord,
+            fail_ord,
+            weak,
+            volatile,
+        },
+        InstrKind::AtomicRmw {
+            op,
+            ptr,
+            val,
+            ordering,
+            volatile,
+        } => InstrKind::AtomicRmw {
+            op,
+            ptr: s(ptr),
+            val: s(val),
+            ordering,
+            volatile,
+        },
         // --- Terminators ---
         InstrKind::Ret { val } => InstrKind::Ret { val: val.map(s) },
         InstrKind::Br { dest } => InstrKind::Br { dest },

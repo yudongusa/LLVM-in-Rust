@@ -231,6 +231,38 @@ where
             align_stack,
             args: args.into_iter().map(f).collect(),
         },
+        // --- Atomics (issue #205) ---
+        InstrKind::Fence { ordering } => InstrKind::Fence { ordering },
+        InstrKind::CmpXchg {
+            ptr,
+            cmp,
+            new_val,
+            success_ord,
+            fail_ord,
+            weak,
+            volatile,
+        } => InstrKind::CmpXchg {
+            ptr: f(ptr),
+            cmp: f(cmp),
+            new_val: f(new_val),
+            success_ord,
+            fail_ord,
+            weak,
+            volatile,
+        },
+        InstrKind::AtomicRmw {
+            op,
+            ptr,
+            val,
+            ordering,
+            volatile,
+        } => InstrKind::AtomicRmw {
+            op,
+            ptr: f(ptr),
+            val: f(val),
+            ordering,
+            volatile,
+        },
         InstrKind::Ret { val } => InstrKind::Ret { val: val.map(f) },
         InstrKind::Br { dest } => InstrKind::Br { dest },
         InstrKind::CondBr {

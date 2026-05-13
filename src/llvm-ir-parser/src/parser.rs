@@ -8,7 +8,7 @@ use std::fmt;
 use llvm_ir::{
     ArgId, Argument, BasicBlock, BlockId, ConstId, ConstantData, Context, FastMathFlags, FloatKind,
     FloatPredicate, Function, GlobalId, GlobalVariable, InstrKind, Instruction, IntArithFlags,
-    IntPredicate, Linkage, Module, TailCallKind, TypeData, TypeId, ValueRef,
+    IntPredicate, Linkage, MemOrdering, Module, RmwOp, TailCallKind, TypeData, TypeId, ValueRef,
 };
 
 use crate::lexer::{Keyword, LexError, Lexer, Token};
@@ -1259,6 +1259,58 @@ impl<'src> Parser<'src> {
                     ret_ty,
                 ))
             }
+            // --- Atomics (issue #205) ---
+            Token::Kw(Keyword::Fence) => {
+                self.lex.next()?;
+                let ordering = self.parse_mem_ordering()?;
+                let void_ty = self.ctx.void_ty;
+                Ok((InstrKind::Fence { ordering }, void_ty))
+            }
+            Token::Kw(Keyword::Cmpxchg) => {
+                self.lex.next()?;
+                let weak = self.lex.eat_kw(Keyword::Weak);
+                let volatile = self.lex.eat_kw(Keyword::Volatile);
+                let (ptr, _ptr_ty) = self.parse_typed_value()?;
+                self.lex.expect(&Token::Comma)?;
+                let (cmp, val_ty) = self.parse_typed_value()?;
+                self.lex.expect(&Token::Comma)?;
+                let (new_val, _) = self.parse_typed_value()?;
+                let success_ord = self.parse_mem_ordering()?;
+                let fail_ord = self.parse_mem_ordering()?;
+                let i1_ty = self.ctx.i1_ty;
+                let result_ty = self.ctx.mk_struct_anon(vec![val_ty, i1_ty], false);
+                Ok((
+                    InstrKind::CmpXchg {
+                        ptr,
+                        cmp,
+                        new_val,
+                        success_ord,
+                        fail_ord,
+                        weak,
+                        volatile,
+                    },
+                    result_ty,
+                ))
+            }
+            Token::Kw(Keyword::Atomicrmw) => {
+                self.lex.next()?;
+                let volatile = self.lex.eat_kw(Keyword::Volatile);
+                let op = self.parse_rmw_op()?;
+                let (ptr, _ptr_ty) = self.parse_typed_value()?;
+                self.lex.expect(&Token::Comma)?;
+                let (val, val_ty) = self.parse_typed_value()?;
+                let ordering = self.parse_mem_ordering()?;
+                Ok((
+                    InstrKind::AtomicRmw {
+                        op,
+                        ptr,
+                        val,
+                        ordering,
+                        volatile,
+                    },
+                    val_ty,
+                ))
+            }
             // --- Terminators ---
             Token::Kw(Keyword::Ret) => {
                 self.lex.next()?;
@@ -1351,6 +1403,53 @@ impl<'src> Parser<'src> {
         let ty = self.parse_type()?;
         let val = self.parse_value(ty)?;
         Ok((val, ty))
+    }
+
+    fn parse_mem_ordering(&mut self) -> Result<MemOrdering, ParseError> {
+        let tok = self.lex.peek()?.clone();
+        let m = match tok {
+            Token::LocalIdent(ref s) => match s.as_str() {
+                "unordered" => MemOrdering::Unordered,
+                "monotonic" => MemOrdering::Monotonic,
+                "acquire" => MemOrdering::Acquire,
+                "release" => MemOrdering::Release,
+                "acq_rel" => MemOrdering::AcqRel,
+                "seq_cst" => MemOrdering::SeqCst,
+                _ => {
+                    return Err(self.err(format!("expected memory ordering, got {:?}", tok)));
+                }
+            },
+            _ => return Err(self.err(format!("expected memory ordering, got {:?}", tok))),
+        };
+        self.lex.next()?;
+        Ok(m)
+    }
+
+    fn parse_rmw_op(&mut self) -> Result<RmwOp, ParseError> {
+        let tok = self.lex.peek()?.clone();
+        let op = match tok {
+            Token::Kw(Keyword::Add) => RmwOp::Add,
+            Token::Kw(Keyword::Sub) => RmwOp::Sub,
+            Token::Kw(Keyword::And) => RmwOp::And,
+            Token::Kw(Keyword::Or) => RmwOp::Or,
+            Token::Kw(Keyword::Xor) => RmwOp::Xor,
+            Token::Kw(Keyword::Fadd) => RmwOp::FAdd,
+            Token::Kw(Keyword::Fsub) => RmwOp::FSub,
+            Token::LocalIdent(ref s) => match s.as_str() {
+                "xchg" => RmwOp::Xchg,
+                "nand" => RmwOp::Nand,
+                "max" => RmwOp::Max,
+                "min" => RmwOp::Min,
+                "umax" => RmwOp::UMax,
+                "umin" => RmwOp::UMin,
+                _ => {
+                    return Err(self.err(format!("expected atomicrmw op, got {:?}", tok)));
+                }
+            },
+            _ => return Err(self.err(format!("expected atomicrmw op, got {:?}", tok))),
+        };
+        self.lex.next()?;
+        Ok(op)
     }
 
     fn parse_value(&mut self, ty: TypeId) -> Result<ValueRef, ParseError> {
@@ -2067,6 +2166,9 @@ impl<'src> Parser<'src> {
             Keyword::Insertelement => "insertelement",
             Keyword::Shufflevector => "shufflevector",
             Keyword::Call => "call",
+            Keyword::Fence => "fence",
+            Keyword::Cmpxchg => "cmpxchg",
+            Keyword::Atomicrmw => "atomicrmw",
             Keyword::Ret => "ret",
             Keyword::Br => "br",
             Keyword::Switch => "switch",

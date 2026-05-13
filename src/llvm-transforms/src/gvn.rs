@@ -286,7 +286,14 @@ fn rewrite_block(
             | InstrKind::Alloca { .. }
             | InstrKind::GetElementPtr { .. }
             | InstrKind::IntToPtr { .. }
-            | InstrKind::PtrToInt { .. } => {
+            | InstrKind::PtrToInt { .. }
+            // Atomics (issue #205) — fences synchronise other threads' writes
+            // into our view, and cmpxchg / atomicrmw observably modify
+            // memory.  Conservatively flush the load-redundancy cache so we
+            // never CSE a load across one of these.
+            | InstrKind::Fence { .. }
+            | InstrKind::CmpXchg { .. }
+            | InstrKind::AtomicRmw { .. } => {
                 loads.clear();
                 if let Some(key) = expr_key(&rewritten) {
                     if let Some(existing) = exprs.get(&key).copied() {
