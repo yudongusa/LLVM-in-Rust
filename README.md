@@ -49,7 +49,7 @@ representative module (`src/llvm-bench/fixtures/sample.ll`, ~340 lines, integer/
 Run the benchmarks yourself:
 
 ```bash
-cargo bench -p llvm-bench
+cargo bench -p llvm-in-rust-bench
 ```
 
 ### Golden codegen gate
@@ -215,9 +215,9 @@ cargo check
 ### Build a specific crate
 
 ```bash
-cargo build -p llvm-ir
-cargo build -p llvm-transforms
-cargo build -p llvm-target-x86
+cargo build -p llvm-in-rust-ir
+cargo build -p llvm-in-rust-transforms
+cargo build -p llvm-in-rust-target-x86
 ```
 
 ---
@@ -229,14 +229,14 @@ cargo build -p llvm-target-x86
 cargo test
 
 # Run tests for a single crate
-cargo test -p llvm-ir
-cargo test -p llvm-ir-parser
-cargo test -p llvm-analysis
-cargo test -p llvm-transforms
-cargo test -p llvm-codegen
-cargo test -p llvm-target-x86
-cargo test -p llvm-target-arm
-cargo test -p llvm-bitcode
+cargo test -p llvm-in-rust-ir
+cargo test -p llvm-in-rust-ir-parser
+cargo test -p llvm-in-rust-analysis
+cargo test -p llvm-in-rust-transforms
+cargo test -p llvm-in-rust-codegen
+cargo test -p llvm-in-rust-target-x86
+cargo test -p llvm-in-rust-target-arm
+cargo test -p llvm-in-rust-bitcode
 
 # Run a named test
 cargo test roundtrip_add
@@ -322,23 +322,23 @@ This project is a Cargo workspace of library crates. Add whichever layers you ne
 ```toml
 [dependencies]
 # Core IR types only
-llvm-ir = { git = "https://github.com/yudongusa/LLVM-in-Rust" }
+llvm-ir = { package = "llvm-in-rust-ir", git = "https://github.com/yudongusa/LLVM-in-Rust" }
 
 # IR + .ll text parser
-llvm-ir-parser = { git = "https://github.com/yudongusa/LLVM-in-Rust" }
+llvm-ir-parser = { package = "llvm-in-rust-ir-parser", git = "https://github.com/yudongusa/LLVM-in-Rust" }
 
 # IR + optimization passes
-llvm-transforms = { git = "https://github.com/yudongusa/LLVM-in-Rust" }
+llvm-transforms = { package = "llvm-in-rust-transforms", git = "https://github.com/yudongusa/LLVM-in-Rust" }
 
 # Full pipeline including x86_64 backend
-llvm = { git = "https://github.com/yudongusa/LLVM-in-Rust" }
+llvm = { package = "llvm-in-rust", git = "https://github.com/yudongusa/LLVM-in-Rust" }
 ```
 
 For a path dependency (local development):
 
 ```toml
 [dependencies]
-llvm-ir = { path = "../LLVM-in-Rust/src/llvm-ir" }
+llvm-ir = { package = "llvm-in-rust-ir", path = "../LLVM-in-Rust/src/llvm-ir" }
 ```
 
 ---
@@ -701,10 +701,10 @@ Add the crates you need to your `Cargo.toml`. For a local checkout use path depe
 
 ```toml
 [dependencies]
-llvm-ir         = { path = "path/to/LLVM-in-Rust/src/llvm-ir" }
-llvm-transforms = { path = "path/to/LLVM-in-Rust/src/llvm-transforms" }
-llvm-codegen    = { path = "path/to/LLVM-in-Rust/src/llvm-codegen" }
-llvm-target-x86 = { path = "path/to/LLVM-in-Rust/src/llvm-target-x86" }
+llvm-ir         = { package = "llvm-in-rust-ir", path = "path/to/LLVM-in-Rust/src/llvm-ir" }
+llvm-transforms = { package = "llvm-in-rust-transforms", path = "path/to/LLVM-in-Rust/src/llvm-transforms" }
+llvm-codegen    = { package = "llvm-in-rust-codegen", path = "path/to/LLVM-in-Rust/src/llvm-codegen" }
+llvm-target-x86 = { package = "llvm-in-rust-target-x86", path = "path/to/LLVM-in-Rust/src/llvm-target-x86" }
 # optional: llvm-target-arm  for AArch64 output
 # optional: llvm-ir-parser   to accept .ll text files as input
 # optional: llvm-bitcode     to read/write the LRIR binary format

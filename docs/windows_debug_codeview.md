@@ -29,7 +29,7 @@ Carry source debug metadata from `.ll` (`!dbg`, `!DILocation`) into Windows-cons
 ### Local tests
 
 ```bash
-cargo +stable test -p llvm-codegen
+cargo +stable test -p llvm-in-rust-codegen
 cargo +stable test -q
 ```
 

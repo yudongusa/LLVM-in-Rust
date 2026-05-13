@@ -33,14 +33,14 @@ cargo check
 cargo test
 
 # Test a single crate
-cargo test -p llvm-ir
-cargo test -p llvm-ir-parser
-cargo test -p llvm-analysis
-cargo test -p llvm-transforms
-cargo test -p llvm-codegen
-cargo test -p llvm-target-x86
-cargo test -p llvm-target-arm
-cargo test -p llvm-bitcode
+cargo test -p llvm-in-rust-ir
+cargo test -p llvm-in-rust-ir-parser
+cargo test -p llvm-in-rust-analysis
+cargo test -p llvm-in-rust-transforms
+cargo test -p llvm-in-rust-codegen
+cargo test -p llvm-in-rust-target-x86
+cargo test -p llvm-in-rust-target-arm
+cargo test -p llvm-in-rust-bitcode
 
 # Run a single test by name
 cargo test lower_add_produces_machine_blocks
@@ -68,7 +68,7 @@ Add it to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-llvm-ir = { path = "llvm-ir" }
+llvm-ir = { package = "llvm-in-rust-ir", path = "llvm-ir" }
 ```
 
 ### Hello World: a simple `add` function
@@ -462,13 +462,13 @@ Use `llvm-ir-min` to reduce a failing `.ll` reproducer while preserving a failur
 
 ```bash
 # Build/run minimizer
-cargo run -p llvm --bin llvm-ir-min -- \
+cargo run -p llvm-in-rust --bin llvm-ir-min -- \
   --input failing.ll \
   --predicate './repro.sh {{input}}' \
   --output minimized.ll
 
 # Or generate a full crash-triage evidence package.
-cargo run -p llvm --bin llvm-ir-min -- \
+cargo run -p llvm-in-rust --bin llvm-ir-min -- \
   --input failing.ll \
   --predicate './repro.sh {{input}}' \
   --evidence-dir ci-failures/example

@@ -14,7 +14,7 @@ USAGE
 INPUT=""
 PREDICATE=""
 EVIDENCE_DIR="ci-failures/reducer"
-COMPONENT="llvm-ir"
+COMPONENT="llvm-in-rust-ir"
 FAILURE_KIND="crash"
 
 while [[ $# -gt 0 ]]; do
@@ -51,7 +51,7 @@ FIRST_LINE=${FIRST_LINE:-$(basename "$INPUT")}
 BUCKET_SIGNATURE="${COMPONENT}:${FAILURE_KIND}:${FIRST_LINE}:${HASH:0:12}"
 printf '%s\n' "$BUCKET_SIGNATURE" > "$EVIDENCE_DIR/bucket-signature.txt"
 
-cargo +stable run -p llvm --bin llvm-ir-min -- \
+cargo +stable run -p llvm-in-rust --bin llvm-ir-min -- \
   --input "$INPUT" \
   --predicate "$PREDICATE" \
   --evidence-dir "$EVIDENCE_DIR" \

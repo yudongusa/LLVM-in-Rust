@@ -1,5 +1,5 @@
 [package]
-name = "llvm-target-riscv"
+name = "llvm-in-rust-target-riscv"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
@@ -9,10 +9,13 @@ repository = "https://github.com/yudongusa/LLVM-in-Rust"
 homepage = "https://github.com/yudongusa/LLVM-in-Rust"
 keywords = ["llvm", "compiler", "ir", "codegen", "rust"]
 categories = ["compilers", "development-tools"]
+[lib]
+name = "llvm_target_riscv"
+
 [dependencies]
-llvm-ir = { version = "0.1.0", path = "../llvm-ir" }
-llvm-codegen = { version = "0.1.0", path = "../llvm-codegen" }
+llvm-ir = { package = "llvm-in-rust-ir", version = "0.1.0", path = "../llvm-ir" }
+llvm-codegen = { package = "llvm-in-rust-codegen", version = "0.1.0", path = "../llvm-codegen" }
 
 [dev-dependencies]
-llvm-ir-parser = { path = "../llvm-ir-parser" }
-llvm-transforms = { path = "../llvm-transforms" }
+llvm-ir-parser = { version = "0.1.0", package = "llvm-in-rust-ir-parser", path = "../llvm-ir-parser" }
+llvm-transforms = { version = "0.1.0", package = "llvm-in-rust-transforms", path = "../llvm-transforms" }

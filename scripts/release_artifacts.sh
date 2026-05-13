@@ -87,7 +87,7 @@ write_metadata() {
   "rust_toolchain": "stable",
   "cargo_lock": "$(sha256_file Cargo.lock)",
   "profile": "release",
-  "packages": ["llvm"]
+  "packages": ["llvm-in-rust"]
 }
 JSON
 }
@@ -95,7 +95,7 @@ JSON
 build_artifacts() {
   echo "[release] building deterministic release artifact"
   write_metadata
-  cargo +stable build --locked --release -p llvm --bin "$BINARY_NAME"
+  cargo +stable build --locked --release -p llvm-in-rust --bin "$BINARY_NAME"
   cp "$BINARY_PATH" "$BINARY_ARTIFACT"
   chmod 0755 "$BINARY_ARTIFACT"
   # Normalize archive metadata for reproducible rebuilds.

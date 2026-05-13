@@ -35,7 +35,7 @@ jobs:
 
       - name: Run PR benchmarks
         working-directory: head
-        run: cargo +stable bench -p llvm-bench --bench pipeline -- --save-baseline head
+        run: cargo +stable bench -p llvm-in-rust-bench --bench pipeline -- --save-baseline head
 
       - name: Compare against performance budget
         working-directory: head

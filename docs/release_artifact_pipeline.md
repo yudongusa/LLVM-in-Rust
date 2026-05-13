@@ -13,7 +13,7 @@ The release lane records:
 - commit-derived `SOURCE_DATE_EPOCH` unless explicitly overridden
 - stable Rust and Cargo verbose versions
 - `Cargo.lock` SHA-256 checksum
-- `cargo build --locked --release -p llvm --bin llvm-ir-min`
+- `cargo build --locked --release -p llvm-in-rust --bin llvm-ir-min`
 - release provenance in `RELEASE_PROVENANCE.md`
 
 The script intentionally builds with `--locked` so releases cannot silently drift from the

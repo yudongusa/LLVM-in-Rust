@@ -93,7 +93,7 @@ for i in $(seq 1 "$COUNT"); do
   fi
 
   set +e
-  ours_exit="$(cargo run -q -p llvm-ir-parser --example run_ir -- "$ll_file" 2>/dev/null)"
+  ours_exit="$(cargo run -q -p llvm-in-rust-ir-parser --example run_ir -- "$ll_file" 2>/dev/null)"
   ours_status=$?
   set -e
 

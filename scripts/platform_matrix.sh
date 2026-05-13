@@ -22,24 +22,24 @@ fi
 
 run_host_core() {
   echo "[platform] Tier-1 host core checks on $(uname -s)"
-  cargo +stable test -p llvm-ir --lib
-  cargo +stable test -p llvm-ir-parser --test smoke -- --nocapture
-  cargo +stable test -p llvm-codegen --test linker_compat tool_presence_report_is_accessible -- --nocapture
+  cargo +stable test -p llvm-in-rust-ir --lib
+  cargo +stable test -p llvm-in-rust-ir-parser --test smoke -- --nocapture
+  cargo +stable test -p llvm-in-rust-codegen --test linker_compat tool_presence_report_is_accessible -- --nocapture
 }
 
 run_target_x86_64() {
   echo "[platform] x86-64 artifact-generation crate checks"
-  cargo +stable check -p llvm-target-x86 --target x86_64-unknown-linux-gnu
+  cargo +stable check -p llvm-in-rust-target-x86 --target x86_64-unknown-linux-gnu
 }
 
 run_target_aarch64() {
   echo "[platform] AArch64 artifact-generation crate checks"
-  cargo +stable check -p llvm-target-arm --target aarch64-unknown-linux-gnu
+  cargo +stable check -p llvm-in-rust-target-arm --target aarch64-unknown-linux-gnu
 }
 
 run_target_rv64gc() {
   echo "[platform] RV64GC artifact-generation crate checks"
-  cargo +stable check -p llvm-target-riscv --target riscv64gc-unknown-linux-gnu
+  cargo +stable check -p llvm-in-rust-target-riscv --target riscv64gc-unknown-linux-gnu
 }
 
 validate_known_issues() {

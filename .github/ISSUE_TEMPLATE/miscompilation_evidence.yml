@@ -65,7 +65,7 @@ body:
       label: Reproduction command transcript
       description: Exact commands used to reproduce.
       placeholder: |
-        cargo run -p llvm --bin llvm-ir-min -- --input bug.ll --predicate './repro.sh {{input}}'
+        cargo run -p llvm-in-rust --bin llvm-ir-min -- --input bug.ll --predicate './repro.sh {{input}}'
         ./repro.sh minimized.ll
     validations:
       required: true

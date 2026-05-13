@@ -41,7 +41,7 @@ jobs:
         run: cargo +stable test
 
       - name: Stable bench compile check
-        run: cargo +stable bench -p llvm-bench --no-run
+        run: cargo +stable bench -p llvm-in-rust-bench --no-run
 
   differential:
     name: Differential tests against LLVM 19
@@ -87,19 +87,19 @@ jobs:
       - name: Run differential tests (ZERO skips enforced)
         env:
           REQUIRE_LLVM: "1"
-        run: cargo test -p llvm-ir-parser differential --no-fail-fast -- --nocapture
+        run: cargo test -p llvm-in-rust-ir-parser differential --no-fail-fast -- --nocapture
 
       - name: Run regression hash check
         env:
           REQUIRE_LLVM: "1"
-        run: cargo test -p llvm-ir-parser check_regression_hashes -- --nocapture
+        run: cargo test -p llvm-in-rust-ir-parser check_regression_hashes -- --nocapture
 
       - name: Run smoke oracle tests (ground truth vs LLVM 19)
         env:
           REQUIRE_LLVM: "1"
-        run: cargo test -p llvm-ir-parser --test smoke --no-fail-fast -- --nocapture
+        run: cargo test -p llvm-in-rust-ir-parser --test smoke --no-fail-fast -- --nocapture
 
       - name: Verify DWARF sections with llvm-dwarfdump
         env:
           REQUIRE_LLVM: "1"
-        run: cargo +stable test -p llvm-codegen --test dwarf_line -- --nocapture
+        run: cargo +stable test -p llvm-in-rust-codegen --test dwarf_line -- --nocapture

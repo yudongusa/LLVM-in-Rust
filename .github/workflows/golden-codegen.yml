@@ -37,7 +37,7 @@ jobs:
       - name: Check deterministic golden codegen corpus
         env:
           LLVM_IN_RUST_DETERMINISTIC: "1"
-        run: cargo +stable test -p llvm-codegen golden -- --nocapture
+        run: cargo +stable test -p llvm-in-rust-codegen golden -- --nocapture
 
   baseline_update_approval:
     name: Golden baseline update approval

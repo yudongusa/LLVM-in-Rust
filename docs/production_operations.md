@@ -15,7 +15,7 @@ Use locked dependencies and the same gates CI runs:
 ```bash
 cargo +stable build --locked --all-targets
 cargo +stable test
-cargo +stable bench -p llvm-bench --no-run
+cargo +stable bench -p llvm-in-rust-bench --no-run
 scripts/interoperability_conformance.sh link
 scripts/platform_matrix.sh host-core
 scripts/release_artifacts.sh dry-run --version ops-smoke
@@ -27,7 +27,7 @@ Optional deeper checks:
 scripts/compat_stage_a.sh
 scripts/compat_stage_b.sh
 scripts/sanitizer_matrix.sh miri-core
-cargo +stable test -p llvm-codegen golden -- --nocapture
+cargo +stable test -p llvm-in-rust-codegen golden -- --nocapture
 ```
 
 Capture the command transcript, Git commit, host OS/arch, Rust version, and relevant artifact paths for every production validation run.
@@ -76,7 +76,7 @@ For privacy, minimize and redact customer inputs before attaching them to public
 
 ### Performance regression
 
-- Run `cargo +stable bench -p llvm-bench --bench pipeline -- --save-baseline <name>`.
+- Run `cargo +stable bench -p llvm-in-rust-bench --bench pipeline -- --save-baseline <name>`.
 - Compare against `perf/budgets.json` using `scripts/perf_budget.py`.
 - Label intentional regressions with `perf-regression-accepted` only after recording the rationale.
 - Include hardware, OS, Rust version, and warm/cold cache notes.

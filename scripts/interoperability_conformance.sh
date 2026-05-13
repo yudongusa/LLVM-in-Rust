@@ -39,7 +39,7 @@ run_link() {
       echo "[conformance:link] missing optional tool $tool"
     fi
   done
-  cargo +stable test -p llvm-codegen --test linker_compat -- --nocapture
+  cargo +stable test -p llvm-in-rust-codegen --test linker_compat -- --nocapture
   end_group
 }
 
@@ -52,20 +52,20 @@ run_debug() {
       echo "[conformance:debug] missing optional tool $tool"
     fi
   done
-  cargo +stable test -p llvm-codegen --test dwarf_line -- --nocapture
+  cargo +stable test -p llvm-in-rust-codegen --test dwarf_line -- --nocapture
   if [[ "$(uname -s)" == MINGW* || "$(uname -s)" == MSYS* || "$(uname -s)" == CYGWIN* ]]; then
-    cargo +stable test -p llvm-codegen --test codeview_coff -- --nocapture
+    cargo +stable test -p llvm-in-rust-codegen --test codeview_coff -- --nocapture
   else
-    cargo +stable test -p llvm-codegen --test codeview_coff -- --nocapture
+    cargo +stable test -p llvm-in-rust-codegen --test codeview_coff -- --nocapture
   fi
   end_group
 }
 
 run_abi() {
   category_group abi "platform ABI edge cases"
-  cargo +stable test -p llvm-target-x86 abi -- --nocapture
-  cargo +stable test -p llvm-target-arm abi -- --nocapture
-  cargo +stable test -p llvm-target-riscv abi -- --nocapture
+  cargo +stable test -p llvm-in-rust-target-x86 abi -- --nocapture
+  cargo +stable test -p llvm-in-rust-target-arm abi -- --nocapture
+  cargo +stable test -p llvm-in-rust-target-riscv abi -- --nocapture
   end_group
 }
 
@@ -78,8 +78,8 @@ run_mixed() {
       echo "[conformance:mixed] missing optional tool $tool"
     fi
   done
-  cargo +stable test -p llvm-ir-parser --test differential roundtrip_ -- --nocapture
-  cargo +stable test -p llvm-bitcode --lib -- --nocapture
+  cargo +stable test -p llvm-in-rust-ir-parser --test differential roundtrip_ -- --nocapture
+  cargo +stable test -p llvm-in-rust-bitcode --lib -- --nocapture
   end_group
 }
 

@@ -1,5 +1,5 @@
 [package]
-name = "llvm-ir"
+name = "llvm-in-rust-ir"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
@@ -9,4 +9,7 @@ repository = "https://github.com/yudongusa/LLVM-in-Rust"
 homepage = "https://github.com/yudongusa/LLVM-in-Rust"
 keywords = ["llvm", "compiler", "ir", "codegen", "rust"]
 categories = ["compilers", "development-tools"]
+[lib]
+name = "llvm_ir"
+
 [dependencies]

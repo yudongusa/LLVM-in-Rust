@@ -21,11 +21,11 @@ run_asan_core() {
   require_cmd cargo
   RUSTFLAGS="${RUSTFLAGS:-} -Zsanitizer=address" \
     cargo +nightly test -Zbuild-std --target x86_64-unknown-linux-gnu \
-      -p llvm-ir \
-      -p llvm-analysis \
-      -p llvm-transforms \
-      -p llvm-bitcode \
-      -p llvm-codegen --lib
+      -p llvm-in-rust-ir \
+      -p llvm-in-rust-analysis \
+      -p llvm-in-rust-transforms \
+      -p llvm-in-rust-bitcode \
+      -p llvm-in-rust-codegen --lib
 }
 
 run_tsan_core() {
@@ -33,18 +33,18 @@ run_tsan_core() {
   RUSTFLAGS="${RUSTFLAGS:-} -Zsanitizer=thread" \
     cargo +nightly test -Zbuild-std --target x86_64-unknown-linux-gnu \
       --lib --tests \
-      -p llvm-ir \
-      -p llvm-analysis \
-      -p llvm-transforms \
+      -p llvm-in-rust-ir \
+      -p llvm-in-rust-analysis \
+      -p llvm-in-rust-transforms \
       -- --test-threads=1
 }
 
 run_miri_core() {
   require_cmd cargo
   cargo +nightly miri test \
-    -p llvm-ir \
-    -p llvm-analysis \
-    -p llvm-transforms \
+    -p llvm-in-rust-ir \
+    -p llvm-in-rust-analysis \
+    -p llvm-in-rust-transforms \
     --lib
 }
 

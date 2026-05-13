@@ -1,17 +1,20 @@
 [package]
-name = "llvm-bench"
+name = "llvm-in-rust-bench"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 publish = false
 
+[lib]
+name = "llvm_bench"
+
 [dependencies]
-llvm-ir         = { path = "../llvm-ir" }
-llvm-ir-parser  = { path = "../llvm-ir-parser" }
-llvm-analysis   = { path = "../llvm-analysis" }
-llvm-transforms = { path = "../llvm-transforms" }
-llvm-codegen    = { path = "../llvm-codegen" }
-llvm-target-x86 = { path = "../llvm-target-x86" }
+llvm-ir         = { version = "0.1.0", package = "llvm-in-rust-ir", path = "../llvm-ir" }
+llvm-ir-parser  = { version = "0.1.0", package = "llvm-in-rust-ir-parser", path = "../llvm-ir-parser" }
+llvm-analysis   = { version = "0.1.0", package = "llvm-in-rust-analysis", path = "../llvm-analysis" }
+llvm-transforms = { version = "0.1.0", package = "llvm-in-rust-transforms", path = "../llvm-transforms" }
+llvm-codegen    = { version = "0.1.0", package = "llvm-in-rust-codegen", path = "../llvm-codegen" }
+llvm-target-x86 = { version = "0.1.0", package = "llvm-in-rust-target-x86", path = "../llvm-target-x86" }
 
 [dev-dependencies]
 criterion = "0.5"

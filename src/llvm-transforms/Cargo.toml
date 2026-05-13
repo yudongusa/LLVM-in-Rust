@@ -1,5 +1,5 @@
 [package]
-name = "llvm-transforms"
+name = "llvm-in-rust-transforms"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
@@ -9,12 +9,15 @@ repository = "https://github.com/yudongusa/LLVM-in-Rust"
 homepage = "https://github.com/yudongusa/LLVM-in-Rust"
 keywords = ["llvm", "compiler", "ir", "codegen", "rust"]
 categories = ["compilers", "development-tools"]
+[lib]
+name = "llvm_transforms"
+
 [dependencies]
-llvm-ir = { version = "0.1.0", path = "../llvm-ir" }
-llvm-analysis = { version = "0.1.0", path = "../llvm-analysis" }
+llvm-ir = { package = "llvm-in-rust-ir", version = "0.1.0", path = "../llvm-ir" }
+llvm-analysis = { package = "llvm-in-rust-analysis", version = "0.1.0", path = "../llvm-analysis" }
 
 [dev-dependencies]
 proptest = "1"
-llvm-ir-parser = { path = "../llvm-ir-parser" }
-llvm-codegen = { path = "../llvm-codegen" }
-llvm-target-x86 = { path = "../llvm-target-x86" }
+llvm-ir-parser = { version = "0.1.0", package = "llvm-in-rust-ir-parser", path = "../llvm-ir-parser" }
+llvm-codegen = { version = "0.1.0", package = "llvm-in-rust-codegen", path = "../llvm-codegen" }
+llvm-target-x86 = { version = "0.1.0", package = "llvm-in-rust-target-x86", path = "../llvm-target-x86" }

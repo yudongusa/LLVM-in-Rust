@@ -16,7 +16,7 @@ hashed as object bytes in `src/llvm-codegen/tests/golden/codegen_x86_64_elf.json
 CI runs:
 
 ```bash
-LLVM_IN_RUST_DETERMINISTIC=1 cargo +stable test -p llvm-codegen golden -- --nocapture
+LLVM_IN_RUST_DETERMINISTIC=1 cargo +stable test -p llvm-in-rust-codegen golden -- --nocapture
 ```
 
 A PR fails if any emitted object checksum differs from the committed baseline.

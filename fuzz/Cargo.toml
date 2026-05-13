@@ -10,11 +10,11 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-llvm-ir = { path = "../src/llvm-ir" }
-llvm-ir-parser = { path = "../src/llvm-ir-parser" }
-llvm-transforms = { path = "../src/llvm-transforms" }
-llvm-codegen = { path = "../src/llvm-codegen" }
-llvm-target-x86 = { path = "../src/llvm-target-x86" }
+llvm-ir = { package = "llvm-in-rust-ir", path = "../src/llvm-ir" }
+llvm-ir-parser = { package = "llvm-in-rust-ir-parser", path = "../src/llvm-ir-parser" }
+llvm-transforms = { package = "llvm-in-rust-transforms", path = "../src/llvm-transforms" }
+llvm-codegen = { package = "llvm-in-rust-codegen", path = "../src/llvm-codegen" }
+llvm-target-x86 = { package = "llvm-in-rust-target-x86", path = "../src/llvm-target-x86" }
 
 [[bin]]
 name = "parser"

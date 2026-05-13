@@ -13,7 +13,7 @@ Budgets live in `perf/budgets.json`.
 
 `.github/workflows/performance-budget.yml` runs on pull requests to `main`:
 
-1. Check out the base commit and run `cargo +stable bench -p llvm-bench`.
+1. Check out the base commit and run `cargo +stable bench -p llvm-in-rust-bench`.
 2. Check out the PR head and run the same benchmarks.
 3. Compare Criterion mean estimates with `scripts/perf_budget.py`.
 4. Upload `perf-budget-report.md` as a CI artifact.

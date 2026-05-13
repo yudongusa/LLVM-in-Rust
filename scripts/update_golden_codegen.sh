@@ -15,4 +15,4 @@ fi
 export LLVM_IN_RUST_DETERMINISTIC=1
 export UPDATE_GOLDEN_CODEGEN=1
 export BLESS_GOLDEN_CODEGEN=1
-cargo +stable test -p llvm-codegen golden_codegen_objects_match_locked_baseline -- --nocapture
+cargo +stable test -p llvm-in-rust-codegen golden_codegen_objects_match_locked_baseline -- --nocapture
