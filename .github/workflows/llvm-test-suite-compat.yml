@@ -1,0 +1,31 @@
+name: LLVM test-suite compatibility
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: Optional maximum number of .ll files to scan
+        required: false
+        default: ""
+  schedule:
+    # Weekly informational run: Mondays at 09:17 UTC.
+    - cron: "17 9 * * 1"
+
+jobs:
+  compatibility:
+    name: Informational LLVM test-suite IR compatibility
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run compatibility scanner
+        env:
+          LLVM_TEST_SUITE_LIMIT: ${{ github.event.inputs.limit }}
+        run: scripts/llvm_test_suite_compat.sh
+      - name: Upload compatibility report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: llvm-test-suite-compat-report
+          path: target/llvm-test-suite-compat.md
