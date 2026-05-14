@@ -564,8 +564,13 @@ fn lower_instr(
             mf.push(mblock, MInstr::new(MOV_IMM).with_dst(dst).with_imm(0));
         }
 
+        LandingPad { .. } => {
+            let dst = new_dst!();
+            mf.push(mblock, MInstr::new(MOV_IMM).with_dst(dst).with_imm(0));
+        }
+
         // Terminators handled in lower_terminator.
-        Ret { .. } | Br { .. } | CondBr { .. } | Switch { .. } | Unreachable => {}
+        Ret { .. } | Br { .. } | CondBr { .. } | Invoke { .. } | Switch { .. } | Unreachable => {}
     }
 }
 
@@ -620,6 +625,33 @@ fn lower_terminator(
                 MInstr::new(B_COND).with_imm(CC_NE).with_block(then_edge),
             );
             mf.push(mblock, MInstr::new(B).with_block(else_edge));
+        }
+
+        Invoke {
+            callee,
+            args,
+            normal_dest,
+            ..
+        } => {
+            let arg_locs = classify_aapcs64_args(args.len());
+            for (i, &arg_vref) in args.iter().enumerate() {
+                let src = resolve(ctx, mf, mblock, vmap, arg_vref);
+                match arg_locs[i] {
+                    ArgLocation::Reg(preg) => emit_mov_to_preg(mf, mblock, preg, src),
+                    ArgLocation::Stack(_) => mf.push(mblock, MInstr::new(STR).with_vreg(src)),
+                }
+            }
+            let callee_vr = resolve(ctx, mf, mblock, vmap, *callee);
+            let mut call_mi = MInstr::new(BLR).with_vreg(callee_vr);
+            call_mi.clobbers = ALLOCATABLE.to_vec();
+            mf.push(mblock, call_mi);
+            if term.ty != ctx.void_ty {
+                let dst = mf.fresh_vreg();
+                vmap.insert(ValueRef::Instruction(tid), dst);
+                emit_mov_from_preg(mf, mblock, dst, INT_RET);
+            }
+            emit_phi_copies(ctx, func, mf, mblock, mblock, *normal_dest, vmap);
+            mf.push(mblock, MInstr::new(B).with_block(normal_dest.0 as usize));
         }
 
         Switch {

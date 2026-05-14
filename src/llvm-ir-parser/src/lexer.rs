@@ -202,6 +202,18 @@ pub enum Keyword {
     Shufflevector,
     /// `Call` variant.
     Call,
+    /// `Invoke` variant.
+    Invoke,
+    /// `Landingpad` variant.
+    Landingpad,
+    /// `Catch` variant.
+    Catch,
+    /// `Filter` variant.
+    Filter,
+    /// `Cleanup` variant.
+    Cleanup,
+    /// `Personality` variant.
+    Personality,
     /// `Fence` variant.
     Fence,
     /// `Cmpxchg` variant.
@@ -277,6 +289,8 @@ pub enum Keyword {
     Align,
     /// `To` variant.
     To,
+    /// `Unwind` variant.
+    Unwind,
     /// `X` variant.
     X,      // "x" in vector / array size
     /// `Vscale` variant.
@@ -950,6 +964,12 @@ impl<'src> Lexer<'src> {
             "insertelement" => Keyword::Insertelement,
             "shufflevector" => Keyword::Shufflevector,
             "call" => Keyword::Call,
+            "invoke" => Keyword::Invoke,
+            "landingpad" => Keyword::Landingpad,
+            "catch" => Keyword::Catch,
+            "filter" => Keyword::Filter,
+            "cleanup" => Keyword::Cleanup,
+            "personality" => Keyword::Personality,
             "fence" => Keyword::Fence,
             "cmpxchg" => Keyword::Cmpxchg,
             "atomicrmw" => Keyword::Atomicrmw,
@@ -985,6 +1005,7 @@ impl<'src> Lexer<'src> {
             "null" => Keyword::Null,
             "align" => Keyword::Align,
             "to" => Keyword::To,
+            "unwind" => Keyword::Unwind,
             "x" => Keyword::X,
             "vscale" => Keyword::Vscale,
             // Unknown words become bare local identifiers (shouldn't normally happen at module level).

@@ -455,6 +455,10 @@ mod instr_tag {
     pub const CMPXCHG: u32 = 83;
     /// Public API for `ATOMICRMW`.
     pub const ATOMICRMW: u32 = 84;
+    /// Public API for `INVOKE`.
+    pub const INVOKE: u32 = 85;
+    /// Public API for `LANDINGPAD`.
+    pub const LANDINGPAD: u32 = 86;
     /// Public API for `RET`.
     pub const RET: u32 = 90;
     /// Public API for `BR`.
@@ -840,6 +844,55 @@ fn encode_instr(w: &mut Writer, instr: &Instruction) {
             w.u32(args.len() as u32);
             for arg in args {
                 encode_vref(w, arg);
+            }
+        }
+        Invoke {
+            callee_ty,
+            callee,
+            args,
+            normal_dest,
+            unwind_dest,
+        } => {
+            w.u32(instr_tag::INVOKE);
+            w.u32(callee_ty.0);
+            encode_vref(w, callee);
+            w.u32(args.len() as u32);
+            for arg in args {
+                encode_vref(w, arg);
+            }
+            w.u32(normal_dest.0);
+            w.u32(unwind_dest.0);
+        }
+        LandingPad {
+            result_ty,
+            personality_fn,
+            cleanup,
+            clauses,
+        } => {
+            w.u32(instr_tag::LANDINGPAD);
+            w.u32(result_ty.0);
+            w.u8(if *cleanup { 1 } else { 0 });
+            match personality_fn {
+                Some(v) => {
+                    w.u8(1);
+                    encode_vref(w, v);
+                }
+                None => w.u8(0),
+            }
+            w.u32(clauses.len() as u32);
+            for clause in clauses {
+                match clause {
+                    llvm_ir::LandingPadClause::Catch { ty, value } => {
+                        w.u8(0);
+                        w.u32(ty.0);
+                        encode_vref(w, value);
+                    }
+                    llvm_ir::LandingPadClause::Filter { ty, value } => {
+                        w.u8(1);
+                        w.u32(ty.0);
+                        encode_vref(w, value);
+                    }
+                }
             }
         }
         InlineAsm {

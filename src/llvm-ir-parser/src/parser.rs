@@ -8,7 +8,8 @@ use std::fmt;
 use llvm_ir::{
     ArgId, Argument, BasicBlock, BlockId, ConstId, ConstantData, Context, FastMathFlags, FloatKind,
     FloatPredicate, Function, GlobalId, GlobalVariable, InstrKind, Instruction, IntArithFlags,
-    IntPredicate, Linkage, MemOrdering, Module, RmwOp, TailCallKind, TypeData, TypeId, ValueRef,
+    IntPredicate, LandingPadClause, Linkage, MemOrdering, Module, RmwOp, TailCallKind, TypeData,
+    TypeId, ValueRef,
 };
 
 use crate::lexer::{Keyword, LexError, Lexer, Token};
@@ -1266,6 +1267,79 @@ impl<'src> Parser<'src> {
                 let void_ty = self.ctx.void_ty;
                 Ok((InstrKind::Fence { ordering }, void_ty))
             }
+            Token::Kw(Keyword::Invoke) => {
+                self.lex.next()?;
+                let ret_ty = self.parse_type()?;
+                let callee = match self.lex.peek()? {
+                    Token::GlobalIdent(_) => {
+                        let gname = self.lex.expect_global_ident()?;
+                        self.resolve_global_ref(&gname)?
+                    }
+                    Token::LocalIdent(_) => {
+                        let lname = self.lex.expect_local_ident()?;
+                        self.resolve_local(&lname)?
+                    }
+                    _ => return Err(self.err("expected invoke callee name")),
+                };
+                self.lex.expect(&Token::LParen)?;
+                let mut args = Vec::new();
+                if !matches!(self.lex.peek()?, Token::RParen) {
+                    let (a, _) = self.parse_typed_value()?;
+                    args.push(a);
+                    while self.lex.eat(&Token::Comma) {
+                        let (a, _) = self.parse_typed_value()?;
+                        args.push(a);
+                    }
+                }
+                self.lex.expect(&Token::RParen)?;
+                self.lex.expect_kw(&Keyword::To)?;
+                self.lex.expect_kw(&Keyword::Label)?;
+                let normal_name = self.lex.expect_local_ident()?;
+                let normal_dest = self.get_or_create_block(&normal_name)?;
+                self.lex.expect_kw(&Keyword::Unwind)?;
+                self.lex.expect_kw(&Keyword::Label)?;
+                let unwind_name = self.lex.expect_local_ident()?;
+                let unwind_dest = self.get_or_create_block(&unwind_name)?;
+                let param_tys: Vec<TypeId> = args.iter().map(|a| self.type_of_vref(*a)).collect();
+                let callee_ty = self.ctx.mk_fn_type(ret_ty, param_tys, false);
+                Ok((
+                    InstrKind::Invoke {
+                        callee_ty,
+                        callee,
+                        args,
+                        normal_dest,
+                        unwind_dest,
+                    },
+                    ret_ty,
+                ))
+            }
+            Token::Kw(Keyword::Landingpad) => {
+                self.lex.next()?;
+                let result_ty = self.parse_type()?;
+                let cleanup = self.lex.eat_kw(Keyword::Cleanup);
+                let mut clauses = Vec::new();
+                while matches!(
+                    self.lex.peek()?,
+                    Token::Kw(Keyword::Catch) | Token::Kw(Keyword::Filter)
+                ) {
+                    let is_catch = matches!(self.lex.next()?, Token::Kw(Keyword::Catch));
+                    let (value, ty) = self.parse_typed_value()?;
+                    clauses.push(if is_catch {
+                        LandingPadClause::Catch { ty, value }
+                    } else {
+                        LandingPadClause::Filter { ty, value }
+                    });
+                }
+                Ok((
+                    InstrKind::LandingPad {
+                        result_ty,
+                        personality_fn: None,
+                        cleanup,
+                        clauses,
+                    },
+                    result_ty,
+                ))
+            }
             Token::Kw(Keyword::Cmpxchg) => {
                 self.lex.next()?;
                 let weak = self.lex.eat_kw(Keyword::Weak);
@@ -2166,6 +2240,12 @@ impl<'src> Parser<'src> {
             Keyword::Insertelement => "insertelement",
             Keyword::Shufflevector => "shufflevector",
             Keyword::Call => "call",
+            Keyword::Invoke => "invoke",
+            Keyword::Landingpad => "landingpad",
+            Keyword::Catch => "catch",
+            Keyword::Filter => "filter",
+            Keyword::Cleanup => "cleanup",
+            Keyword::Personality => "personality",
             Keyword::Fence => "fence",
             Keyword::Cmpxchg => "cmpxchg",
             Keyword::Atomicrmw => "atomicrmw",
@@ -2201,6 +2281,7 @@ impl<'src> Parser<'src> {
             Keyword::Null => "null",
             Keyword::Align => "align",
             Keyword::To => "to",
+            Keyword::Unwind => "unwind",
             Keyword::X => "x",
             Keyword::Vscale => "vscale",
         }

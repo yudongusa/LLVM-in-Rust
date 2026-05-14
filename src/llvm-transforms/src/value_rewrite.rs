@@ -1,4 +1,4 @@
-use llvm_ir::{InstrKind, ValueRef};
+use llvm_ir::{InstrKind, LandingPadClause, ValueRef};
 
 /// Rewrite every `ValueRef` operand appearing in `kind` via mapper `f`.
 pub(crate) fn rewrite_values_in_kind<F>(kind: InstrKind, mut f: F) -> InstrKind
@@ -217,6 +217,42 @@ where
             callee_ty,
             callee: f(callee),
             args: args.into_iter().map(f).collect(),
+        },
+        InstrKind::Invoke {
+            callee_ty,
+            callee,
+            args,
+            normal_dest,
+            unwind_dest,
+        } => InstrKind::Invoke {
+            callee_ty,
+            callee: f(callee),
+            args: args.into_iter().map(&mut f).collect(),
+            normal_dest,
+            unwind_dest,
+        },
+        InstrKind::LandingPad {
+            result_ty,
+            personality_fn,
+            cleanup,
+            clauses,
+        } => InstrKind::LandingPad {
+            result_ty,
+            personality_fn: personality_fn.map(&mut f),
+            cleanup,
+            clauses: clauses
+                .into_iter()
+                .map(|clause| match clause {
+                    LandingPadClause::Catch { ty, value } => LandingPadClause::Catch {
+                        ty,
+                        value: f(value),
+                    },
+                    LandingPadClause::Filter { ty, value } => LandingPadClause::Filter {
+                        ty,
+                        value: f(value),
+                    },
+                })
+                .collect(),
         },
         InstrKind::InlineAsm {
             asm_string,

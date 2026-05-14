@@ -655,6 +655,15 @@ emission. Constraint solving, output operands, and register allocation across
 asm operands are not implemented yet; unsupported templates conservatively emit
 NOP bytes instead of attempting to assemble arbitrary text.
 
+Exception-handling IR support covers the core `invoke`/`landingpad` shape used
+by Itanium-style unwinding: the parser, printer, binary IR round-trip, CFG
+successors, value rewriting, and tier-1 backends all preserve the normal and
+unwind edges. Lowering emits a normal call edge and keeps landingpad values
+defined conservatively while `.eh_frame`/personality integration matures.
+Windows SEH remains limited to the existing `.pdata`/`.xdata` and CodeView/PDB
+building blocks; full `landingpad` lowering to SEH funclets is not implemented
+yet.
+
 macOS (Mach-O):
 
 ```bash

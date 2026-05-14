@@ -559,6 +559,10 @@ mod instr_tag {
     pub const CMPXCHG: u32 = 83;
     /// Public API for `ATOMICRMW`.
     pub const ATOMICRMW: u32 = 84;
+    /// Public API for `INVOKE`.
+    pub const INVOKE: u32 = 85;
+    /// Public API for `LANDINGPAD`.
+    pub const LANDINGPAD: u32 = 86;
     /// Public API for `RET`.
     pub const RET: u32 = 90;
     /// Public API for `BR`.
@@ -1022,6 +1026,48 @@ fn decode_instr(
                 callee_ty,
                 callee,
                 args,
+            }
+        }
+        instr_tag::INVOKE => {
+            let callee_ty = map_type_id(type_id_map, r.u32()? as usize)?;
+            let callee = decode_vref(r)?;
+            let arg_count = r.u32()? as usize;
+            let mut args = Vec::with_capacity(arg_count);
+            for _ in 0..arg_count {
+                args.push(decode_vref(r)?);
+            }
+            InstrKind::Invoke {
+                callee_ty,
+                callee,
+                args,
+                normal_dest: BlockId(r.u32()?),
+                unwind_dest: BlockId(r.u32()?),
+            }
+        }
+        instr_tag::LANDINGPAD => {
+            let result_ty = map_type_id(type_id_map, r.u32()? as usize)?;
+            let cleanup = r.u8()? != 0;
+            let personality_fn = if r.u8()? != 0 {
+                Some(decode_vref(r)?)
+            } else {
+                None
+            };
+            let clause_count = r.u32()? as usize;
+            let mut clauses = Vec::with_capacity(clause_count);
+            for _ in 0..clause_count {
+                let tag = r.u8()?;
+                let ty = map_type_id(type_id_map, r.u32()? as usize)?;
+                let value = decode_vref(r)?;
+                clauses.push(match tag {
+                    0 => llvm_ir::LandingPadClause::Catch { ty, value },
+                    _ => llvm_ir::LandingPadClause::Filter { ty, value },
+                });
+            }
+            InstrKind::LandingPad {
+                result_ty,
+                personality_fn,
+                cleanup,
+                clauses,
             }
         }
         instr_tag::INLINE_ASM => {

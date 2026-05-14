@@ -1,6 +1,8 @@
 //! Integration tests: parse representative `.ll` snippets and assert structure.
 
-use llvm_ir::{printer::Printer, ConstantData, InstrKind, MemOrdering, RmwOp, VpIntrinsic};
+use llvm_ir::{
+    printer::Printer, ConstantData, InstrKind, LandingPadClause, MemOrdering, RmwOp, VpIntrinsic,
+};
 use llvm_ir_parser::parser::parse;
 
 /// Verify that a minimal function with only `ret void` parses correctly.
@@ -239,6 +241,50 @@ entry:
         }
         other => panic!("expected call, got {other:?}"),
     }
+}
+
+/// Parse and print the core `invoke` / `landingpad` exception-control shape.
+#[test]
+fn parse_print_invoke_landingpad() {
+    let src = r#"
+declare i32 @may_throw()
+
+define i32 @f() {
+entry:
+  %r = invoke i32 @may_throw() to label %normal unwind label %lpad
+normal:
+  ret i32 %r
+lpad:
+  %lp = landingpad { ptr, i32 } cleanup catch ptr null
+  ret i32 -1
+}
+"#;
+    let (ctx, module) = parse(src).expect("parse failed");
+    let f = module.functions.iter().find(|f| f.name == "f").expect("function f");
+    match &f.instr(f.blocks[0].terminator.expect("entry terminator")).kind {
+        InstrKind::Invoke {
+            normal_dest,
+            unwind_dest,
+            ..
+        } => {
+            assert_eq!(f.block(*normal_dest).name, "normal");
+            assert_eq!(f.block(*unwind_dest).name, "lpad");
+        }
+        other => panic!("expected invoke, got {other:?}"),
+    }
+    match &f.instr(f.blocks[2].body[0]).kind {
+        InstrKind::LandingPad {
+            cleanup, clauses, ..
+        } => {
+            assert!(*cleanup);
+            assert!(matches!(clauses.as_slice(), [LandingPadClause::Catch { .. }]));
+        }
+        other => panic!("expected landingpad, got {other:?}"),
+    }
+
+    let printed = Printer::new(&ctx).print_module(&module);
+    assert!(printed.contains("invoke i32 @may_throw() to label %normal unwind label %lpad"));
+    assert!(printed.contains("landingpad { ptr, i32 } cleanup catch ptr null"));
 }
 
 /// Parse a function declaration (no body).

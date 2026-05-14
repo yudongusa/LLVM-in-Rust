@@ -14,7 +14,7 @@
 
 use crate::constant_fold::try_fold;
 use crate::pass::FunctionPass;
-use llvm_ir::{Context, Function, InstrId, InstrKind, ValueRef};
+use llvm_ir::{Context, Function, InstrId, InstrKind, LandingPadClause, ValueRef};
 use std::collections::{HashMap, HashSet};
 
 /// Constant propagation / constant folding pass.
@@ -306,6 +306,42 @@ pub(crate) fn subst_kind(kind: InstrKind, subst: &HashMap<InstrId, ValueRef>) ->
             callee_ty,
             callee: s(callee),
             args: args.into_iter().map(s).collect(),
+        },
+        InstrKind::Invoke {
+            callee_ty,
+            callee,
+            args,
+            normal_dest,
+            unwind_dest,
+        } => InstrKind::Invoke {
+            callee_ty,
+            callee: s(callee),
+            args: args.into_iter().map(s).collect(),
+            normal_dest,
+            unwind_dest,
+        },
+        InstrKind::LandingPad {
+            result_ty,
+            personality_fn,
+            cleanup,
+            clauses,
+        } => InstrKind::LandingPad {
+            result_ty,
+            personality_fn: personality_fn.map(s),
+            cleanup,
+            clauses: clauses
+                .into_iter()
+                .map(|clause| match clause {
+                    LandingPadClause::Catch { ty, value } => LandingPadClause::Catch {
+                        ty,
+                        value: s(value),
+                    },
+                    LandingPadClause::Filter { ty, value } => LandingPadClause::Filter {
+                        ty,
+                        value: s(value),
+                    },
+                })
+                .collect(),
         },
         InstrKind::InlineAsm {
             asm_string,

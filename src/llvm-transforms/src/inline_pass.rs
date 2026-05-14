@@ -33,8 +33,8 @@ use crate::const_prop::subst_kind;
 use crate::pass::ModulePass;
 use llvm_analysis::{Cfg, DomTree, LoopInfo};
 use llvm_ir::{
-    ArgId, BasicBlock, BlockId, Context, FunctionId, InstrId, InstrKind, Instruction, Module,
-    ValueRef,
+    ArgId, BasicBlock, BlockId, Context, FunctionId, InstrId, InstrKind, Instruction,
+    LandingPadClause, Module, ValueRef,
 };
 use std::collections::HashMap;
 
@@ -645,6 +645,42 @@ fn remap_kind(
             callee_ty,
             callee: s(callee),
             args: args.into_iter().map(s).collect(),
+        },
+        InstrKind::Invoke {
+            callee_ty,
+            callee,
+            args,
+            normal_dest,
+            unwind_dest,
+        } => InstrKind::Invoke {
+            callee_ty,
+            callee: s(callee),
+            args: args.into_iter().map(s).collect(),
+            normal_dest,
+            unwind_dest,
+        },
+        InstrKind::LandingPad {
+            result_ty,
+            personality_fn,
+            cleanup,
+            clauses,
+        } => InstrKind::LandingPad {
+            result_ty,
+            personality_fn: personality_fn.map(s),
+            cleanup,
+            clauses: clauses
+                .into_iter()
+                .map(|clause| match clause {
+                    LandingPadClause::Catch { ty, value } => LandingPadClause::Catch {
+                        ty,
+                        value: s(value),
+                    },
+                    LandingPadClause::Filter { ty, value } => LandingPadClause::Filter {
+                        ty,
+                        value: s(value),
+                    },
+                })
+                .collect(),
         },
         InstrKind::InlineAsm {
             asm_string,

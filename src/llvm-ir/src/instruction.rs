@@ -266,6 +266,15 @@ pub enum VpIntrinsic {
     ReduceAdd,
 }
 
+/// Exception-handler selector clauses for LLVM `landingpad`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LandingPadClause {
+    /// `catch <type> <value>`.
+    Catch { ty: TypeId, value: ValueRef },
+    /// `filter <type> <value>`.
+    Filter { ty: TypeId, value: ValueRef },
+}
+
 impl VpIntrinsic {
     /// Recognize an LLVM `vp.*` intrinsic symbol name.
     pub fn from_name(name: &str) -> Option<Self> {
@@ -597,6 +606,21 @@ pub enum InstrKind {
         callee: ValueRef,
         args: Vec<ValueRef>,
     },
+    /// Exception-aware call terminator.
+    Invoke {
+        callee_ty: TypeId,
+        callee: ValueRef,
+        args: Vec<ValueRef>,
+        normal_dest: BlockId,
+        unwind_dest: BlockId,
+    },
+    /// LLVM exception landing pad result.
+    LandingPad {
+        result_ty: TypeId,
+        personality_fn: Option<ValueRef>,
+        cleanup: bool,
+        clauses: Vec<LandingPadClause>,
+    },
     /// Inline assembly call-site passthrough.
     ///
     /// This models LLVM IR `call <ty> asm [sideeffect] [alignstack]
@@ -685,6 +709,7 @@ impl InstrKind {
             InstrKind::Ret { .. }
                 | InstrKind::Br { .. }
                 | InstrKind::CondBr { .. }
+                | InstrKind::Invoke { .. }
                 | InstrKind::Switch { .. }
                 | InstrKind::Unreachable
         )
@@ -740,6 +765,8 @@ impl InstrKind {
             InstrKind::InsertElement { .. } => "insertelement",
             InstrKind::ShuffleVector { .. } => "shufflevector",
             InstrKind::Call { .. } => "call",
+            InstrKind::Invoke { .. } => "invoke",
+            InstrKind::LandingPad { .. } => "landingpad",
             InstrKind::InlineAsm { .. } => "call asm",
             InstrKind::Fence { .. } => "fence",
             InstrKind::CmpXchg { .. } => "cmpxchg",
@@ -820,6 +847,25 @@ impl InstrKind {
                 v.extend_from_slice(args);
                 v
             }
+            InstrKind::Invoke { callee, args, .. } => {
+                let mut v = vec![*callee];
+                v.extend_from_slice(args);
+                v
+            }
+            InstrKind::LandingPad {
+                personality_fn,
+                clauses,
+                ..
+            } => {
+                let mut v: Vec<_> = personality_fn.iter().copied().collect();
+                for clause in clauses {
+                    match clause {
+                        LandingPadClause::Catch { value, .. }
+                        | LandingPadClause::Filter { value, .. } => v.push(*value),
+                    }
+                }
+                v
+            }
             InstrKind::InlineAsm { args, .. } => args.clone(),
             InstrKind::Fence { .. } => vec![],
             InstrKind::CmpXchg {
@@ -854,6 +900,11 @@ impl InstrKind {
             } => {
                 vec![*then_dest, *else_dest]
             }
+            InstrKind::Invoke {
+                normal_dest,
+                unwind_dest,
+                ..
+            } => vec![*normal_dest, *unwind_dest],
             InstrKind::Switch { default, cases, .. } => {
                 let mut v = vec![*default];
                 for (_, bb) in cases {
@@ -913,6 +964,7 @@ impl InstrKind {
             | InstrKind::InsertElement { .. }
             | InstrKind::ShuffleVector { .. }
             | InstrKind::Call { .. }
+            | InstrKind::LandingPad { .. }
             | InstrKind::InlineAsm { .. }
             | InstrKind::Fence { .. }
             | InstrKind::CmpXchg { .. }

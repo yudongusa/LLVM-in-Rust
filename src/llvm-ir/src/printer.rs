@@ -800,6 +800,62 @@ impl<'a> Printer<'a> {
                 }
                 out.push(')');
             }
+            InstrKind::Invoke {
+                callee_ty,
+                callee,
+                args,
+                normal_dest,
+                unwind_dest,
+            } => {
+                out.push_str("invoke ");
+                if let crate::types::TypeData::Function(ft) = self.ctx.get_type(*callee_ty) {
+                    self.write_type(out, ft.ret);
+                    out.push(' ');
+                }
+                self.write_value(out, *callee, func);
+                out.push('(');
+                for (i, &arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        out.push_str(", ");
+                    }
+                    self.write_typed_value(out, arg, func);
+                }
+                write!(
+                    out,
+                    ") to label %{} unwind label %{}",
+                    func.block(*normal_dest).name,
+                    func.block(*unwind_dest).name
+                )
+                .unwrap();
+            }
+            InstrKind::LandingPad {
+                result_ty,
+                cleanup,
+                clauses,
+                ..
+            } => {
+                out.push_str("landingpad ");
+                self.write_type(out, *result_ty);
+                if *cleanup {
+                    out.push_str(" cleanup");
+                }
+                for clause in clauses {
+                    match clause {
+                        crate::instruction::LandingPadClause::Catch { ty, value } => {
+                            out.push_str(" catch ");
+                            self.write_type(out, *ty);
+                            out.push(' ');
+                            self.write_value(out, *value, func);
+                        }
+                        crate::instruction::LandingPadClause::Filter { ty, value } => {
+                            out.push_str(" filter ");
+                            self.write_type(out, *ty);
+                            out.push(' ');
+                            self.write_value(out, *value, func);
+                        }
+                    }
+                }
+            }
             InstrKind::InlineAsm {
                 asm_string,
                 constraints,
