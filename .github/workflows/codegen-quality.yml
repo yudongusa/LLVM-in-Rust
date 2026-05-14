@@ -1,0 +1,56 @@
+name: Codegen Quality Gate
+
+on:
+  push:
+    branches: [main, "feat/**", "fix/**"]
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+jobs:
+  codegen_quality:
+    name: Instruction/spill quality baselines
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Install Rust stable toolchain
+        run: |
+          rustup set profile minimal
+          rustup toolchain install stable
+          rustup default stable
+
+      - name: Install LLVM 19 tools
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y llvm-19 clang-19 binutils
+          sudo update-alternatives --install /usr/bin/llc llc /usr/lib/llvm-19/bin/llc 100
+          sudo update-alternatives --install /usr/bin/llvm-objdump llvm-objdump /usr/lib/llvm-19/bin/llvm-objdump 100
+          llc --version
+          llvm-objdump --version
+
+      - name: Cache cargo registry and build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-codegen-quality-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-codegen-quality-
+            ${{ runner.os }}-cargo-
+
+      - name: Run codegen quality gate
+        run: python3 scripts/codegen_quality_gate.py --report codegen-quality-report.md
+
+      - name: Upload codegen quality report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codegen-quality-report-${{ github.run_id }}
+          path: codegen-quality-report.md
+          if-no-files-found: warn
+          retention-days: 30

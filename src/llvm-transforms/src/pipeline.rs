@@ -5,7 +5,7 @@
 
 use crate::{
     pass::PassManager, ConstProp, ConstantFold, DeadArgElim, DeadCodeElim, Gvn, Inliner, Ipcp,
-    LoopUnroll, Mem2Reg,
+    LoopUnroll, Mem2Reg, Sroa,
 };
 
 /// Optimization level preset.
@@ -45,12 +45,14 @@ pub fn build_pipeline(level: OptLevel) -> PassManager {
             // Intentionally empty.
         }
         OptLevel::O1 => {
+            pm.add_function_pass(Sroa);
             pm.add_function_pass(Mem2Reg);
             pm.add_function_pass(ConstantFold);
             pm.add_function_pass(ConstProp);
             pm.add_function_pass(DeadCodeElim);
         }
         OptLevel::O2 => {
+            pm.add_function_pass(Sroa);
             pm.add_function_pass(Mem2Reg);
             pm.add_module_pass(Inliner::default());
             pm.add_function_pass(Gvn);
@@ -65,6 +67,7 @@ pub fn build_pipeline(level: OptLevel) -> PassManager {
             pm.add_function_pass(DeadCodeElim);
         }
         OptLevel::O3 => {
+            pm.add_function_pass(Sroa);
             pm.add_function_pass(Mem2Reg);
             pm.add_module_pass(Ipcp);
             pm.add_module_pass(DeadArgElim);
