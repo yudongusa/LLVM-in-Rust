@@ -1,0 +1,77 @@
+{
+  "baseline_signoff": "initial issue #208 baseline from current main codegen and LLVM llc -O2",
+  "kernels": {
+    "dot_product": {
+      "llc_o2": {
+        "instruction_count": 14,
+        "text_bytes": 67
+      },
+      "ours": {
+        "frame_bytes": 0,
+        "instruction_count": 34,
+        "machine_instructions": 33,
+        "prologue_epilogue_bytes": 0,
+        "spill_reload_instructions": 0,
+        "text_bytes": 101
+      }
+    },
+    "fibonacci": {
+      "llc_o2": {
+        "instruction_count": 16,
+        "text_bytes": 70
+      },
+      "ours": {
+        "frame_bytes": 0,
+        "instruction_count": 30,
+        "machine_instructions": 29,
+        "prologue_epilogue_bytes": 0,
+        "spill_reload_instructions": 0,
+        "text_bytes": 89
+      }
+    },
+    "matmul_4x4": {
+      "llc_o2": {
+        "instruction_count": 12,
+        "text_bytes": 36
+      },
+      "ours": {
+        "frame_bytes": 0,
+        "instruction_count": 34,
+        "machine_instructions": 34,
+        "prologue_epilogue_bytes": 0,
+        "spill_reload_instructions": 0,
+        "text_bytes": 72
+      }
+    },
+    "memcpy_64": {
+      "llc_o2": {
+        "instruction_count": 11,
+        "text_bytes": 45
+      },
+      "ours": {
+        "frame_bytes": 0,
+        "instruction_count": 26,
+        "machine_instructions": 25,
+        "prologue_epilogue_bytes": 0,
+        "spill_reload_instructions": 0,
+        "text_bytes": 94
+      }
+    },
+    "strlen": {
+      "llc_o2": {
+        "instruction_count": 11,
+        "text_bytes": 46
+      },
+      "ours": {
+        "frame_bytes": 0,
+        "instruction_count": 33,
+        "machine_instructions": 31,
+        "prologue_epilogue_bytes": 0,
+        "spill_reload_instructions": 0,
+        "text_bytes": 127
+      }
+    }
+  },
+  "threshold": 0.1,
+  "version": 1
+}
