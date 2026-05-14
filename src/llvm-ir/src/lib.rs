@@ -32,7 +32,7 @@ pub use function::Function;
 /// Public API for `re-export`.
 pub use instruction::{
     ExactFlag, FastMathFlags, FloatPredicate, InstrKind, Instruction, IntArithFlags, IntPredicate,
-    MemOrdering, RmwOp, TailCallKind,
+    MemOrdering, RmwOp, TailCallKind, VpIntrinsic,
 };
 /// Public API for `re-export`.
 pub use module::{DebugLocation, Module};

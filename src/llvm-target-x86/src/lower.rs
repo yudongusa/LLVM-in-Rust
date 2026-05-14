@@ -12,7 +12,7 @@ use crate::{
 use llvm_codegen::isel::{DebugLoc, IselBackend, MInstr, MOperand, MachineFunction, PReg, VReg};
 use llvm_ir::{
     ArgId, BlockId, ConstantData, Context, FloatKind, Function, InstrId, InstrKind, IntPredicate,
-    Module, TypeData, ValueRef,
+    Module, TypeData, ValueRef, VpIntrinsic,
 };
 use std::collections::HashMap;
 
@@ -371,6 +371,16 @@ fn inline_asm_bytes_x86(template: &str) -> Vec<u8> {
     bytes
 }
 
+fn vp_intrinsic_from_callee(ctx: &Context, callee: ValueRef) -> Option<VpIntrinsic> {
+    let ValueRef::Constant(cid) = callee else {
+        return None;
+    };
+    let ConstantData::GlobalRef { name, .. } = ctx.get_const(cid) else {
+        return None;
+    };
+    VpIntrinsic::from_name(name)
+}
+
 // ── instruction lowering ──────────────────────────────────────────────────
 
 fn lower_instr(
@@ -672,6 +682,56 @@ fn lower_instr(
 
         // ── calls ──────────────────────────────────────────────────────────
         Call { callee, args, .. } => {
+            if let Some(vp) = vp_intrinsic_from_callee(ctx, *callee) {
+                match vp {
+                    VpIntrinsic::Add if args.len() >= 2 => {
+                        if let Some(vop) = vector_int_opcode(ctx, instr.ty, VecIntOp::Add, features)
+                        {
+                            emit_binop!(vop, args[0], args[1]);
+                        } else {
+                            emit_binop!(ADD_RR, args[0], args[1]);
+                        }
+                    }
+                    VpIntrinsic::Sub if args.len() >= 2 => {
+                        if let Some(vop) = vector_int_opcode(ctx, instr.ty, VecIntOp::Sub, features)
+                        {
+                            emit_binop!(vop, args[0], args[1]);
+                        } else {
+                            emit_binop!(SUB_RR, args[0], args[1]);
+                        }
+                    }
+                    VpIntrinsic::Mul if args.len() >= 2 => {
+                        if let Some(vop) = vector_int_opcode(ctx, instr.ty, VecIntOp::Mul, features)
+                        {
+                            emit_binop!(vop, args[0], args[1]);
+                        } else {
+                            emit_binop!(IMUL_RR, args[0], args[1]);
+                        }
+                    }
+                    VpIntrinsic::And if args.len() >= 2 => emit_binop!(AND_RR, args[0], args[1]),
+                    VpIntrinsic::Or if args.len() >= 2 => emit_binop!(OR_RR, args[0], args[1]),
+                    VpIntrinsic::Xor if args.len() >= 2 => emit_binop!(XOR_RR, args[0], args[1]),
+                    VpIntrinsic::Store => {
+                        for &arg in args {
+                            let _ = res!(arg);
+                        }
+                        mf.push(mblock, MInstr::new(NOP));
+                    }
+                    _ => {
+                        for &arg in args {
+                            let _ = res!(arg);
+                        }
+                        if instr.ty != ctx.void_ty {
+                            let dst = new_dst!();
+                            mf.push(mblock, MInstr::new(MOV_RI).with_dst(dst).with_imm(0));
+                        } else {
+                            mf.push(mblock, MInstr::new(NOP));
+                        }
+                    }
+                }
+                return;
+            }
+
             let callee_src = res!(*callee);
             let callee_vr = mf.fresh_vreg();
             mf.push(
@@ -1081,7 +1141,7 @@ mod tests {
     use crate::encode::X86Emitter;
     use llvm_codegen::emit::{Emitter, ObjectFormat};
     use llvm_codegen::isel::MOperand;
-    use llvm_ir::{Builder, Context, Linkage, Module};
+    use llvm_ir::{Builder, ConstantData, Context, GlobalId, Linkage, Module, ValueRef};
 
     fn make_add_fn() -> (Context, Module) {
         let mut ctx = Context::new();
@@ -1123,6 +1183,46 @@ mod tests {
             .iter()
             .any(|b| b.instrs.iter().any(|i| i.opcode == RET));
         assert!(has_ret, "machine function must contain a RET");
+    }
+
+    #[test]
+    fn vp_add_intrinsic_lowers_to_vector_add() {
+        let mut ctx = Context::new();
+        let v4i32 = ctx.mk_vector(ctx.i32_ty, 4, false);
+        let v4i1 = ctx.mk_vector(ctx.i1_ty, 4, false);
+        let mut module = Module::new("test");
+        let mut b = Builder::new(&mut ctx, &mut module);
+        b.add_function(
+            "vp_add",
+            v4i32,
+            vec![v4i32, v4i32, v4i1, b.ctx.i32_ty],
+            vec!["a".into(), "bv".into(), "mask".into(), "evl".into()],
+            false,
+            Linkage::External,
+        );
+        let entry = b.add_block("entry");
+        b.position_at_end(entry);
+        let callee_ty = b
+            .ctx
+            .mk_fn_type(v4i32, vec![v4i32, v4i32, v4i1, b.ctx.i32_ty], false);
+        let callee = ValueRef::Constant(b.ctx.push_const(ConstantData::GlobalRef {
+            ty: b.ctx.ptr_ty,
+            id: GlobalId(u32::MAX),
+            name: "llvm.vp.add.v4i32".into(),
+        }));
+        let args = vec![b.get_arg(0), b.get_arg(1), b.get_arg(2), b.get_arg(3)];
+        let r = b.build_call("r", v4i32, callee_ty, callee, args);
+        b.build_ret(r);
+
+        let mut be = X86Backend::new(TargetFeatures::sse42());
+        let mf = be.lower_function(&ctx, &module, &module.functions[0]);
+        assert!(
+            mf.blocks
+                .iter()
+                .flat_map(|b| &b.instrs)
+                .any(|i| i.opcode == PADDD_RR),
+            "llvm.vp.add.v4i32 should lower to the existing vector add opcode"
+        );
     }
 
     /// Atomic IR (`fence`, `cmpxchg`, `atomicrmw add`) lowers to x86 byte

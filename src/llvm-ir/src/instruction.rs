@@ -233,6 +233,64 @@ pub enum RmwOp {
     FSub,
 }
 
+/// Recognized LLVM vector-predication intrinsic families.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum VpIntrinsic {
+    /// `llvm.vp.add.*`.
+    Add,
+    /// `llvm.vp.sub.*`.
+    Sub,
+    /// `llvm.vp.mul.*`.
+    Mul,
+    /// `llvm.vp.sdiv.*`.
+    SDiv,
+    /// `llvm.vp.udiv.*`.
+    UDiv,
+    /// `llvm.vp.and.*`.
+    And,
+    /// `llvm.vp.or.*`.
+    Or,
+    /// `llvm.vp.xor.*`.
+    Xor,
+    /// `llvm.vp.shl.*`.
+    Shl,
+    /// `llvm.vp.lshr.*`.
+    LShr,
+    /// `llvm.vp.ashr.*`.
+    AShr,
+    /// `llvm.vp.load.*`.
+    Load,
+    /// `llvm.vp.store.*`.
+    Store,
+    /// `llvm.vp.reduce.add.*`.
+    ReduceAdd,
+}
+
+impl VpIntrinsic {
+    /// Recognize an LLVM `vp.*` intrinsic symbol name.
+    pub fn from_name(name: &str) -> Option<Self> {
+        let rest = name.strip_prefix("llvm.vp.")?;
+        let op = rest.split('.').next()?;
+        Some(match op {
+            "add" => Self::Add,
+            "sub" => Self::Sub,
+            "mul" => Self::Mul,
+            "sdiv" => Self::SDiv,
+            "udiv" => Self::UDiv,
+            "and" => Self::And,
+            "or" => Self::Or,
+            "xor" => Self::Xor,
+            "shl" => Self::Shl,
+            "lshr" => Self::LShr,
+            "ashr" => Self::AShr,
+            "load" => Self::Load,
+            "store" => Self::Store,
+            "reduce" if rest.starts_with("reduce.add.") => Self::ReduceAdd,
+            _ => return None,
+        })
+    }
+}
+
 impl RmwOp {
     /// Textual IR spelling.
     pub fn as_str(self) -> &'static str {

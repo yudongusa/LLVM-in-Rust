@@ -1,6 +1,6 @@
 //! Integration tests: parse representative `.ll` snippets and assert structure.
 
-use llvm_ir::{printer::Printer, InstrKind, MemOrdering, RmwOp};
+use llvm_ir::{printer::Printer, ConstantData, InstrKind, MemOrdering, RmwOp, VpIntrinsic};
 use llvm_ir_parser::parser::parse;
 
 /// Verify that a minimal function with only `ret void` parses correctly.
@@ -205,6 +205,40 @@ entry:
         printed.contains("atomicrmw xchg ptr %p, i32 %v acquire"),
         "{printed}"
     );
+}
+
+/// Parse LLVM `vp.*` vector-predication intrinsic calls as recognized call targets.
+#[test]
+fn parse_vp_add_intrinsic_call() {
+    let src = r#"
+declare <4 x i32> @llvm.vp.add.v4i32(<4 x i32>, <4 x i32>, <4 x i1>, i32)
+
+define <4 x i32> @f(<4 x i32> %a, <4 x i32> %b, <4 x i1> %mask, i32 %evl) {
+entry:
+  %r = call <4 x i32> @llvm.vp.add.v4i32(<4 x i32> %a, <4 x i32> %b, <4 x i1> %mask, i32 %evl)
+  ret <4 x i32> %r
+}
+"#;
+    let (ctx, module) = parse(src).expect("parse failed");
+    let f = module
+        .functions
+        .iter()
+        .find(|f| f.name == "f")
+        .expect("function f");
+    let instr = f.instr(f.blocks[0].body[0]);
+    match &instr.kind {
+        InstrKind::Call { callee, args, .. } => {
+            assert_eq!(args.len(), 4);
+            let llvm_ir::ValueRef::Constant(cid) = callee else {
+                panic!("expected constant global ref callee");
+            };
+            let ConstantData::GlobalRef { name, .. } = ctx.get_const(*cid) else {
+                panic!("expected global ref callee");
+            };
+            assert_eq!(VpIntrinsic::from_name(name), Some(VpIntrinsic::Add));
+        }
+        other => panic!("expected call, got {other:?}"),
+    }
 }
 
 /// Parse a function declaration (no body).
