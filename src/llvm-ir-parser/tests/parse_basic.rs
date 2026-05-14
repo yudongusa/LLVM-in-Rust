@@ -422,6 +422,46 @@ lpad:
     assert!(printed.contains("landingpad { ptr, i32 } cleanup catch ptr null"));
 }
 
+/// Parse clang-emitted parameter/function attributes that the IR model does
+/// not preserve yet. These should be accepted and ignored so realistic clang
+/// modules can reach later compatibility checks.
+#[test]
+fn parse_clang_parameter_attrs_and_attribute_group() {
+    let src = r#"
+declare void @sink(ptr noundef nonnull dereferenceable(8), i32 signext)
+declare dso_local noundef i32 @helper(i32 zeroext)
+declare cc 10 hidden void @custom_cc()
+
+define dso_local noundef i32 @caller(i32 noundef %arg, ptr nonnull %ptr) #0 {
+entry:
+  call void @sink(ptr noundef nonnull %ptr, i32 signext %arg)
+  %r = call i32 @helper(i32 noundef zeroext %arg)
+  %lit = call i32 @helper(i32 41)
+  ret i32 %r
+}
+
+attributes #0 = { nounwind "frame-pointer"="all" }
+"#;
+
+    let (_ctx, module) = parse(src).expect("parse failed");
+    assert_eq!(module.functions.len(), 4);
+
+    let caller = module
+        .functions
+        .iter()
+        .find(|f| f.name == "caller")
+        .expect("caller");
+    assert_eq!(caller.args.len(), 2);
+    assert_eq!(caller.args[0].name, "arg");
+    assert_eq!(caller.args[1].name, "ptr");
+    assert_eq!(caller.blocks[0].body.len(), 3);
+
+    match &caller.instr(caller.blocks[0].body[0]).kind {
+        InstrKind::Call { args, .. } => assert_eq!(args.len(), 2),
+        other => panic!("expected call, got {other:?}"),
+    }
+}
+
 /// Parse a function declaration (no body).
 #[test]
 fn parse_declaration_variadic() {

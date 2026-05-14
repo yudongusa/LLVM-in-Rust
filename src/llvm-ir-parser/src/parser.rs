@@ -117,6 +117,9 @@ impl<'src> Parser<'src> {
                 Token::Kw(Keyword::Target) => {
                     self.parse_target()?;
                 }
+                Token::LocalIdent(s) if s == "attributes" => {
+                    self.parse_attribute_group()?;
+                }
                 Token::LocalIdent(_) => {
                     self.parse_named_type_def()?;
                 }
@@ -431,7 +434,6 @@ impl<'src> Parser<'src> {
         let linkage = self.parse_optional_linkage();
 
         // Skip optional function attributes before return type.
-        // (dso_local, etc. — we skip unknown bare words here)
         self.skip_fn_attrs()?;
 
         let ret_ty = self.parse_type()?;
@@ -1210,10 +1212,10 @@ impl<'src> Parser<'src> {
                     self.lex.expect(&Token::LParen)?;
                     let mut args = Vec::new();
                     if !matches!(self.lex.peek()?, Token::RParen) {
-                        let (a, _) = self.parse_typed_value()?;
+                        let (a, _) = self.parse_typed_arg_value()?;
                         args.push(a);
                         while self.lex.eat(&Token::Comma) {
-                            let (a, _) = self.parse_typed_value()?;
+                            let (a, _) = self.parse_typed_arg_value()?;
                             args.push(a);
                         }
                     }
@@ -1245,13 +1247,13 @@ impl<'src> Parser<'src> {
                 self.lex.expect(&Token::LParen)?;
                 let mut args = Vec::new();
                 if !matches!(self.lex.peek()?, Token::RParen) {
-                    let (a, _) = self.parse_typed_value()?;
+                    let (a, _) = self.parse_typed_arg_value()?;
                     args.push(a);
                     while self.lex.eat(&Token::Comma) {
                         if self.lex.eat(&Token::Ellipsis) {
                             break;
                         }
-                        let (a, _) = self.parse_typed_value()?;
+                        let (a, _) = self.parse_typed_arg_value()?;
                         args.push(a);
                     }
                 }
@@ -1293,10 +1295,10 @@ impl<'src> Parser<'src> {
                 self.lex.expect(&Token::LParen)?;
                 let mut args = Vec::new();
                 if !matches!(self.lex.peek()?, Token::RParen) {
-                    let (a, _) = self.parse_typed_value()?;
+                    let (a, _) = self.parse_typed_arg_value()?;
                     args.push(a);
                     while self.lex.eat(&Token::Comma) {
-                        let (a, _) = self.parse_typed_value()?;
+                        let (a, _) = self.parse_typed_arg_value()?;
                         args.push(a);
                     }
                 }
@@ -1484,6 +1486,13 @@ impl<'src> Parser<'src> {
 
     fn parse_typed_value(&mut self) -> Result<(ValueRef, TypeId), ParseError> {
         let ty = self.parse_type()?;
+        let val = self.parse_value(ty)?;
+        Ok((val, ty))
+    }
+
+    fn parse_typed_arg_value(&mut self) -> Result<(ValueRef, TypeId), ParseError> {
+        let ty = self.parse_type()?;
+        self.skip_param_attrs()?;
         let val = self.parse_value(ty)?;
         Ok((val, ty))
     }
@@ -2018,7 +2027,7 @@ impl<'src> Parser<'src> {
     // -----------------------------------------------------------------------
 
     fn skip_fn_attrs(&mut self) -> Result<(), ParseError> {
-        // Skip bare word attributes like `dso_local`, `nounwind`, etc.
+        // Skip known bare word attributes like `dso_local` and `noundef`
         // that appear between `define`/`declare` and the return type.
         loop {
             match self.lex.peek()? {
@@ -2034,8 +2043,13 @@ impl<'src> Parser<'src> {
                 | Token::IntType(_)
                 | Token::LBracket
                 | Token::LAngle
-                | Token::LBrace
-                | Token::LocalIdent(_) => break,
+                | Token::LBrace => break,
+                Token::LocalIdent(s) if Self::is_fn_attr_name(s) => {
+                    let name = s.clone();
+                    self.lex.next()?;
+                    self.skip_fn_attr_payload_if_present(&name)?;
+                }
+                Token::LocalIdent(_) => break,
                 // Linkage keywords already consumed.
                 Token::Kw(Keyword::Private)
                 | Token::Kw(Keyword::Internal)
@@ -2064,9 +2078,15 @@ impl<'src> Parser<'src> {
                 | Token::Kw(Keyword::Define)
                 | Token::Kw(Keyword::Declare)
                 | Token::GlobalIdent(_)
-                | Token::LocalIdent(_)
                 | Token::Kw(Keyword::Target)
                 | Token::Kw(Keyword::Source) => break,
+                Token::LocalIdent(s) if s == "attributes" => break,
+                Token::LocalIdent(s) if Self::is_fn_attr_name(s) => {
+                    let name = s.clone();
+                    self.lex.next()?;
+                    self.skip_fn_attr_payload_if_present(&name)?;
+                }
+                Token::LocalIdent(_) => break,
                 Token::Hash => {
                     self.lex.next()?;
                     self.lex.next()?;
@@ -2084,7 +2104,7 @@ impl<'src> Parser<'src> {
     }
 
     fn skip_param_attrs(&mut self) -> Result<(), ParseError> {
-        // Skip param attrs like `noundef`, `nonnull`, `%N` alignment hints.
+        // Skip param attrs like `noundef`, `nonnull`, and `dereferenceable(N)`.
         //
         // Fuzzing found that malformed parameters can otherwise consume through
         // top-level tokens and then spin forever on EOF. Stop at boundaries that
@@ -2094,14 +2114,38 @@ impl<'src> Parser<'src> {
             match self.lex.peek()? {
                 Token::Comma
                 | Token::RParen
-                | Token::LocalIdent(_)
+                | Token::LBracket
+                | Token::LBrace
+                | Token::LAngle
+                | Token::IntLit(_)
+                | Token::UIntLit(_)
+                | Token::FloatLit(_)
                 | Token::Eof
                 | Token::Kw(Keyword::Define)
                 | Token::Kw(Keyword::Declare)
                 | Token::Kw(Keyword::Source)
                 | Token::Kw(Keyword::Target)
+                | Token::Kw(Keyword::Undef)
+                | Token::Kw(Keyword::Poison)
+                | Token::Kw(Keyword::Null)
+                | Token::Kw(Keyword::Zeroinitializer)
+                | Token::Kw(Keyword::True)
+                | Token::Kw(Keyword::False)
+                | Token::Kw(Keyword::Getelementptr)
+                | Token::Kw(Keyword::Bitcast)
+                | Token::Kw(Keyword::Inttoptr)
+                | Token::Kw(Keyword::Ptrtoint)
+                | Token::Kw(Keyword::Addrspacecast)
+                | Token::Kw(Keyword::Trunc)
+                | Token::Kw(Keyword::Zext)
+                | Token::Kw(Keyword::Sext)
                 | Token::GlobalIdent(_)
                 | Token::Bang => break,
+                Token::LocalIdent(s) if Self::is_param_attr_name(s) => {
+                    self.lex.next()?;
+                    self.skip_attr_payload_if_present()?;
+                }
+                Token::LocalIdent(_) => break,
                 Token::Kw(Keyword::Align) => {
                     self.lex.next()?;
                     self.lex.next()?; // alignment number
@@ -2116,6 +2160,195 @@ impl<'src> Parser<'src> {
             }
         }
         Ok(())
+    }
+
+    fn parse_attribute_group(&mut self) -> Result<(), ParseError> {
+        let name = self.lex.expect_local_ident()?;
+        if name != "attributes" {
+            return Err(self.err(format!("expected attributes group, got {}", name)));
+        }
+        self.lex.expect(&Token::Hash)?;
+        self.lex.expect_uint_lit()?;
+        self.lex.expect(&Token::Equal)?;
+        self.skip_balanced_braces()
+    }
+
+    fn skip_attr_payload_if_present(&mut self) -> Result<(), ParseError> {
+        if matches!(self.lex.peek()?, Token::LParen) {
+            self.skip_balanced_parens()?;
+        }
+        Ok(())
+    }
+
+    fn skip_fn_attr_payload_if_present(&mut self, name: &str) -> Result<(), ParseError> {
+        self.skip_attr_payload_if_present()?;
+        if name == "cc" && matches!(self.lex.peek()?, Token::IntLit(_) | Token::UIntLit(_)) {
+            self.lex.next()?;
+        }
+        Ok(())
+    }
+
+    fn skip_balanced_parens(&mut self) -> Result<(), ParseError> {
+        self.lex.expect(&Token::LParen)?;
+        let mut depth = 1usize;
+        while depth > 0 {
+            match self.lex.next()? {
+                Token::LParen => depth += 1,
+                Token::RParen => depth -= 1,
+                Token::Eof => return Err(self.err("unterminated attribute payload")),
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    fn skip_balanced_braces(&mut self) -> Result<(), ParseError> {
+        self.lex.expect(&Token::LBrace)?;
+        let mut depth = 1usize;
+        while depth > 0 {
+            match self.lex.next()? {
+                Token::LBrace => depth += 1,
+                Token::RBrace => depth -= 1,
+                Token::Eof => return Err(self.err("unterminated attribute group")),
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    fn is_param_attr_name(name: &str) -> bool {
+        matches!(
+            name,
+            "alignstack"
+                | "allocptr"
+                | "byref"
+                | "byval"
+                | "captures"
+                | "dead_on_unwind"
+                | "dereferenceable"
+                | "dereferenceable_or_null"
+                | "elementtype"
+                | "immarg"
+                | "inalloca"
+                | "inreg"
+                | "nest"
+                | "noalias"
+                | "nocapture"
+                | "nofree"
+                | "nonnull"
+                | "noundef"
+                | "preallocated"
+                | "range"
+                | "readnone"
+                | "readonly"
+                | "returned"
+                | "signext"
+                | "sret"
+                | "swiftasync"
+                | "swifterror"
+                | "swiftself"
+                | "writable"
+                | "writeonly"
+                | "zeroext"
+        )
+    }
+
+    fn is_fn_attr_name(name: &str) -> bool {
+        matches!(
+            name,
+            "afn"
+                | "aarch64_sve_vector_pcs"
+                | "aarch64_vector_pcs"
+                | "alwaysinline"
+                | "argmemonly"
+                | "addrspace"
+                | "anyregcc"
+                | "builtin"
+                | "cc"
+                | "ccc"
+                | "cfguard_checkcc"
+                | "cold"
+                | "coldcc"
+                | "convergent"
+                | "cxx_fast_tlscc"
+                | "dereferenceable"
+                | "dereferenceable_or_null"
+                | "default"
+                | "disable_sanitizer_instrumentation"
+                | "dllexport"
+                | "dllimport"
+                | "dso_local"
+                | "dso_preemptable"
+                | "fastcc"
+                | "ghccc"
+                | "hidden"
+                | "hot"
+                | "inaccessiblemem_or_argmemonly"
+                | "inaccessiblememonly"
+                | "inlinehint"
+                | "inreg"
+                | "jumptable"
+                | "local_unnamed_addr"
+                | "memory"
+                | "minsize"
+                | "mustprogress"
+                | "naked"
+                | "noalias"
+                | "nobuiltin"
+                | "nocallback"
+                | "nocf_check"
+                | "noduplicate"
+                | "nofree"
+                | "noimplicitfloat"
+                | "noinline"
+                | "nomerge"
+                | "nonlazybind"
+                | "nonnull"
+                | "noprofile"
+                | "noredzone"
+                | "norecurse"
+                | "noreturn"
+                | "nosanitize_bounds"
+                | "nosanitize_coverage"
+                | "nosync"
+                | "nounwind"
+                | "null_pointer_is_valid"
+                | "noundef"
+                | "optnone"
+                | "optsize"
+                | "preserve_allcc"
+                | "preserve_mostcc"
+                | "presplitcoroutine"
+                | "protected"
+                | "readnone"
+                | "readonly"
+                | "returns_twice"
+                | "sanitize_address"
+                | "sanitize_hwaddress"
+                | "sanitize_memory"
+                | "sanitize_thread"
+                | "signext"
+                | "speculatable"
+                | "ssp"
+                | "sspreq"
+                | "sspstrong"
+                | "strictfp"
+                | "swiftcc"
+                | "sync"
+                | "sanitize_memtag"
+                | "shadowcallstack"
+                | "tailcc"
+                | "unnamed_addr"
+                | "uwtable"
+                | "webkit_jscc"
+                | "willreturn"
+                | "writeonly"
+                | "x86_fastcallcc"
+                | "x86_stdcallcc"
+                | "x86_thiscallcc"
+                | "x86_vectorcallcc"
+                | "zeroext"
+        )
     }
 
     fn parse_optional_metadata_attachments(&mut self) -> Result<Vec<(String, String)>, ParseError> {
