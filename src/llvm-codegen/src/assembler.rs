@@ -133,6 +133,7 @@ mod tests {
                 offset: 0,
                 size: 1,
                 global: true,
+                undefined: false,
             }],
         };
         let bytes = object.to_bytes();

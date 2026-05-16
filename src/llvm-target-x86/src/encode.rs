@@ -13,7 +13,7 @@ use crate::{
     regs::{is_extended, reg_enc},
 };
 use llvm_codegen::{
-    emit::{DebugLineRow, Emitter, ObjectFormat, Reloc, Section},
+    emit::{DebugLineRow, Emitter, ObjectFormat, Reloc, RelocKind, Section},
     isel::{MInstr, MOperand, MachineFunction, PReg},
 };
 use std::collections::HashMap;
@@ -78,9 +78,36 @@ impl Emitter for X86Emitter {
                 }
                 ctx.emit(0x50 | reg_enc(pr));
             }
-            // sub rsp, sub_rsp
+            // sub rsp, sub_rsp  (or __chkstk sequence for large frames)
             if sub_rsp > 0 {
-                if sub_rsp <= 127 {
+                if sub_rsp > 4096 && self.format == ObjectFormat::Coff {
+                    // Win64 ABI requires __chkstk for frames > 4096 bytes to
+                    // probe all pages of the allocation (prevents stack overflow
+                    // from jumping over the guard page).
+                    //
+                    // Sequence: mov rax, sub_rsp  (REX.W B8 + imm64, 10 bytes)
+                    //           call __chkstk      (E8 + rel32, 5 bytes)
+                    //           sub rsp, rax       (REX.W 2B E0, 3 bytes)
+                    ctx.emit(0x48); // REX.W
+                    ctx.emit(0xB8); // MOV RAX, imm64
+                    ctx.emit64(sub_rsp as i64);
+                    let call_site = ctx.pos();
+                    ctx.emit(0xE8); // CALL rel32
+                    // rel32 placeholder — filled by linker via IMAGE_REL_AMD64_REL32
+                    ctx.emit32(0);
+                    ctx.relocs.push(Reloc {
+                        offset: (call_site + 1) as u64,
+                        symbol: 0, // resolved by emit_object via external_name
+                        kind: RelocKind::Pc32,
+                        addend: -4,
+                        external_name: Some("__chkstk".to_string()),
+                    });
+                    // SUB RSP, RAX: REX.W=48, opcode=2B (SUB r64,r/m64),
+                    // ModRM=E0 (mod=11, reg=RSP(4), rm=RAX(0) → 11_100_000)
+                    ctx.emit(0x48);
+                    ctx.emit(0x2B);
+                    ctx.emit(0xE0);
+                } else if sub_rsp <= 127 {
                     ctx.emit(0x48);
                     ctx.emit(0x83);
                     ctx.emit(0xEC);
@@ -1396,5 +1423,85 @@ mod tests {
             .data
             .windows(7)
             .any(|w| w == [0x48, 0x81, 0xC4, 0x30, 0x00, 0x00, 0x00]));
+    }
+
+    #[test]
+    fn chkstk_sequence_emitted_for_large_coff_frame() {
+        // frame_size = 8192 (> 4096) with COFF format must emit the __chkstk
+        // probe sequence: mov rax, 8192 / call __chkstk / sub rsp, rax.
+        let mut mf = MachineFunction::new("big_frame".into());
+        mf.frame_size = 8192;
+        let b0 = mf.add_block("entry");
+        mf.push(b0, MInstr::new(RET));
+
+        let mut e = X86Emitter::new(ObjectFormat::Coff);
+        let sec = e.emit_function(&mf);
+
+        // sub_rsp = (8192 + 15) & !15 = 8192 = 0x2000
+        // Expected sequence in prologue (after push rbp + mov rbp,rsp):
+        //   48 B8 00 20 00 00 00 00 00 00   (mov rax, 0x2000)
+        //   E8 00 00 00 00                  (call __chkstk, placeholder)
+        //   48 2B E0                        (sub rsp, rax)
+        let mov_rax: &[u8] = &[0x48, 0xB8, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+        let call_chkstk: &[u8] = &[0xE8, 0x00, 0x00, 0x00, 0x00];
+        let sub_rsp_rax: &[u8] = &[0x48, 0x2B, 0xE0];
+
+        assert!(
+            sec.data.windows(mov_rax.len()).any(|w| w == mov_rax),
+            "missing: mov rax, 8192"
+        );
+        assert!(
+            sec.data.windows(call_chkstk.len()).any(|w| w == call_chkstk),
+            "missing: call __chkstk placeholder"
+        );
+        assert!(
+            sec.data.windows(sub_rsp_rax.len()).any(|w| w == sub_rsp_rax),
+            "missing: sub rsp, rax"
+        );
+        // Must have a reloc for the __chkstk call
+        assert!(
+            sec.relocs.iter().any(|r| r.external_name.as_deref() == Some("__chkstk")),
+            "missing __chkstk reloc"
+        );
+    }
+
+    #[test]
+    fn coff_large_frame_emits_external_chkstk_symbol() {
+        // emit_object must insert an undefined Symbol for __chkstk when the
+        // prologue emits a call to it.
+        let mut mf = MachineFunction::new("big_frame2".into());
+        mf.frame_size = 8192;
+        let b0 = mf.add_block("entry");
+        mf.push(b0, MInstr::new(RET));
+
+        let mut e = X86Emitter::new(ObjectFormat::Coff);
+        let obj = emit_object(&mf, &mut e);
+
+        let chkstk_sym = obj.symbols.iter().find(|s| s.name == "__chkstk");
+        assert!(chkstk_sym.is_some(), "no __chkstk symbol in COFF object");
+        assert!(chkstk_sym.unwrap().undefined, "__chkstk must be undefined");
+    }
+
+    #[test]
+    fn elf_large_frame_does_not_emit_chkstk() {
+        // __chkstk is Win64-only; ELF large frames must use regular sub rsp, imm32.
+        let mut mf = MachineFunction::new("big_frame_elf".into());
+        mf.frame_size = 8192;
+        let b0 = mf.add_block("entry");
+        mf.push(b0, MInstr::new(RET));
+
+        let mut e = X86Emitter::new(ObjectFormat::Elf);
+        let sec = e.emit_function(&mf);
+
+        // sub rsp, 8192 (imm32 form): 48 81 EC 00 20 00 00
+        let sub_rsp_imm32: &[u8] = &[0x48, 0x81, 0xEC, 0x00, 0x20, 0x00, 0x00];
+        assert!(
+            sec.data.windows(sub_rsp_imm32.len()).any(|w| w == sub_rsp_imm32),
+            "ELF large frame must use sub rsp, imm32 (not __chkstk)"
+        );
+        assert!(
+            !sec.relocs.iter().any(|r| r.external_name.as_deref() == Some("__chkstk")),
+            "ELF must not emit __chkstk reloc"
+        );
     }
 }

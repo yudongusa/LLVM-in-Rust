@@ -37,6 +37,10 @@ pub struct Reloc {
     pub kind: RelocKind,
     /// Addend (ELF RELA / Mach-O addend).
     pub addend: i64,
+    /// When set, `symbol` is ignored and this reloc references an external
+    /// symbol by name (e.g. `__chkstk`). `emit_object` resolves it to an
+    /// index after collecting all symbols.
+    pub external_name: Option<String>,
 }
 
 /// A single source mapping row for debug line table emission.
@@ -76,6 +80,8 @@ pub struct Symbol {
     pub size: u64,
     /// Public API for `global`.
     pub global: bool,
+    /// When `true`, this is an external undefined symbol (COFF SectionNumber=0).
+    pub undefined: bool,
 }
 
 /// Assembled object file ready to be written to disk or passed to a linker.
@@ -138,6 +144,7 @@ pub fn emit_object(mf: &MachineFunction, emitter: &mut dyn Emitter) -> ObjectFil
         offset: 0,
         size,
         global: true,
+        undefined: false,
     };
     let mut sections = vec![section];
 
@@ -226,12 +233,36 @@ pub fn emit_object(mf: &MachineFunction, emitter: &mut dyn Emitter) -> ObjectFil
             ObjectFormat::MachO => {}
         };
     }
+    let mut symbols: Vec<Symbol> = vec![sym];
+
+    // Resolve external_name relocs: for each reloc that names an external
+    // symbol, find or insert an undefined Symbol entry and set reloc.symbol.
+    for sec in &mut sections {
+        for reloc in &mut sec.relocs {
+            if let Some(ref ext) = reloc.external_name.clone() {
+                let idx = symbols.iter().position(|s| &s.name == ext).unwrap_or_else(|| {
+                    let i = symbols.len();
+                    symbols.push(Symbol {
+                        name: ext.clone(),
+                        section: 0,
+                        offset: 0,
+                        size: 0,
+                        global: true,
+                        undefined: true,
+                    });
+                    i
+                });
+                reloc.symbol = idx;
+            }
+        }
+    }
+
     ObjectFile {
         format: emitter.object_format(),
         elf_machine: emitter.elf_machine(),
         coff_machine: emitter.coff_machine(),
         sections,
-        symbols: vec![sym],
+        symbols,
     }
 }
 
@@ -827,11 +858,19 @@ fn build_eh_frame(text_size: u64, frame_size: u32, used_callee_saved: &[PReg]) -
 fn build_coff_unwind_tables(text_size: u64, frame_size: u32, used_callee_saved: &[PReg]) -> (Vec<u8>, Vec<u8>) {
     // Build UNWIND_INFO from prologue facts.
     //
-    // Prologue byte layout assumed by the encoder:
+    // Normal prologue byte layout (alloc ≤ 4096):
     //   push rbp            1 byte  → CodeOffset = 1
     //   mov rbp, rsp        3 bytes → no unwind code (frame setup)
     //   sub rsp, N (imm8)   4 bytes → CodeOffset = 8  (alloc ≤ 128)
     //   sub rsp, N (imm32)  7 bytes → CodeOffset = 11 (alloc > 128)
+    //
+    // __chkstk prologue (alloc > 4096, COFF only):
+    //   push rbp            1 byte  → CodeOffset = 1
+    //   mov rbp, rsp        3 bytes
+    //   [callee-saved pushes]
+    //   mov rax, N         10 bytes
+    //   call __chkstk       5 bytes
+    //   sub rsp, rax        3 bytes → CodeOffset = 22 + callee_push_instr_bytes
     //
     // Per the Win64 ABI, UNWIND_CODE slots must be ordered by CodeOffset
     // in DESCENDING order (last prologue instruction first).
@@ -839,6 +878,14 @@ fn build_coff_unwind_tables(text_size: u64, frame_size: u32, used_callee_saved: 
 
     // Round frame allocation up to 16-byte boundary.
     let alloc_size: u32 = if frame_size == 0 { 0 } else { (frame_size + 15) & !15 };
+
+    // Instruction bytes consumed by callee-saved pushes (1 byte for rax-rdi, 2 for r8-r15).
+    let callee_push_instr_bytes: u32 = used_callee_saved
+        .iter()
+        .map(|pr| if pr.0 >= 8 { 2u32 } else { 1u32 })
+        .sum();
+
+    let uses_chkstk = alloc_size > 4096;
 
     // code_bytes holds raw UNWIND_CODE slots (2 bytes each) in descending offset order.
     let mut code_bytes: Vec<u8> = Vec::new();
@@ -855,7 +902,13 @@ fn build_coff_unwind_tables(text_size: u64, frame_size: u32, used_callee_saved: 
         // UWOP_ALLOC_LARGE (op=1, info=0): 2 slots
         // Slot 0: {CodeOffset, UWOP_ALLOC_LARGE | info=0}
         // Slot 1 (u16): alloc_size / 8
-        code_bytes.push(11); // CodeOffset: byte after `sub rsp, imm32` (7-byte encoding)
+        let alloc_code_off: u8 = if uses_chkstk {
+            // push rbp(1) + mov rbp,rsp(3) + callee_pushes + mov rax,N(10) + call(5) + sub rsp,rax(3)
+            (22 + callee_push_instr_bytes) as u8
+        } else {
+            11 // byte after `sub rsp, imm32` (7-byte encoding)
+        };
+        code_bytes.push(alloc_code_off);
         code_bytes.push(0x01); // UWOP_ALLOC_LARGE = 1, info = 0
         let sz16 = (alloc_size / 8) as u16;
         code_bytes.extend_from_slice(&sz16.to_le_bytes());
@@ -869,7 +922,9 @@ fn build_coff_unwind_tables(text_size: u64, frame_size: u32, used_callee_saved: 
         slot_count += 1;
     }
 
-    let prolog_size: u8 = if alloc_size > 128 {
+    let prolog_size: u8 = if uses_chkstk {
+        (22 + callee_push_instr_bytes) as u8
+    } else if alloc_size > 128 {
         11
     } else if alloc_size > 0 {
         8
@@ -1140,7 +1195,12 @@ fn serialize_coff(obj: &ObjectFile) -> Vec<u8> {
     for (i, sym) in obj.symbols.iter().enumerate() {
         write_coff_name_field(&mut buf, &sym.name, symbol_name_offs[i]);
         w32(&mut buf, sym.offset as u32); // Value
-        w16(&mut buf, (sym.section + 1) as u16); // SectionNumber (1-based)
+        if sym.undefined {
+            // SectionNumber = 0 means external/undefined
+            w16(&mut buf, 0u16);
+        } else {
+            w16(&mut buf, (sym.section + 1) as u16); // SectionNumber (1-based)
+        }
         // Type: IMAGE_SYM_DTYPE_FUNCTION (2) << 4 | IMAGE_SYM_TYPE_NULL (0) = 0x0020
         w16(&mut buf, if sym.global { 0x0020 } else { 0 });
         buf.push(if sym.global { 2 } else { 3 }); // StorageClass: EXTERNAL or STATIC
@@ -1298,6 +1358,7 @@ mod tests {
                 offset: 0,
                 size: 1,
                 global: true,
+                undefined: false,
             }],
         }
     }
@@ -1801,7 +1862,7 @@ mod tests {
             elf_machine: 0,
             coff_machine: 0x8664,
             sections: vec![Section { name: ".text".into(), data: vec![0xC3], relocs: vec![], debug_rows: vec![] }],
-            symbols: vec![Symbol { name: "fn".into(), section: 0, offset: 0, size: 1, global: true }],
+            symbols: vec![Symbol { name: "fn".into(), section: 0, offset: 0, size: 1, global: true, undefined: false }],
         };
         let bytes = obj.to_bytes();
         let symtab_ptr = u32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]) as usize;
