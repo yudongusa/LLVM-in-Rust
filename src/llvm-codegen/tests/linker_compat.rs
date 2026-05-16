@@ -242,11 +242,77 @@ fn macho_nm_lists_main() {
     });
 }
 
+#[cfg(target_os = "windows")]
+#[test]
+fn coff_link_with_lld_link_and_run_exit_code() {
+    // Skip gracefully if lld-link is absent (e.g. bare Windows runner before
+    // the LLVM choco package is installed).
+    if !have_tool("lld-link") {
+        eprintln!("lld-link not found; skipping coff_link_with_lld_link_and_run_exit_code");
+        return;
+    }
+
+    with_temp_file("coff_e2e_main", "obj", |obj_path| {
+        emit_host_obj(MAIN_RET42_LL, obj_path);
+
+        let exe_path = std::env::temp_dir().join("coff_e2e_main.exe");
+        // lld-link with no CRT: entry point is called directly by the Windows
+        // loader (BaseProcessStart), which calls ExitProcess(main()) when main
+        // returns, so the exit code equals the return value.
+        let link = Command::new("lld-link")
+            .arg(format!("/out:{}", exe_path.display()))
+            .arg("/subsystem:console")
+            .arg("/entry:main")
+            .arg("/nodefaultlib")
+            .arg("/machine:X64")
+            .arg(obj_path)
+            .output()
+            .expect("spawn lld-link");
+        assert!(
+            link.status.success(),
+            "lld-link failed:\n{}",
+            String::from_utf8_lossy(&link.stderr)
+        );
+
+        let run = Command::new(&exe_path).output().expect("run exe");
+        let _ = std::fs::remove_file(&exe_path);
+        assert_eq!(run.status.code(), Some(42), "exit code must be 42");
+    });
+}
+
+#[cfg(target_os = "windows")]
+#[test]
+fn coff_object_main_symbol_visible() {
+    // Verify the COFF object file exposes `main` as a global symbol.
+    // Uses llvm-nm when available, otherwise inspects raw bytes (the name
+    // always appears verbatim in the COFF string table).
+    with_temp_file("coff_sym_main", "obj", |obj_path| {
+        emit_host_obj(MAIN_RET42_LL, obj_path);
+
+        if have_tool("llvm-nm") {
+            let nm = Command::new("llvm-nm")
+                .arg(obj_path)
+                .output()
+                .expect("run llvm-nm");
+            assert!(nm.status.success());
+            let out = String::from_utf8_lossy(&nm.stdout);
+            assert!(out.contains("main"), "llvm-nm output: {out}");
+        } else {
+            // Fallback: the symbol name appears verbatim in COFF string table.
+            let bytes = std::fs::read(obj_path).expect("read obj");
+            assert!(
+                bytes.windows(4).any(|w| w == b"main"),
+                "COFF bytes must contain 'main'"
+            );
+        }
+    });
+}
+
 #[test]
 fn tool_presence_report_is_accessible() {
     // Lightweight smoke to keep path used in CI logs if desired.
     let mut tools = Vec::<(&str, bool)>::new();
-    for t in ["cc", "ld", "lld", "readelf", "nm", "objdump", "otool"] {
+    for t in ["cc", "ld", "lld", "lld-link", "readelf", "nm", "llvm-nm", "objdump", "otool"] {
         tools.push((t, have_tool(t)));
     }
     assert!(!tools.is_empty());

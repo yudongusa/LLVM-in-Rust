@@ -1,0 +1,71 @@
+name: Windows COFF E2E
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  coff_link_execute:
+    name: COFF link+execute (lld-link)
+    runs-on: windows-2022
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Install Rust stable toolchain
+        run: |
+          rustup set profile minimal
+          rustup toolchain install stable
+          rustup default stable
+
+      - name: Install LLVM (provides lld-link and llvm-nm)
+        run: choco install llvm --yes --no-progress
+
+      - name: Refresh PATH
+        run: echo "C:\Program Files\LLVM\bin" >> $GITHUB_PATH
+        shell: bash
+
+      - name: Confirm lld-link is available
+        run: lld-link --version
+        shell: bash
+
+      - name: Run Windows COFF E2E tests (link + execute)
+        shell: bash
+        run: |
+          cargo +stable test \
+            -p llvm-in-rust-codegen \
+            --test linker_compat \
+            coff_link_with_lld_link_and_run_exit_code \
+            coff_object_main_symbol_visible \
+            tool_presence_report_is_accessible \
+            -- --nocapture
+
+  coff_inspect:
+    name: COFF object inspection (llvm-objdump)
+    runs-on: windows-2022
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Install Rust stable toolchain
+        run: |
+          rustup set profile minimal
+          rustup toolchain install stable
+          rustup default stable
+
+      - name: Install LLVM (provides llvm-objdump)
+        run: choco install llvm --yes --no-progress
+
+      - name: Refresh PATH
+        run: echo "C:\Program Files\LLVM\bin" >> $GITHUB_PATH
+        shell: bash
+
+      - name: Build COFF object and inspect symbol table
+        shell: bash
+        run: scripts/windows_e2e.sh coff-inspect
