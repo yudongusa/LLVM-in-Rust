@@ -222,7 +222,7 @@ pub fn emit_object(mf: &MachineFunction, emitter: &mut dyn Emitter) -> ObjectFil
                 });
             }
             ObjectFormat::Coff => {
-                let cv = build_codeview_debug_s(source, &rows);
+                let cv = build_codeview_debug_s(source, &rows, &mf.name, size);
                 sections.push(Section {
                     name: ".debug$S".into(),
                     data: cv,
@@ -1247,36 +1247,144 @@ fn coff_section_characteristics(name: &str) -> u32 {
     }
 }
 
-fn build_codeview_debug_s(source_file: &str, rows: &[DebugLineRow]) -> Vec<u8> {
-    // .debug$S starts with CV_SIGNATURE_C13.
+fn build_codeview_debug_s(
+    source_file: &str,
+    rows: &[DebugLineRow],
+    func_name: &str,
+    text_size: u64,
+) -> Vec<u8> {
+    // .debug$S section format: CV_SIGNATURE_C13 followed by subsections.
+    //
+    // Subsection order required for WinDbg source-line resolution:
+    //   1. DEBUG_S_SYMBOLS  (0xF1) — S_GPROC32 + S_END
+    //   2. DEBUG_S_FILECHKSMS (0xF4) — file checksum table
+    //   3. DEBUG_S_STRINGTABLE (0xF3) — source file paths
+    //   4. DEBUG_S_LINES    (0xF2) — code-offset → line mapping
+    //
+    // Each subsection: u32 kind, u32 length, [data], [align pad to 4].
     let mut out = Vec::new();
-    w32(&mut out, 4);
+    w32(&mut out, 4); // CV_SIGNATURE_C13
 
-    // Minimal symbol payload carrying source identity and line span.
-    // This is intentionally small but consumable by COFF/CodeView tooling.
-    let mut payload = Vec::new();
-    payload.extend_from_slice(
-        source_file
-            .rsplit('/')
-            .next()
-            .unwrap_or(source_file)
-            .as_bytes(),
-    );
-    payload.push(0);
+    // ── 1. DEBUG_S_SYMBOLS ───────────────────────────────────────────────
+    //
+    // S_GPROC32 (0x1110) records a global procedure with its address range
+    // so WinDbg can map instruction addresses to function names.
+    //
+    // S_GPROC32 field layout (cvinfo.h PROCSYM32):
+    //   u16  reclen   — byte count of everything after this field
+    //   u16  rectype  — 0x1110
+    //   u32  pParent  — enclosing scope (0 = none)
+    //   u32  pEnd     — end-of-block back-pointer (0, filled by linker)
+    //   u32  pNext    — next sibling (0)
+    //   u32  len      — procedure length in bytes
+    //   u32  DbgStart — first debug-start offset (0 = start of proc)
+    //   u32  DbgEnd   — first debug-end offset (len - 1 typically)
+    //   u32  typind   — type index (0 = untyped/void)
+    //   u32  off      — section-relative offset (0 for relocatable)
+    //   u16  seg      — section number (1-based; .text is section 1)
+    //   u8   flags    — CV_PROCFLAGS (0)
+    //   char name[]   — null-terminated function name
+    let name_bytes = func_name.as_bytes();
+    // reclen = 2(rectype)+4*9+2+1+strlen+1 = 2+36+2+1+len+1 = 42+len
+    let reclen: u16 = 42 + name_bytes.len() as u16;
 
-    let min_line = rows.iter().map(|r| r.line).min().unwrap_or(1);
-    let max_line = rows.iter().map(|r| r.line).max().unwrap_or(min_line);
-    w32(&mut payload, min_line);
-    w32(&mut payload, max_line);
+    let mut sym_payload: Vec<u8> = Vec::new();
+    // S_GPROC32
+    w16(&mut sym_payload, reclen);
+    w16(&mut sym_payload, 0x1110); // S_GPROC32
+    w32(&mut sym_payload, 0); // pParent
+    w32(&mut sym_payload, 0); // pEnd
+    w32(&mut sym_payload, 0); // pNext
+    w32(&mut sym_payload, text_size as u32); // len
+    w32(&mut sym_payload, 0); // DbgStart
+    w32(&mut sym_payload, text_size.saturating_sub(1) as u32); // DbgEnd
+    w32(&mut sym_payload, 0); // typind (T_NOTYPE)
+    w32(&mut sym_payload, 0); // off (section-relative; relocated to RVA by linker)
+    w16(&mut sym_payload, 1); // seg (.text = section 1)
+    sym_payload.push(0); // flags
+    sym_payload.extend_from_slice(name_bytes);
+    sym_payload.push(0); // null terminator
+    // S_END (0x0006) — closes the GPROC32 block
+    w16(&mut sym_payload, 2); // reclen
+    w16(&mut sym_payload, 0x0006); // S_END
 
-    // subsection type=0xF1 (DEBUG_S_SYMBOLS)
-    w32(&mut out, 0xF1);
-    w32(&mut out, payload.len() as u32);
-    out.extend_from_slice(&payload);
+    emit_cv_subsection(&mut out, 0xF1, &sym_payload);
+
+    // ── 2. DEBUG_S_FILECHKSMS ─────────────────────────────────────────────
+    //
+    // One 8-byte entry per source file:
+    //   u32  offFilename   — byte offset of filename in STRINGTABLE
+    //   u16  cbChecksum    — 0 (no checksum)
+    //   u8   ChecksumType  — 0 (CHKSUM_TYPE_NONE)
+    //   u8   padding       — 0
+    //
+    // Our STRINGTABLE starts with the filename at offset 0.
+    let mut chksm_payload: Vec<u8> = Vec::new();
+    w32(&mut chksm_payload, 0); // offFilename → offset 0 in STRINGTABLE
+    w16(&mut chksm_payload, 0); // cbChecksum
+    chksm_payload.push(0); // ChecksumType
+    chksm_payload.push(0); // padding
+
+    emit_cv_subsection(&mut out, 0xF4, &chksm_payload);
+
+    // ── 3. DEBUG_S_STRINGTABLE ────────────────────────────────────────────
+    //
+    // Null-terminated source file path at offset 0.
+    let mut strtab_payload: Vec<u8> = Vec::new();
+    strtab_payload.extend_from_slice(source_file.as_bytes());
+    strtab_payload.push(0);
+
+    emit_cv_subsection(&mut out, 0xF3, &strtab_payload);
+
+    // ── 4. DEBUG_S_LINES ──────────────────────────────────────────────────
+    //
+    // Maps code offsets within this function to source lines.
+    //
+    // Header (12 bytes):
+    //   u32  offCon   — section-relative code start (0)
+    //   u16  iSeg     — section index (1)
+    //   u16  flags    — 0 (no column info)
+    //   u32  cbCon    — byte count of code described
+    //
+    // File block per source file (12 bytes):
+    //   u32  fileid      — byte offset into FILECHKSMS subsection
+    //   u32  nLines      — count of line entries in this block
+    //   u32  cbFileInfo  — 12 + nLines * 8
+    //
+    // Line entries (8 bytes each):
+    //   u32  offset   — code offset from start of proc
+    //   u32  lineInfo — bits 0-23: line number, bit 31: 0 (statement)
+    let nlines = rows.len() as u32;
+    let cb_file_info: u32 = 12 + nlines * 8;
+
+    let mut lines_payload: Vec<u8> = Vec::new();
+    // Header
+    w32(&mut lines_payload, 0); // offCon (section-relative)
+    w16(&mut lines_payload, 1); // iSeg (.text = section 1)
+    w16(&mut lines_payload, 0); // flags (no columns)
+    w32(&mut lines_payload, text_size as u32); // cbCon
+    // File block
+    w32(&mut lines_payload, 0); // fileid (offset 0 in FILECHKSMS)
+    w32(&mut lines_payload, nlines);
+    w32(&mut lines_payload, cb_file_info);
+    // Line entries
+    for row in rows {
+        w32(&mut lines_payload, row.address as u32); // code offset
+        w32(&mut lines_payload, row.line & 0x00FF_FFFF); // line number (24 bits)
+    }
+
+    emit_cv_subsection(&mut out, 0xF2, &lines_payload);
+
+    out
+}
+
+fn emit_cv_subsection(out: &mut Vec<u8>, kind: u32, data: &[u8]) {
+    w32(out, kind);
+    w32(out, data.len() as u32);
+    out.extend_from_slice(data);
     while out.len() % 4 != 0 {
         out.push(0);
     }
-    out
 }
 
 // ── byte-writing helpers ───────────────────────────────────────────────────
