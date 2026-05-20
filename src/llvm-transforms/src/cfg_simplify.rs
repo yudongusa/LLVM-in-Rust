@@ -227,53 +227,38 @@ fn compute_reachable(func: &Function) -> HashSet<BlockId> {
 /// `new_idx[old.0]` = `Some(new_index)` for kept blocks, `None` for removed.
 /// Removed-block references in phi incoming lists should have been dropped
 /// before calling this function.
+///
+/// Uses `.get()` for bounds-safe access: the flat instruction pool retains
+/// dead instructions (those no longer referenced by any block) across
+/// iterations, and their stale BlockIds may fall outside `new_idx`.  Dead
+/// instructions are ignored here because no live block will ever execute them.
 fn remap_block_ids(func: &mut Function, new_idx: &[Option<u32>]) {
+    let remap = |blk: &mut BlockId| {
+        if let Some(&Some(n)) = new_idx.get(blk.0 as usize) {
+            *blk = BlockId(n);
+        }
+        // Out-of-bounds or None → leave as-is (dead instruction, harmless).
+    };
     for instr in &mut func.instructions {
         match &mut instr.kind {
-            InstrKind::Br { dest } => {
-                if let Some(n) = new_idx[dest.0 as usize] {
-                    *dest = BlockId(n);
-                }
-            }
-            InstrKind::CondBr {
-                then_dest,
-                else_dest,
-                ..
-            } => {
-                if let Some(n) = new_idx[then_dest.0 as usize] {
-                    *then_dest = BlockId(n);
-                }
-                if let Some(n) = new_idx[else_dest.0 as usize] {
-                    *else_dest = BlockId(n);
-                }
+            InstrKind::Br { dest } => remap(dest),
+            InstrKind::CondBr { then_dest, else_dest, .. } => {
+                remap(then_dest);
+                remap(else_dest);
             }
             InstrKind::Switch { default, cases, .. } => {
-                if let Some(n) = new_idx[default.0 as usize] {
-                    *default = BlockId(n);
-                }
+                remap(default);
                 for (_, blk) in cases.iter_mut() {
-                    if let Some(n) = new_idx[blk.0 as usize] {
-                        *blk = BlockId(n);
-                    }
+                    remap(blk);
                 }
             }
-            InstrKind::Invoke {
-                normal_dest,
-                unwind_dest,
-                ..
-            } => {
-                if let Some(n) = new_idx[normal_dest.0 as usize] {
-                    *normal_dest = BlockId(n);
-                }
-                if let Some(n) = new_idx[unwind_dest.0 as usize] {
-                    *unwind_dest = BlockId(n);
-                }
+            InstrKind::Invoke { normal_dest, unwind_dest, .. } => {
+                remap(normal_dest);
+                remap(unwind_dest);
             }
             InstrKind::Phi { incoming, .. } => {
                 for (_, blk) in incoming.iter_mut() {
-                    if let Some(n) = new_idx[blk.0 as usize] {
-                        *blk = BlockId(n);
-                    }
+                    remap(blk);
                 }
             }
             _ => {}
