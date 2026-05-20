@@ -4,8 +4,8 @@
 //! manually assembling pass sequences.
 
 use crate::{
-    pass::PassManager, ConstProp, ConstantFold, DeadArgElim, DeadCodeElim, Gvn, Inliner, Ipcp,
-    JumpThreading, LoopUnroll, Mem2Reg, Sroa, TailCallOpt,
+    pass::PassManager, CfgSimplify, ConstProp, ConstantFold, DeadArgElim, DeadCodeElim, Gvn,
+    Inliner, Ipcp, JumpThreading, LoopUnroll, Mem2Reg, Sroa, TailCallOpt,
 };
 
 /// Optimization level preset.
@@ -50,6 +50,7 @@ pub fn build_pipeline(level: OptLevel) -> PassManager {
             pm.add_function_pass(ConstantFold);
             pm.add_function_pass(ConstProp);
             pm.add_function_pass(DeadCodeElim);
+            pm.add_function_pass(CfgSimplify::default());
         }
         OptLevel::O2 => {
             pm.add_function_pass(Sroa);
@@ -67,6 +68,7 @@ pub fn build_pipeline(level: OptLevel) -> PassManager {
             pm.add_function_pass(ConstantFold);
             pm.add_function_pass(ConstProp);
             pm.add_function_pass(DeadCodeElim);
+            pm.add_function_pass(CfgSimplify::default());
         }
         OptLevel::O3 => {
             pm.add_function_pass(Sroa);
@@ -96,6 +98,7 @@ pub fn build_pipeline(level: OptLevel) -> PassManager {
             pm.add_function_pass(ConstantFold);
             pm.add_function_pass(ConstProp);
             pm.add_function_pass(DeadCodeElim);
+            pm.add_function_pass(CfgSimplify::default());
         }
     }
 

@@ -1,5 +1,7 @@
 //! Optimization passes: mem2reg, DCE, constant folding/propagation, and inlining.
 
+/// Public API for `cfg_simplify`.
+pub mod cfg_simplify;
 pub mod const_prop;
 /// Public API for `constant_fold`.
 pub mod constant_fold;
@@ -31,6 +33,8 @@ pub mod sroa;
 pub mod tailcall;
 mod value_rewrite;
 
+/// Public API for `re-export`.
+pub use cfg_simplify::CfgSimplify;
 /// Public API for `re-export`.
 pub use const_prop::ConstProp;
 /// Public API for `re-export`.
