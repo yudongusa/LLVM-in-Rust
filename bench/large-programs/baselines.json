@@ -1,0 +1,6 @@
+{
+  "bzip2_rle": { "text_bytes": 896, "compile_ms": 17 },
+  "re2_match": { "text_bytes": 806, "compile_ms": 12 },
+  "sqlite_expr": { "text_bytes": 680, "compile_ms": 3 },
+  "zlib_adler32": { "text_bytes": 548, "compile_ms": 6 }
+}
