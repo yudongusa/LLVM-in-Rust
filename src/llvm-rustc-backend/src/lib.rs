@@ -33,6 +33,7 @@
 //! The translation layer (MIR → llvm-ir) is the largest missing piece; all other
 //! stages are already implemented by the sibling crates.
 
+pub mod place;
 pub mod shim;
 
 #[cfg(feature = "rustc-backend")]
