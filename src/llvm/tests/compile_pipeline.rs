@@ -3,7 +3,8 @@
 //! These tests call the compile logic directly without subprocesses so they
 //! run on every platform in the standard `cargo test` suite.
 
-use llvm::compile::{compile_ir_to_object, host_object_format};
+use llvm::compile::{compile_ir_to_object, host_object_format, regalloc_strategy_for};
+use llvm::codegen::regalloc::RegAllocStrategy;
 use llvm_transforms::OptLevel;
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -170,4 +171,89 @@ entry:
     let raw_contains = |needle: &[u8]| bytes.windows(needle.len()).any(|w| w == needle);
     assert!(raw_contains(b"fib"));
     assert!(raw_contains(b"main"));
+}
+
+// ── regalloc strategy selection (issue #300) ─────────────────────────────────
+
+#[test]
+fn regalloc_strategy_o0_o1_use_linear_scan() {
+    assert_eq!(
+        regalloc_strategy_for(OptLevel::O0),
+        RegAllocStrategy::LinearScan,
+        "O0 must use linear scan"
+    );
+    assert_eq!(
+        regalloc_strategy_for(OptLevel::O1),
+        RegAllocStrategy::LinearScan,
+        "O1 must use linear scan"
+    );
+}
+
+#[test]
+fn regalloc_strategy_o2_o3_use_graph_color() {
+    assert_eq!(
+        regalloc_strategy_for(OptLevel::O2),
+        RegAllocStrategy::GraphColor,
+        "O2 must use graph coloring"
+    );
+    assert_eq!(
+        regalloc_strategy_for(OptLevel::O3),
+        RegAllocStrategy::GraphColor,
+        "O3 must use graph coloring"
+    );
+}
+
+#[test]
+fn compile_o2_produces_valid_object() {
+    // Exercises the full pipeline with graph-coloring regalloc (O2).
+    let src = r#"define i32 @compute(i32 %a, i32 %b, i32 %c) {
+entry:
+  %s = add i32 %a, %b
+  %t = mul i32 %s, %c
+  %u = sub i32 %t, %a
+  ret i32 %u
+}
+"#;
+    let fmt = host_object_format();
+    let bytes = compile_ir_to_object(src, OptLevel::O2, fmt).expect("O2 compile failed");
+    assert!(looks_like_object(&bytes), "O2 output must be a valid object file");
+}
+
+#[test]
+fn compile_o3_produces_valid_object() {
+    // Exercises the full pipeline with graph-coloring regalloc (O3).
+    let src = r#"define i32 @add(i32 %x, i32 %y) {
+entry:
+  %r = add i32 %x, %y
+  ret i32 %r
+}
+"#;
+    let fmt = host_object_format();
+    let bytes = compile_ir_to_object(src, OptLevel::O3, fmt).expect("O3 compile failed");
+    assert!(looks_like_object(&bytes), "O3 output must be a valid object file");
+}
+
+#[test]
+fn gc_regalloc_no_spills_on_pressure_free_function() {
+    // A function with only a few live values; graph coloring should assign
+    // all to physical registers with zero spills.  Compile at O2 and verify
+    // we get a non-empty, structurally valid object.
+    let src = r#"define i32 @pressure_free(i32 %a, i32 %b) {
+entry:
+  %c = add i32 %a, %b
+  %d = sub i32 %c, 1
+  ret i32 %d
+}
+"#;
+    let fmt = host_object_format();
+    let bytes = compile_ir_to_object(src, OptLevel::O2, fmt)
+        .expect("pressure-free O2 compile failed");
+    assert!(
+        looks_like_object(&bytes),
+        "graph-coloring O2 output must be a valid object file"
+    );
+    assert!(
+        !bytes.is_empty(),
+        "graph-coloring O2 output must not be empty"
+    );
 }

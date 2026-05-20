@@ -68,11 +68,12 @@ pub fn compile_ir_to_object(
         let mut backend = X86Backend::default();
         let mut mf = backend.lower_function(&ctx, &module, func);
         let intervals = compute_live_intervals(&mf);
+        let strategy = regalloc_strategy_for(opt_level);
         let mut result = allocate_registers(
             &intervals,
             &mf.allocatable_pregs,
             &mf.allocatable_fp_pregs,
-            RegAllocStrategy::LinearScan,
+            strategy,
         );
         insert_spill_reloads(&mut mf, &mut result, MOV_LOAD_MR, MOV_STORE_RM, MOVSD_LOAD_MR, MOVSD_STORE_RM);
         apply_allocation(&mut mf, &result);
@@ -199,6 +200,18 @@ pub fn compile_ir_to_object(
     };
 
     Ok(merged.to_bytes())
+}
+
+/// Return the register allocation strategy appropriate for `level`.
+///
+/// O0/O1 use linear scan (fast compile, acceptable spill count).
+/// O2/O3 use graph coloring (Chaitin-Briggs), which produces fewer spills at
+/// the cost of slightly longer compile time.
+pub fn regalloc_strategy_for(level: OptLevel) -> RegAllocStrategy {
+    match level {
+        OptLevel::O0 | OptLevel::O1 => RegAllocStrategy::LinearScan,
+        OptLevel::O2 | OptLevel::O3 => RegAllocStrategy::GraphColor,
+    }
 }
 
 /// Detect the host's native object format.
