@@ -661,6 +661,8 @@ mod instr_tag {
     pub const SWITCH: u32 = 93;
     /// Public API for `UNREACHABLE`.
     pub const UNREACHABLE: u32 = 94;
+    /// Public API for `RESUME`.
+    pub const RESUME: u32 = 95;
 }
 
 fn decode_vref(r: &mut Reader) -> Result<ValueRef, BitcodeError> {
@@ -1244,6 +1246,10 @@ fn decode_instr(
             }
         }
         instr_tag::UNREACHABLE => InstrKind::Unreachable,
+        instr_tag::RESUME => {
+            let val = decode_vref(r)?;
+            InstrKind::Resume { val }
+        }
         other => return Err(BitcodeError::UnsupportedRecord(other)),
     };
 

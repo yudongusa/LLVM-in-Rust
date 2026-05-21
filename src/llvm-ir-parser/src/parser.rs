@@ -1633,6 +1633,11 @@ impl<'src> Parser<'src> {
                 let void_ty = self.ctx.void_ty;
                 Ok((InstrKind::Unreachable, void_ty))
             }
+            Token::Kw(Keyword::Resume) => {
+                self.lex.next()?;
+                let (val, ty) = self.parse_typed_value()?;
+                Ok((InstrKind::Resume { val }, ty))
+            }
             _ => {
                 let t = self.lex.next()?;
                 Err(self.err(format!("unknown instruction opcode: {:?}", t)))
@@ -2912,6 +2917,7 @@ impl<'src> Parser<'src> {
             Keyword::Br => "br",
             Keyword::Switch => "switch",
             Keyword::Unreachable => "unreachable",
+            Keyword::Resume => "resume",
             Keyword::Eq => "eq",
             Keyword::Ne => "ne",
             Keyword::Ugt => "ugt",

@@ -1036,6 +1036,10 @@ impl<'a> Printer<'a> {
             InstrKind::Unreachable => {
                 out.push_str("unreachable");
             }
+            InstrKind::Resume { val } => {
+                out.push_str("resume ");
+                self.write_typed_value(out, *val, func);
+            }
         }
 
         if let Some(attachments) = func.instr_metadata(id) {

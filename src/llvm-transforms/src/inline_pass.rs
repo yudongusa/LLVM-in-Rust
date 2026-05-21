@@ -748,6 +748,7 @@ fn remap_kind(
             cases: cases.into_iter().map(|(v, blk)| (s(v), b(blk))).collect(),
         },
         InstrKind::Unreachable => InstrKind::Unreachable,
+        InstrKind::Resume { val } => InstrKind::Resume { val: s(val) },
     }
 }
 

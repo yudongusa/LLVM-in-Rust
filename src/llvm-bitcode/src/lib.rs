@@ -1,8 +1,11 @@
-//! LLVM-in-Rust IR binary format (LRIR) reader and writer.
+//! LLVM-in-Rust IR binary format (LRIR) reader and writer, plus a standard
+//! LLVM bitcode (`.bc`) reader.
 //!
-//! This crate implements a compact binary serialization format for
-//! `(Context, Module)` pairs, enabling round-trip fidelity without
-//! depending on the full LLVM bitcode bitstream format.
+//! This crate implements:
+//! - A compact binary serialization format for `(Context, Module)` pairs
+//!   (LRIR), enabling round-trip fidelity.
+//! - A standard LLVM bitcode reader (`read_llvm_bc`) that can parse `.bc`
+//!   files produced by `clang -emit-llvm -c`.
 //!
 //! # Examples
 //!
@@ -18,6 +21,10 @@
 //! ```
 
 pub mod error;
+/// Low-level LLVM bitstream decoder (VBR, blocks, abbreviations).
+pub mod bitstream;
+/// Standard LLVM `.bc` file reader.
+pub mod llvm_reader;
 /// Public API for `reader`.
 pub mod reader;
 /// Public API for `writer`.
@@ -25,6 +32,8 @@ pub mod writer;
 
 /// Public API for `re-export`.
 pub use error::BitcodeError;
+/// Public API for `re-export`.
+pub use llvm_reader::read_llvm_bc;
 /// Public API for `re-export`.
 pub use reader::read_bitcode;
 /// Public API for `re-export`.

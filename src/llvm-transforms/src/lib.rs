@@ -22,6 +22,8 @@
 //! assert_eq!(module.functions.len(), 1);
 //! ```
 
+/// Public API for `asan`.
+pub mod asan;
 /// Public API for `cfg_simplify`.
 pub mod cfg_simplify;
 pub mod const_prop;
@@ -59,6 +61,8 @@ pub mod sroa;
 pub mod tailcall;
 mod value_rewrite;
 
+/// Public API for `re-export`.
+pub use asan::Asan;
 /// Public API for `re-export`.
 pub use cfg_simplify::CfgSimplify;
 /// Public API for `re-export`.

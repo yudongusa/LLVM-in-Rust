@@ -1,6 +1,7 @@
 //! Target-independent code generation: legalization, instruction selection, register allocation, scheduling, and emission.
 
 pub mod assembler;
+pub mod dwarf_vars;
 /// Public API for `emit`.
 pub mod emit;
 /// Public API for `isel`.
@@ -26,6 +27,11 @@ pub use emit::{
 };
 /// Public API for `re-export`.
 pub use isel::{IselBackend, MInstr, MOpcode, MOperand, MachineBlock, MachineFunction, PReg, RegClass, VReg};
+/// Public API for `re-export`.
+pub use dwarf_vars::{
+    build_variable_die, encode_breg6, encode_location, encode_reg, encode_sleb128,
+    encode_uleb128, VarLocation, X86_DWARF_REG,
+};
 /// Public API for `re-export`.
 pub use regalloc::{
     allocate_registers, apply_allocation, compute_live_intervals, graph_color,

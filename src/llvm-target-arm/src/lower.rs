@@ -825,7 +825,7 @@ fn lower_instr(
         }
 
         // Terminators handled in lower_terminator.
-        Ret { .. } | Br { .. } | CondBr { .. } | Invoke { .. } | Switch { .. } | Unreachable => {}
+        Ret { .. } | Br { .. } | CondBr { .. } | Invoke { .. } | Switch { .. } | Unreachable | Resume { .. } => {}
     }
 }
 
@@ -956,6 +956,12 @@ fn lower_terminator(
         }
 
         Unreachable => {
+            mf.push(mblock, MInstr::new(NOP));
+        }
+
+        // resume re-throws the in-flight exception; lower to NOP as a
+        // placeholder — a real backend would call _Unwind_Resume.
+        Resume { .. } => {
             mf.push(mblock, MInstr::new(NOP));
         }
 

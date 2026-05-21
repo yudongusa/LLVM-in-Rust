@@ -23,9 +23,11 @@
 pub mod encode;
 pub mod instructions;
 pub mod lower;
+pub mod reloop;
 pub mod types;
 
 pub use lower::WasmBackend;
+pub use reloop::{build_control_tree, should_use_br_table, ControlNode};
 
 use llvm_ir::{Context, Module};
 use lower::WasmFunction;

@@ -320,5 +320,6 @@ where
             cases: cases.into_iter().map(|(v, b)| (f(v), b)).collect(),
         },
         InstrKind::Unreachable => InstrKind::Unreachable,
+        InstrKind::Resume { val } => InstrKind::Resume { val: f(val) },
     }
 }

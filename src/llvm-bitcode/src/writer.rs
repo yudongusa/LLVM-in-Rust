@@ -552,6 +552,8 @@ mod instr_tag {
     pub const SWITCH: u32 = 93;
     /// Public API for `UNREACHABLE`.
     pub const UNREACHABLE: u32 = 94;
+    /// Public API for `RESUME`.
+    pub const RESUME: u32 = 95;
 }
 
 fn encode_vref(w: &mut Writer, vr: &ValueRef) {
@@ -1065,6 +1067,10 @@ fn encode_instr(w: &mut Writer, instr: &Instruction) {
         }
         Unreachable => {
             w.u32(instr_tag::UNREACHABLE);
+        }
+        Resume { val } => {
+            w.u32(instr_tag::RESUME);
+            encode_vref(w, val);
         }
     }
 }

@@ -228,6 +228,8 @@ pub enum Keyword {
     Switch,
     /// `Unreachable` variant.
     Unreachable,
+    /// `Resume` variant.
+    Resume,
 
     // ICmp predicates
     /// `Eq` variant.
@@ -1000,6 +1002,7 @@ impl<'src> Lexer<'src> {
             "br" => Keyword::Br,
             "switch" => Keyword::Switch,
             "unreachable" => Keyword::Unreachable,
+            "resume" => Keyword::Resume,
             "eq" => Keyword::Eq,
             "ne" => Keyword::Ne,
             "ugt" => Keyword::Ugt,

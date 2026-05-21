@@ -410,6 +410,7 @@ pub(crate) fn subst_kind(kind: InstrKind, subst: &HashMap<InstrId, ValueRef>) ->
             cases: cases.into_iter().map(|(v, b)| (s(v), b)).collect(),
         },
         InstrKind::Unreachable => InstrKind::Unreachable,
+        InstrKind::Resume { val } => InstrKind::Resume { val: s(val) },
     }
 }
 
