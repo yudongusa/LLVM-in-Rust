@@ -1,3 +1,4 @@
+//! LLVM IR minimizer: reduces IR files while preserving interesting behavior.
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};

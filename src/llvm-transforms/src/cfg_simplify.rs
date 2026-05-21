@@ -158,9 +158,9 @@ fn prune_unreachable(func: &mut Function) -> bool {
     // Build mapping: old BlockId → new BlockId.
     let mut new_idx: Vec<Option<u32>> = vec![None; func.blocks.len()];
     let mut next = 0u32;
-    for i in 0..func.blocks.len() {
+    for (i, slot) in new_idx.iter_mut().enumerate().take(func.blocks.len()) {
         if !to_remove.contains(&BlockId(i as u32)) {
-            new_idx[i] = Some(next);
+            *slot = Some(next);
             next += 1;
         }
     }
@@ -386,9 +386,9 @@ fn merge_fallthrough(func: &mut Function) -> bool {
     // Now remove the absorbed blocks and renumber.
     let mut new_idx: Vec<Option<u32>> = vec![None; func.blocks.len()];
     let mut next = 0u32;
-    for i in 0..func.blocks.len() {
+    for (i, slot) in new_idx.iter_mut().enumerate().take(func.blocks.len()) {
         if !to_remove.contains(&BlockId(i as u32)) {
-            new_idx[i] = Some(next);
+            *slot = Some(next);
             next += 1;
         }
     }

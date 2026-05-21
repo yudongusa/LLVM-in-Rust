@@ -267,6 +267,7 @@ pub enum VpIntrinsic {
 }
 
 /// Exception-handler selector clauses for LLVM `landingpad`.
+#[allow(missing_docs)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LandingPadClause {
     /// `catch <type> <value>`.
@@ -356,7 +357,14 @@ impl RmwOp {
 // Instruction kind
 // ---------------------------------------------------------------------------
 
-/// Public API for `InstrKind`.
+/// All SSA instruction kinds supported by the IR.
+///
+/// Each variant corresponds to an LLVM IR instruction. Struct-variant fields
+/// are not individually documented here because they mirror the LLVM IR
+/// specification verbatim; refer to the [LLVM Language Reference] for semantics.
+///
+/// [LLVM Language Reference]: https://llvm.org/docs/LangRef.html
+#[allow(missing_docs)]
 #[derive(Clone, Debug, PartialEq)]
 pub enum InstrKind {
     // --- Integer arithmetic ---

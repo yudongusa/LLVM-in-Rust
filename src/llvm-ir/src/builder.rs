@@ -924,6 +924,7 @@ impl<'a> Builder<'a> {
     /// passthrough snippets such as `nop` are supported, while full LLVM
     /// constraint solving and register allocation across output operands are a
     /// documented future extension.
+    #[allow(clippy::too_many_arguments)]
     pub fn build_inline_asm(
         &mut self,
         name: impl Into<String>,

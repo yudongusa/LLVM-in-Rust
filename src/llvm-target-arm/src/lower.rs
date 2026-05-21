@@ -253,7 +253,7 @@ fn instrprof_from_callee(ctx: &Context, callee: ValueRef) -> Option<InstrprofInt
 
 fn inline_asm_bytes_aarch64(template: &str) -> Vec<u8> {
     let mut bytes = Vec::new();
-    for part in template.split(|c| c == ';' || c == '\n') {
+    for part in template.split([';', '\n']) {
         match part.trim().to_ascii_lowercase().as_str() {
             "" => {}
             "nop" => bytes.extend_from_slice(&0xD503201Fu32.to_le_bytes()),

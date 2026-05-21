@@ -6,9 +6,9 @@
 //! - **Struct / Tuple** — `alloca {T0, T1, ...}` + per-field GEP + store
 //! - **Array**          — `alloca [N x T]` + per-element GEP + store
 //! - **Enum**           — `alloca {i8, [...]}` + discriminant store at field 0
-//!                        + variant data store at field 1..
+//!   + variant data store at field 1..
 //! - **Slice**          — fat-pointer pair `(ptr, len)`; the pointer comes from
-//!                        the first operand (no alloca emitted)
+//!   the first operand (no alloca emitted)
 
 use llvm_ir::{
     basic_block::BasicBlock,

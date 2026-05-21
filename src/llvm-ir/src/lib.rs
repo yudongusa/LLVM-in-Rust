@@ -1,4 +1,32 @@
 //! Core IR types: types, values, instructions, basic blocks, functions, and modules.
+//!
+//! # Examples
+//!
+//! Build a simple `add` function and verify it has one block:
+//!
+//! ```no_run
+//! use llvm_ir::{Builder, Context, Linkage, Module};
+//! let mut ctx = Context::new();
+//! let mut module = Module::new("my_module");
+//! let mut b = Builder::new(&mut ctx, &mut module);
+//! let i32_ty = b.ctx.i32_ty;
+//! b.add_function(
+//!     "add",
+//!     i32_ty,
+//!     vec![i32_ty, i32_ty],
+//!     vec!["a".into(), "b".into()],
+//!     false,
+//!     Linkage::External,
+//! );
+//! let entry = b.add_block("entry");
+//! b.position_at_end(entry);
+//! let a = b.get_arg(0);
+//! let bv = b.get_arg(1);
+//! let sum = b.build_add("sum", a, bv);
+//! b.build_ret(sum);
+//! drop(b);
+//! assert_eq!(module.functions[0].blocks.len(), 1);
+//! ```
 
 pub mod basic_block;
 /// Public API for `builder`.

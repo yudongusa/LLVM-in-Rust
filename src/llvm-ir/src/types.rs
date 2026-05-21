@@ -2,7 +2,8 @@
 
 use crate::context::TypeId;
 
-/// Public API for `TypeData`.
+/// Represents an LLVM IR type.
+#[allow(missing_docs)]
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum TypeData {
     /// `Void` variant.

@@ -33,8 +33,10 @@ pub struct AssembledObject {
 
 /// Pluggable assembler interface for machine-code/object emission.
 pub trait McAssembler {
+    /// Assemble a `MachineFunction` into an `ObjectFile`.
     fn assemble_object(&mut self, mf: &MachineFunction, emitter: &mut dyn Emitter) -> ObjectFile;
 
+    /// Assemble a `MachineFunction` and return an `AssembledObject` with bytes and a report.
     fn assemble(&mut self, mf: &MachineFunction, emitter: &mut dyn Emitter) -> AssembledObject {
         let object = self.assemble_object(mf, emitter);
         let bytes = object.to_bytes();

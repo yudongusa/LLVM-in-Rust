@@ -11,6 +11,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Release-readiness documentation for the first public crate release.
 - A SemVer policy covering the pre-1.0 series, the 1.0 readiness bar, and post-1.0 compatibility rules.
 
+### Milestone L — API & documentation polish
+
+- Fixed all clippy warnings workspace-wide (zero warnings under `-D warnings`).
+- Added `#[allow(clippy::too_many_arguments)]` to `build_inline_asm`, `lower_instr`, and `emit_terminator` to preserve public signatures.
+- Replaced manual `div_ceil`, `is_multiple_of`, `clamp`, and `repeat_n` patterns with their standard-library equivalents (Rust 1.73+).
+- Derived `Default` for `Linkage` via `#[derive(Default)]` + `#[default]` on the `External` variant.
+- Improved rustdoc coverage: `#[allow(missing_docs)]` on `InstrKind` and `ConstantData` variant fields; brief doc comments added to all other undocumented public items.
+- Added `//! # Examples` doc-tests (`no_run`) to `llvm-ir`, `llvm-transforms`, and `llvm-bitcode` crate roots.
+- Added `hello_world.rs` and `opt_pipeline.rs` examples to the `llvm-in-rust` crate (`src/llvm/examples/`).
+- Added a "Quick Start" section to `README.md` with a 30-line end-to-end builder + optimizer snippet.
+
 ## [0.1.0] - Unreleased
 
 Initial public release candidate for the safe-Rust LLVM pipeline.

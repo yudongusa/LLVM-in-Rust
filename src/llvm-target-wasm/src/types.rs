@@ -13,7 +13,7 @@ pub const VALTYPE_F32: u8 = 0x7D;
 /// `f64` valtype.
 pub const VALTYPE_F64: u8 = 0x7C;
 
-// Wasm block type: empty (void result)
+/// Wasm block type: empty (void result).
 pub const BLOCKTYPE_VOID: u8 = 0x40;
 
 /// Map an IR `TypeId` to the closest wasm `valtype` byte.

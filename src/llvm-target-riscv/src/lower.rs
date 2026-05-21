@@ -1,9 +1,9 @@
 //! RV64 IR -> machine-IR lowering.
 
 use crate::{
-    abi::{classify_rv64_fp_args, classify_rv64_int_args, ArgLocation, FP_RET, INT_RET},
+    abi::{classify_rv64_int_args, ArgLocation, INT_RET},
     instructions::*,
-    regs::{fp_enc as _fp_enc, ALLOCATABLE, CALLEE_SAVED, FP_ALLOCATABLE, FP_CALLEE_SAVED, X0},
+    regs::{ALLOCATABLE, CALLEE_SAVED, FP_ALLOCATABLE, FP_CALLEE_SAVED, X0},
 };
 use llvm_codegen::isel::{DebugLoc, IselBackend, MInstr, MachineFunction, PReg, VReg};
 use llvm_codegen::sizeof_ty;
@@ -114,6 +114,7 @@ impl IselBackend for RiscVBackend {
     }
 }
 
+#[allow(dead_code)]
 /// Returns `true` if `ty` is a floating-point type (f32 or f64).
 fn is_fp_type(ctx: &Context, ty: llvm_ir::TypeId) -> bool {
     matches!(ctx.get_type(ty), TypeData::Float(_))

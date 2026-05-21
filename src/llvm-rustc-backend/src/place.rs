@@ -35,7 +35,12 @@ pub enum PlaceElem {
     ConstantIndex(u64),
     /// Sub-slice `[from .. to]`.  Maps to a GEP of `[from]`; the caller is
     /// responsible for adjusting the fat-pointer length to `to - from`.
-    Subslice { from: u64, to: u64 },
+    Subslice {
+        /// Start index of the sub-slice.
+        from: u64,
+        /// Exclusive end index of the sub-slice.
+        to: u64,
+    },
 }
 
 /// Simplified place representation for testing.

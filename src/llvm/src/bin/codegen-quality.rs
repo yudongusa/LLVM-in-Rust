@@ -1,3 +1,4 @@
+//! Codegen quality checker: measures instruction counts and compares to baselines.
 use std::{
     env, fs,
     path::{Path, PathBuf},

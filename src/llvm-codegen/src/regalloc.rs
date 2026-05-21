@@ -117,7 +117,6 @@ pub fn compute_live_intervals(mf: &MachineFunction) -> Vec<LiveInterval> {
                 stack.push((0, 0, 0));
             }
             'dfs: while let Some(&mut (u, ref mut ii, ref mut oi)) = stack.last_mut() {
-                let u = u;
                 let block = &mf.blocks[u];
                 // Advance through instructions looking for an unprocessed successor.
                 while *ii < block.instrs.len() {
@@ -203,6 +202,7 @@ pub struct RegAllocResult {
 /// Register allocation strategy used by [`allocate_registers`].
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum RegAllocStrategy {
+    /// Linear-scan register allocation (fast, default).
     #[default]
     LinearScan,
     /// `GraphColor` variant.

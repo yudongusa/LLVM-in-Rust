@@ -442,7 +442,7 @@ fn resolve_fp(
 
 fn inline_asm_bytes_x86(template: &str) -> Vec<u8> {
     let mut bytes = Vec::new();
-    for part in template.split(|c| c == ';' || c == '\n') {
+    for part in template.split([';', '\n']) {
         match part.trim().to_ascii_lowercase().as_str() {
             "" => {}
             "nop" => bytes.push(0x90),
@@ -474,6 +474,7 @@ fn instrprof_from_callee(ctx: &Context, callee: ValueRef) -> Option<InstrprofInt
 
 // ── instruction lowering ──────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 fn lower_instr(
     ctx: &Context,
     _module: &Module,
@@ -545,6 +546,7 @@ fn lower_instr(
         }};
     }
     // Helper: emit a unary SSE2 op: dst=copy(src); op(dst).
+    #[allow(unused_macros)]
     macro_rules! emit_fp_unary {
         ($op:expr, $src:expr) => {{
             let dst = new_dst_float!();

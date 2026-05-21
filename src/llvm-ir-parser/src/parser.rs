@@ -665,7 +665,7 @@ impl<'src> Parser<'src> {
                 }
             }
             Token::IntLit(n) => {
-                let n = *n as i64;
+                let n = *n;
                 let s = (n as u64).to_string();
                 self.lex.next()?;
                 let next = self.lex.next()?;

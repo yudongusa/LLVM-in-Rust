@@ -84,8 +84,7 @@ impl IselBackend for WasmBackend {
     ) -> MachineFunction {
         // Return an empty `MachineFunction` as a stub — wasm doesn't use the
         // register-allocator pipeline.
-        let mf = MachineFunction::new(func.name.clone());
-        mf
+        MachineFunction::new(func.name.clone())
     }
 }
 
@@ -668,6 +667,7 @@ fn emit_instr(
 
 // ── terminator emission ───────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 fn emit_terminator(
     ctx: &Context,
     func: &Function,

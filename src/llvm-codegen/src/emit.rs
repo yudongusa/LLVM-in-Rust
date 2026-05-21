@@ -528,7 +528,7 @@ fn serialize_elf(obj: &ObjectFile) -> Vec<u8> {
     buf.extend_from_slice(&[0u8; 24]);
     for (i, sym) in obj.symbols.iter().enumerate() {
         let st_info: u8 = if sym.undefined {
-            (1u8 << 4) | 0u8 // STB_GLOBAL | STT_NOTYPE
+            1u8 << 4 // STB_GLOBAL | STT_NOTYPE
         } else {
             (1u8 << 4) | 1u8 // STB_GLOBAL | STT_OBJECT (for data) or FUNC
         };
@@ -570,12 +570,13 @@ fn serialize_elf(obj: &ObjectFile) -> Vec<u8> {
 fn build_debug_line(source_file: &str, rows: &[DebugLineRow]) -> Vec<u8> {
     let file = source_file.rsplit('/').next().unwrap_or(source_file);
 
-    let mut header_body = Vec::<u8>::new();
-    header_body.push(1); // minimum_instruction_length
-    header_body.push(1); // default_is_stmt
-    header_body.push((-5i8) as u8); // line_base
-    header_body.push(14); // line_range
-    header_body.push(13); // opcode_base
+    let mut header_body = vec![
+        1u8, // minimum_instruction_length
+        1,   // default_is_stmt
+        (-5i8) as u8, // line_base
+        14,  // line_range
+        13,  // opcode_base
+    ];
     header_body.extend_from_slice(&[0, 1, 1, 1, 1, 0, 0, 0, 1, 0, 0, 1]); // std opcode lengths
     header_body.push(0); // include_directories terminator
     header_body.extend_from_slice(file.as_bytes());
@@ -864,7 +865,7 @@ fn build_eh_frame(text_size: u64, frame_size: u32, used_callee_saved: &[PReg]) -
         write_uleb128(&mut fde_prog, 2);
 
         for (idx, pr) in used_callee_saved.iter().enumerate() {
-            let reg = pr.0 as u8;
+            let reg = pr.0;
             if reg <= 0x3f {
                 fde_prog.push(0x80 | reg); // DW_CFA_offset + reg
                 write_uleb128(&mut fde_prog, 3 + idx as u64); // after RA+RBP
@@ -960,7 +961,7 @@ fn build_coff_unwind_tables(text_size: u64, frame_size: u32, used_callee_saved: 
     // PUSH_NONVOL for RBP comes second (lower CodeOffset = 1).
     if has_frame {
         code_bytes.push(1); // CodeOffset: byte after `push rbp`
-        code_bytes.push((5 << 4) | 0x00); // UWOP_PUSH_NONVOL = 0, info = RBP (5)
+        code_bytes.push(5 << 4); // UWOP_PUSH_NONVOL = 0, info = RBP (5)
         slot_count += 1;
     }
 
@@ -1051,7 +1052,7 @@ fn serialize_macho(obj: &ObjectFile) -> Vec<u8> {
             off
         })
         .collect();
-    while strtab.len() % 4 != 0 {
+    while !strtab.len().is_multiple_of(4) {
         strtab.push(0);
     } // align to 4 bytes
 
@@ -1424,7 +1425,7 @@ fn emit_cv_subsection(out: &mut Vec<u8>, kind: u32, data: &[u8]) {
     w32(out, kind);
     w32(out, data.len() as u32);
     out.extend_from_slice(data);
-    while out.len() % 4 != 0 {
+    while !out.len().is_multiple_of(4) {
         out.push(0);
     }
 }
@@ -2067,7 +2068,7 @@ use std::collections::HashMap;
 /// types have size 0.
 pub fn sizeof_ty(ctx: &Context, ty: llvm_ir::context::TypeId) -> u64 {
     match ctx.get_type(ty) {
-        TypeData::Integer(bits) => (*bits as u64 + 7) / 8,
+        TypeData::Integer(bits) => (*bits as u64).div_ceil(8),
         TypeData::Float(k) => match k {
             FloatKind::Half | FloatKind::BFloat => 2,
             FloatKind::Single => 4,
@@ -2090,7 +2091,7 @@ pub fn sizeof_ty(ctx: &Context, ty: llvm_ir::context::TypeId) -> u64 {
 }
 
 fn align_of_ty(ctx: &Context, ty: llvm_ir::context::TypeId) -> u64 {
-    sizeof_ty(ctx, ty).min(8).max(1)
+    sizeof_ty(ctx, ty).clamp(1, 8)
 }
 
 fn struct_total_size(ctx: &Context, fields: &[llvm_ir::context::TypeId], packed: bool) -> u64 {
@@ -2189,7 +2190,7 @@ fn eval_const_bytes(
             let byte_count = (match ctx.get_type(ty) {
                 TypeData::Integer(b) => *b,
                 _ => 64,
-            } as u64 + 7) / 8;
+            } as u64).div_ceil(8);
             for i in 0..byte_count {
                 out.push((val >> (i * 8)) as u8);
             }
@@ -2199,7 +2200,7 @@ fn eval_const_bytes(
                 TypeData::Integer(b) => *b as u64,
                 _ => 64 * words.len() as u64,
             };
-            let byte_count = (bits + 7) / 8;
+            let byte_count = bits.div_ceil(8);
             let raw: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
             let take = (byte_count as usize).min(raw.len());
             out.extend_from_slice(&raw[..take]);
@@ -2212,11 +2213,11 @@ fn eval_const_bytes(
         }
         ConstantData::Null(ty) | ConstantData::Undef(ty) | ConstantData::Poison(ty) => {
             let sz = sizeof_ty(ctx, ty) as usize;
-            out.extend(std::iter::repeat(0u8).take(sz));
+            out.extend(std::iter::repeat_n(0u8, sz));
         }
         ConstantData::ZeroInitializer(ty) => {
             let sz = sizeof_ty(ctx, ty) as usize;
-            out.extend(std::iter::repeat(0u8).take(sz));
+            out.extend(std::iter::repeat_n(0u8, sz));
         }
         ConstantData::Array { elements, .. } | ConstantData::Vector { elements, .. } => {
             for elem in elements {
@@ -2234,14 +2235,14 @@ fn eval_const_bytes(
                 let al = if is_packed { 1 } else { align_of_ty(ctx, fty) as usize };
                 let local_pos = out.len() - struct_start;
                 let pad = if al > 0 { (al - local_pos % al) % al } else { 0 };
-                out.extend(std::iter::repeat(0u8).take(pad));
+                out.extend(std::iter::repeat_n(0u8, pad));
                 eval_const_bytes(ctx, *fld_cid, sec_base, global_sym_map, relocs, out);
             }
             // Trailing struct padding
             let content = out.len() - struct_start;
             let total = struct_total_size(ctx, &field_tys, is_packed) as usize;
             if total > content {
-                out.extend(std::iter::repeat(0u8).take(total - content));
+                out.extend(std::iter::repeat_n(0u8, total - content));
             }
         }
         ConstantData::GlobalRef { name, .. } => {
@@ -2253,7 +2254,7 @@ fn eval_const_bytes(
                     if let Some(&base_cid) = operands.first() {
                         eval_const_bytes(ctx, base_cid, sec_base, global_sym_map, relocs, out);
                     } else {
-                        out.extend(std::iter::repeat(0u8).take(sizeof_ty(ctx, ty) as usize));
+                        out.extend(std::iter::repeat_n(0u8, sizeof_ty(ctx, ty) as usize));
                     }
                 }
                 ConstExprOp::GetElementPtr { base_ty, .. } => {
@@ -2289,30 +2290,27 @@ fn eval_const_bytes(
                         TypeData::Integer(b) => *b,
                         _ => 64,
                     };
-                    let byte_count = ((int_bits as usize) + 7) / 8;
+                    let byte_count = (int_bits as usize).div_ceil(8);
                     if let Some(&base_cid) = operands.first() {
-                        match ctx.get_const(base_cid).clone() {
-                            ConstantData::GlobalRef { name, .. } => {
-                                push_ptr_reloc(sec_base, &name, 0, global_sym_map, relocs, out);
-                                // push_ptr_reloc always emits 8 bytes; truncate if int is narrower
-                                if byte_count < 8 {
-                                    let extra = 8 - byte_count;
-                                    let len = out.len();
-                                    out.truncate(len - extra);
-                                }
-                                return;
+                        if let ConstantData::GlobalRef { name, .. } = ctx.get_const(base_cid).clone() {
+                            push_ptr_reloc(sec_base, &name, 0, global_sym_map, relocs, out);
+                            // push_ptr_reloc always emits 8 bytes; truncate if int is narrower
+                            if byte_count < 8 {
+                                let extra = 8 - byte_count;
+                                let len = out.len();
+                                out.truncate(len - extra);
                             }
-                            _ => {}
+                            return;
                         }
                     }
-                    out.extend(std::iter::repeat(0u8).take(byte_count));
+                    out.extend(std::iter::repeat_n(0u8, byte_count));
                 }
                 ConstExprOp::Trunc | ConstExprOp::ZExt | ConstExprOp::SExt => {
                     let dst_bits = match ctx.get_type(ty) {
                         TypeData::Integer(b) => *b as usize,
                         _ => 64,
                     };
-                    let dst_bytes = (dst_bits + 7) / 8;
+                    let dst_bytes = dst_bits.div_ceil(8);
                     if let Some(&src_cid) = operands.first() {
                         let mut src_buf = Vec::new();
                         eval_const_bytes(
@@ -2327,7 +2325,7 @@ fn eval_const_bytes(
                         src_buf.resize(dst_bytes, fill);
                         out.extend_from_slice(&src_buf[..dst_bytes.min(src_buf.len())]);
                     } else {
-                        out.extend(std::iter::repeat(0u8).take(dst_bytes));
+                        out.extend(std::iter::repeat_n(0u8, dst_bytes));
                     }
                 }
             }
@@ -2430,9 +2428,9 @@ pub fn emit_globals(
 
         // Natural alignment: min of sizeof(ty), 16.
         let sz = sizeof_ty(ctx, gv.ty) as usize;
-        let al = (sz as u64).min(16).max(1) as usize;
+        let al = (sz as u64).clamp(1, 16) as usize;
         let pad = if al > 0 { (al - sec.data.len() % al) % al } else { 0 };
-        sec.data.extend(std::iter::repeat(0u8).take(pad));
+        sec.data.extend(std::iter::repeat_n(0u8, pad));
 
         let global_offset = sec.data.len() as u64;
 
@@ -2449,7 +2447,7 @@ pub fn emit_globals(
             );
         } else {
             // Declaration only (extern) — emit zero bytes as placeholder.
-            sec.data.extend(std::iter::repeat(0u8).take(sz));
+            sec.data.extend(std::iter::repeat_n(0u8, sz));
         }
 
         let emitted_size = sec.data.len() as u64 - global_offset;
