@@ -241,7 +241,7 @@ impl ExecutionEngine for SimpleJit {
             let func_name = func.name.clone();
 
             let mut backend = X86Backend::new(TargetFeatures::baseline());
-            let mut mf = backend.lower_function(&ctx, &module, func);
+            let mut mf = backend.lower_function(ctx, module, func);
 
             let intervals = compute_live_intervals(&mf);
             let mut result =

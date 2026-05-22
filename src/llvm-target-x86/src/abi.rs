@@ -5,6 +5,7 @@ use crate::regs::{
     XMM0, XMM1, XMM2, XMM3,
 };
 use llvm_codegen::isel::PReg;
+use llvm_ir::{Context, FloatKind, TypeData, TypeId};
 
 // ── System V AMD64 ABI ─────────────────────────────────────────────────────
 
@@ -71,6 +72,135 @@ pub enum ArgLocation {
     /// Passed on the stack at `offset` bytes above RSP at the call site
     /// (first stack argument is at offset 0).
     Stack(u32),
+    /// Passed by pointer: caller allocates a copy and passes its address in the
+    /// next available integer register slot (SysV AMD64 MEMORY class).
+    ByPtr,
+}
+
+// ── SysV struct classification ─────────────────────────────────────────────
+
+/// Classification of a single 8-byte "eightbyte" chunk of a struct argument
+/// under the SysV AMD64 ABI (§3.2.3 of the ABI spec).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EightbyteClass {
+    /// Contains at least one integer or pointer field (wins over SSE).
+    Integer,
+    /// Contains only floating-point fields (float or double).
+    Sse,
+    /// Struct is too large (>16 bytes), unaligned, or contains an
+    /// unsupported type; must be passed in memory (by pointer).
+    Memory,
+}
+
+/// Return the byte size of a type for SysV layout purposes.
+///
+/// Returns `None` for types that have no defined size (e.g. void, label) or
+/// that force MEMORY classification (i128, vectors, etc.).
+fn type_size(ctx: &Context, ty: TypeId) -> Option<u64> {
+    match ctx.get_type(ty) {
+        TypeData::Integer(bits) => Some((*bits as u64 + 7) / 8),
+        TypeData::Float(FloatKind::Single) => Some(4),
+        TypeData::Float(FloatKind::Double) => Some(8),
+        TypeData::Float(_) => None, // x87 / fp128 / bfloat → MEMORY
+        TypeData::Pointer => Some(8),
+        TypeData::Struct(st) => {
+            let mut total: u64 = 0;
+            for &f in &st.fields.clone() {
+                total += type_size(ctx, f)?;
+            }
+            Some(total)
+        }
+        _ => None,
+    }
+}
+
+/// Classify a single field type for eightbyte merging.
+///
+/// Returns `Some(EightbyteClass)` for field types that are natively
+/// classifiable, or `None` to signal MEMORY (unsupported type, etc.).
+fn classify_field(ctx: &Context, ty: TypeId) -> EightbyteClass {
+    match ctx.get_type(ty) {
+        TypeData::Integer(_) | TypeData::Pointer => EightbyteClass::Integer,
+        TypeData::Float(FloatKind::Single) | TypeData::Float(FloatKind::Double) => {
+            EightbyteClass::Sse
+        }
+        TypeData::Float(_) => EightbyteClass::Memory,
+        TypeData::Struct(_) => {
+            // Recursively: if any sub-field forces MEMORY the whole thing does.
+            let sub = classify_struct_sysv(ctx, ty);
+            if sub == [EightbyteClass::Memory] {
+                EightbyteClass::Memory
+            } else {
+                // Nested struct: return INTEGER if any eightbyte is INTEGER.
+                if sub.iter().any(|c| *c == EightbyteClass::Integer) {
+                    EightbyteClass::Integer
+                } else {
+                    EightbyteClass::Sse
+                }
+            }
+        }
+        _ => EightbyteClass::Memory,
+    }
+}
+
+/// Merge two eightbyte classifications following SysV §3.2.3 merge rules.
+fn merge(a: EightbyteClass, b: EightbyteClass) -> EightbyteClass {
+    use EightbyteClass::*;
+    match (a, b) {
+        (Memory, _) | (_, Memory) => Memory,
+        (Integer, _) | (_, Integer) => Integer,
+        _ => Sse,
+    }
+}
+
+/// Classify a struct type for SysV AMD64 ABI argument passing.
+///
+/// Returns one [`EightbyteClass`] per 8-byte chunk of the struct, or
+/// `vec![EightbyteClass::Memory]` when the struct must be passed by pointer.
+///
+/// Rules implemented:
+/// - Total size > 16 bytes → MEMORY (all other cases return 1 or 2 classes).
+/// - Each 8-byte chunk is classified based on the field types it contains:
+///   INTEGER wins over SSE; any MEMORY field makes the chunk MEMORY.
+pub fn classify_struct_sysv(ctx: &Context, ty: TypeId) -> Vec<EightbyteClass> {
+    let memory = vec![EightbyteClass::Memory];
+
+    let st = match ctx.get_type(ty) {
+        TypeData::Struct(st) => st.clone(),
+        _ => return memory,
+    };
+
+    // Total size check.
+    let total = match type_size(ctx, ty) {
+        Some(n) => n,
+        None => return memory,
+    };
+    if total > 16 {
+        return memory;
+    }
+
+    // Walk fields and accumulate their contribution to eightbytes.
+    // We track `byte_offset` to determine which eightbyte a field lands in.
+    let n_eightbytes = if total <= 8 { 1 } else { 2 };
+    let mut classes: Vec<EightbyteClass> = vec![EightbyteClass::Sse; n_eightbytes];
+    // Start with SSE (neutral) — INTEGER and MEMORY override.
+
+    let mut byte_offset: u64 = 0;
+    for &field_ty in &st.fields {
+        let field_size = match type_size(ctx, field_ty) {
+            Some(s) => s,
+            None => return memory,
+        };
+        let eb_idx = (byte_offset / 8) as usize;
+        let field_class = classify_field(ctx, field_ty);
+        if field_class == EightbyteClass::Memory {
+            return memory;
+        }
+        classes[eb_idx] = merge(classes[eb_idx].clone(), field_class);
+        byte_offset += field_size;
+    }
+
+    classes
 }
 
 /// Active x86-64 calling convention.
@@ -259,6 +389,7 @@ pub fn classify_win64_args_typed(is_fp: &[bool]) -> Vec<ArgLocation> {
 mod tests {
     use super::*;
     use crate::regs::{R10, R11, R8, R9, RAX, RCX, RDI, RDX, RSI, XMM0, XMM1, XMM7};
+    use llvm_ir::Context;
 
     #[test]
     fn sysv_first_six_in_registers() {
@@ -365,5 +496,80 @@ mod tests {
         assert_eq!(locs[0], ArgLocation::Reg(RCX));
         assert_eq!(locs[1], ArgLocation::FpReg(XMM1));
         assert_eq!(locs[2], ArgLocation::Reg(R8));
+    }
+
+    // ── SysV struct classification tests ──────────────────────────────────────
+
+    /// `{i32, i32}` — 4+4 = 8 bytes, one eightbyte, both integer → [Integer]
+    #[test]
+    fn classify_i32_i32_struct_is_integer() {
+        let mut ctx = Context::new();
+        let i32_ty = ctx.i32_ty;
+        let ty = ctx.mk_struct_anon(vec![i32_ty, i32_ty], false);
+        let cls = classify_struct_sysv(&ctx, ty);
+        assert_eq!(cls, vec![EightbyteClass::Integer]);
+    }
+
+    /// `{double, double}` — 8+8 = 16 bytes, two eightbytes, both SSE → [Sse, Sse]
+    #[test]
+    fn classify_double_double_struct_is_sse_sse() {
+        let mut ctx = Context::new();
+        let f64_ty = ctx.f64_ty;
+        let ty = ctx.mk_struct_anon(vec![f64_ty, f64_ty], false);
+        let cls = classify_struct_sysv(&ctx, ty);
+        assert_eq!(cls, vec![EightbyteClass::Sse, EightbyteClass::Sse]);
+    }
+
+    /// `{i64, i64, i64}` — 24 bytes > 16 → [Memory]
+    #[test]
+    fn classify_large_struct_is_memory() {
+        let mut ctx = Context::new();
+        let i64_ty = ctx.i64_ty;
+        let ty = ctx.mk_struct_anon(vec![i64_ty, i64_ty, i64_ty], false);
+        let cls = classify_struct_sysv(&ctx, ty);
+        assert_eq!(cls, vec![EightbyteClass::Memory]);
+    }
+
+    /// `{ptr, i64}` — pointer + integer, two eightbytes → [Integer, Integer]
+    #[test]
+    fn classify_pointer_struct_is_integer_integer() {
+        let mut ctx = Context::new();
+        let ptr_ty = ctx.ptr_ty;
+        let i64_ty = ctx.i64_ty;
+        let ty = ctx.mk_struct_anon(vec![ptr_ty, i64_ty], false);
+        let cls = classify_struct_sysv(&ctx, ty);
+        assert_eq!(cls, vec![EightbyteClass::Integer, EightbyteClass::Integer]);
+    }
+
+    /// `{i32, float}` — 4+4 = 8 bytes, one eightbyte with both int and float.
+    /// INTEGER wins over SSE → [Integer]
+    #[test]
+    fn classify_mixed_int_float_first_eightbyte_is_integer() {
+        let mut ctx = Context::new();
+        let i32_ty = ctx.i32_ty;
+        let f32_ty = ctx.f32_ty;
+        let ty = ctx.mk_struct_anon(vec![i32_ty, f32_ty], false);
+        let cls = classify_struct_sysv(&ctx, ty);
+        assert_eq!(cls, vec![EightbyteClass::Integer]);
+    }
+
+    /// `{i64, i64}` — two integer eightbytes → [Integer, Integer]
+    #[test]
+    fn classify_two_i64_is_integer_integer() {
+        let mut ctx = Context::new();
+        let i64_ty = ctx.i64_ty;
+        let ty = ctx.mk_struct_anon(vec![i64_ty, i64_ty], false);
+        let cls = classify_struct_sysv(&ctx, ty);
+        assert_eq!(cls, vec![EightbyteClass::Integer, EightbyteClass::Integer]);
+    }
+
+    /// `{float}` — single float field, 4 bytes, one eightbyte → [Sse]
+    #[test]
+    fn classify_single_float_struct_is_sse() {
+        let mut ctx = Context::new();
+        let f32_ty = ctx.f32_ty;
+        let ty = ctx.mk_struct_anon(vec![f32_ty], false);
+        let cls = classify_struct_sysv(&ctx, ty);
+        assert_eq!(cls, vec![EightbyteClass::Sse]);
     }
 }

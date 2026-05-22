@@ -278,7 +278,7 @@ fn main() -> ExitCode {
         .iter()
         .position(|a| a == "--fixture-dir")
         .and_then(|i| args.get(i + 1))
-        .map(|s| PathBuf::from(s))
+        .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("bench/large-programs/fixtures"));
     let baselines_path = PathBuf::from("bench/large-programs/baselines.json");
     // Regression threshold: instruction count must not be >20% above baseline.
@@ -336,8 +336,8 @@ fn main() -> ExitCode {
     // --- print results table ---
     println!();
     println!(
-        "{:<22}  {:>10}  {:>10}  {:>10}  {:>10}  {}",
-        "fixture", "in (B)", "text (B)", "~instrs", "time (ms)", "rss"
+        "{:<22}  {:>10}  {:>10}  {:>10}  {:>10}  rss",
+        "fixture", "in (B)", "text (B)", "~instrs", "time (ms)"
     );
     println!("{}", "-".repeat(80));
     for r in &results {

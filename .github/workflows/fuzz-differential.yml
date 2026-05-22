@@ -1,0 +1,62 @@
+name: fuzz-differential
+
+on:
+  schedule:
+    - cron: '0 2 * * *'  # nightly at 2am UTC
+  workflow_dispatch:
+    inputs:
+      count:
+        description: "Number of random programs to fuzz"
+        required: false
+        default: "500"
+      seed:
+        description: "Base RNG seed"
+        required: false
+        default: "42"
+
+jobs:
+  fuzz:
+    name: Differential IR fuzzing (random IR generation + JIT comparison)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-fuzz-diff-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-fuzz-diff-
+
+      - name: Build fuzz-diff harness
+        run: cargo build --bin fuzz-diff --release
+
+      - name: Run differential fuzzing
+        run: |
+          COUNT="${{ github.event.inputs.count || '500' }}"
+          SEED="${{ github.event.inputs.seed || '42' }}"
+          cargo run --release --bin fuzz-diff -- "$COUNT" "$SEED"
+
+      - name: Save findings on failure
+        if: failure()
+        run: |
+          mkdir -p bench/fuzz/findings
+          echo "Fuzz run failed at $(date -u)" > bench/fuzz/findings/summary.txt
+
+      - name: Upload findings
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-findings-${{ github.run_id }}
+          path: bench/fuzz/findings/
+          if-no-files-found: ignore
+          retention-days: 30

@@ -497,10 +497,8 @@ impl<'src> Lexer<'src> {
     /// Multiple `unget` calls are supported (LIFO order).
     pub fn unget(&mut self, tok: Token) {
         // If peeked is occupied, flush it to unget_buf first so ordering is preserved.
-        if let Some(peeked) = self.peeked.take() {
-            if let Ok(p) = peeked {
-                self.unget_buf.push(p);
-            }
+        if let Some(Ok(p)) = self.peeked.take() {
+            self.unget_buf.push(p);
             // If peeked was an error, we discard it — this case should not arise
             // when unget is called after a successful peek/next.
         }
@@ -735,7 +733,7 @@ impl<'src> Lexer<'src> {
         if self.peek_ch() == Some(b'"') {
             self.advance();
             self.read_string_literal()
-        } else if self.peek_ch().map_or(false, |c| c.is_ascii_digit()) {
+        } else if self.peek_ch().is_some_and(|c| c.is_ascii_digit()) {
             let mut s = String::new();
             while let Some(c) = self.peek_ch() {
                 if c.is_ascii_digit() {

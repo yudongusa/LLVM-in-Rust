@@ -1,6 +1,8 @@
 //! Target-independent code generation: legalization, instruction selection, register allocation, scheduling, and emission.
 
 pub mod assembler;
+/// DWARF CFI (.eh_frame) emission for stack unwinding.
+pub mod cfi;
 pub mod dwarf_vars;
 /// Public API for `emit`.
 pub mod emit;
@@ -28,6 +30,8 @@ pub use emit::{
 /// Public API for `re-export`.
 pub use isel::{IselBackend, MInstr, MOpcode, MOperand, MachineBlock, MachineFunction, PReg, RegClass, VReg};
 /// Public API for `re-export`.
+pub use cfi::{x86_fp_prologue_cfi, CfiInstr, CfiWriter};
+/// Public API for `re-export`.
 pub use dwarf_vars::{
     build_variable_die, encode_breg6, encode_location, encode_reg, encode_sleb128,
     encode_uleb128, VarLocation, X86_DWARF_REG,
@@ -36,4 +40,9 @@ pub use dwarf_vars::{
 pub use regalloc::{
     allocate_registers, apply_allocation, compute_live_intervals, graph_color,
     insert_spill_reloads, linear_scan, RegAllocStrategy,
+};
+/// Public API for `schedule` re-exports.
+pub use schedule::{
+    apply_schedule, build_dep_dag, compute_critical_paths, list_schedule, x86_latency, DepEdge,
+    DepKind,
 };

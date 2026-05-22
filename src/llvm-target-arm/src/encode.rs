@@ -45,7 +45,7 @@ impl Emitter for AArch64Emitter {
         //   [x29 + 16 + n_cs*8 + j*8]  alloca slot j  (j in 0..alloca_slot_count)
         //   [x29 + 16 + n_cs*8 + alloca_frame_bytes + slot*8]  spill slots
         let cs_save_size = n_cs * 8;
-        let alloca_slots = ((mf.alloca_frame_bytes + 7) / 8) as usize;
+        let alloca_slots = mf.alloca_frame_bytes.div_ceil(8) as usize;
         let frame_alloc = if needs_frame {
             ((16 + cs_save_size + mf.alloca_frame_bytes as usize + mf.frame_size as usize) + 15)
                 & !15
@@ -91,7 +91,7 @@ impl Emitter for AArch64Emitter {
                     // ldp x29, x30, [sp], #frame_alloc (post-index)
                     // Encoding: 0xA8C00000 | (imm7 << 15) | (x30=30 << 10) | (sp=31 << 5) | x29=29
                     let frame_alloc_u32 = frame_alloc as u32;
-                    let imm7 = ((frame_alloc_u32 / 8) as u32) & 0x7F;
+                    let imm7 = (frame_alloc_u32 / 8) & 0x7F;
                     ctx.emit4(0xA8C00000 | (imm7 << 15) | (30 << 10) | (31 << 5) | 29);
                 }
                 encode_instr(instr, &mut ctx);
@@ -720,7 +720,7 @@ fn encode_instr(instr: &MInstr, ctx: &mut EncodeCtx) {
         // Converts double-precision FP to signed 64-bit integer (truncation).
         FCVTZS_RR => {
             if let (Some(dst), Some(src_preg)) = (instr.dst, fp_first_src_preg(instr)) {
-                let rd = (dst.0 & 0x1F) as u32;
+                let rd = dst.0 & 0x1F;
                 let rn = fp_enc(src_preg) as u32;
                 ctx.emit4(0x9E780000 | (rn << 5) | rd);
             } else {
@@ -732,7 +732,7 @@ fn encode_instr(instr: &MInstr, ctx: &mut EncodeCtx) {
         // Converts signed 64-bit integer to double-precision FP.
         SCVTF_RR => {
             if let (Some(dst), Some(src_preg)) = (instr.dst, int_first_src_preg(instr)) {
-                let rd = (dst.0 & 0x1F) as u32;
+                let rd = dst.0 & 0x1F;
                 let rn = reg_enc(src_preg) as u32;
                 ctx.emit4(0x9E620000 | (rn << 5) | rd);
             } else {
@@ -744,7 +744,7 @@ fn encode_instr(instr: &MInstr, ctx: &mut EncodeCtx) {
         // Converts unsigned 64-bit integer to double-precision FP.
         UCVTF_RR => {
             if let (Some(dst), Some(src_preg)) = (instr.dst, int_first_src_preg(instr)) {
-                let rd = (dst.0 & 0x1F) as u32;
+                let rd = dst.0 & 0x1F;
                 let rn = reg_enc(src_preg) as u32;
                 ctx.emit4(0x9E630000 | (rn << 5) | rd);
             } else {
@@ -755,7 +755,7 @@ fn encode_instr(instr: &MInstr, ctx: &mut EncodeCtx) {
         // LDR_FP_SCALAR Dn, [Xn] — 0xFD400000 | (Rn<<5) | Rt
         LDR_FP_SCALAR => {
             if let (Some(dst), Some(base_preg)) = (instr.dst, int_first_src_preg(instr)) {
-                let rt = (dst.0 & 0x1F) as u32;
+                let rt = dst.0 & 0x1F;
                 let rn = reg_enc(base_preg) as u32;
                 ctx.emit4(0xFD400000 | (rn << 5) | rt);
             } else {
@@ -781,7 +781,7 @@ fn encode_instr(instr: &MInstr, ctx: &mut EncodeCtx) {
         // imm12 = 2 + cs_save_count + slot
         MOVSD_LOAD_MR => {
             if let (Some(dst), Some(MOperand::Imm(slot))) = (instr.dst, instr.operands.first()) {
-                let rt = (dst.0 & 0x1F) as u32;
+                let rt = dst.0 & 0x1F;
                 let imm12 = (2 + ctx.cs_save_count + *slot as u32) & 0xFFF;
                 // LDR (FP&SIMD, unsigned offset, 64-bit): 0xFD400000 | (imm12<<10) | (Rn<<5) | Rt
                 ctx.emit4(0xFD400000 | (imm12 << 10) | (29 << 5) | rt);

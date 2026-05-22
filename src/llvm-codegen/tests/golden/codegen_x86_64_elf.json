@@ -3,35 +3,35 @@
     "backend_arithmetic_chain": {
       "category": "backend",
       "object_format": "elf",
-      "object_hash": "9a580659f36881b0",
+      "object_hash": "6cfaf62c152c4fd1",
       "passes": [],
       "target": "x86_64-unknown-linux-gnu"
     },
     "branch_phi_diamond": {
       "category": "backend/control-flow",
       "object_format": "elf",
-      "object_hash": "3af7d4adbabc1b53",
+      "object_hash": "25a9cfb8e95bccee",
       "passes": [],
       "target": "x86_64-unknown-linux-gnu"
     },
     "debug_metadata_sections": {
       "category": "debug/unwind",
       "object_format": "elf",
-      "object_hash": "468138d1ab33aad0",
+      "object_hash": "ceba31e55e41b5a4",
       "passes": [],
       "target": "x86_64-unknown-linux-gnu"
     },
     "link_external_call_relocation": {
       "category": "link/relocation",
       "object_format": "elf",
-      "object_hash": "aaa9e63276f07aa6",
+      "object_hash": "468d263c54f4c6ab",
       "passes": [],
       "target": "x86_64-unknown-linux-gnu"
     },
     "opt_mem2reg_stack_slot": {
       "category": "optimization/backend",
       "object_format": "elf",
-      "object_hash": "f55621c1be3d3e0b",
+      "object_hash": "d6cabb96764b0f9e",
       "passes": [
         "mem2reg"
       ],
@@ -40,7 +40,7 @@
     "parser_return_constant": {
       "category": "parser/backend",
       "object_format": "elf",
-      "object_hash": "43383da9ee3ede6b",
+      "object_hash": "c65cf5e64b7811fd",
       "passes": [],
       "target": "x86_64-unknown-linux-gnu"
     }

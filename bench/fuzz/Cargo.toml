@@ -1,0 +1,22 @@
+[package]
+name = "fuzz-diff"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+description = "Differential fuzzing harness: random IR generation + JIT output comparison."
+
+[lib]
+name = "fuzz_diff"
+path = "src/lib.rs"
+
+[[bin]]
+name = "fuzz-diff"
+path = "src/bin/fuzz-diff.rs"
+
+[dependencies]
+llvm-ir         = { package = "llvm-in-rust-ir",         version = "0.1.0", path = "../../src/llvm-ir" }
+llvm-transforms = { package = "llvm-in-rust-transforms", version = "0.1.0", path = "../../src/llvm-transforms" }
+llvm-jit        = { package = "llvm-in-rust-jit",        version = "0.1.0", path = "../../src/llvm-jit" }
+rand            = "0.9"

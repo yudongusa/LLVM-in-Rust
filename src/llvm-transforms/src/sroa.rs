@@ -106,7 +106,7 @@ fn candidate_for_alloca(ctx: &Context, func: &Function, alloca: InstrId) -> Opti
                 indices,
                 ..
             } if *ptr == alloca_ref => {
-                if indices.iter().any(|&idx| idx == alloca_ref) {
+                if indices.contains(&alloca_ref) {
                     return None;
                 }
                 let index = constant_component_index(ctx, alloc_ty, *base_ty, indices)?;

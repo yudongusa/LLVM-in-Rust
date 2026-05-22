@@ -58,6 +58,7 @@ impl Default for SlpVectorizer {
 
 /// Scalar FP opcode kind — used to ensure a group operates on a uniform op.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(clippy::enum_variant_names)]
 enum FpOp {
     FAdd,
     FSub,

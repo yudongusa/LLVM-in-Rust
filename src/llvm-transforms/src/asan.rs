@@ -653,7 +653,7 @@ fn instrument_memory_accesses(
 fn type_size_bytes(ctx: &Context, ty: llvm_ir::TypeId) -> Option<u64> {
     use llvm_ir::TypeData;
     match ctx.get_type(ty) {
-        TypeData::Integer(bits) => Some((*bits as u64 + 7) / 8),
+        TypeData::Integer(bits) => Some((*bits as u64).div_ceil(8)),
         TypeData::Float(llvm_ir::FloatKind::Single) => Some(4),
         TypeData::Float(llvm_ir::FloatKind::Double) => Some(8),
         TypeData::Pointer => Some(8),

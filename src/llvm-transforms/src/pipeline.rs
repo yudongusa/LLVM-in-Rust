@@ -50,7 +50,7 @@ pub fn build_pipeline(level: OptLevel) -> PassManager {
             pm.add_function_pass(ConstantFold);
             pm.add_function_pass(ConstProp);
             pm.add_function_pass(DeadCodeElim);
-            pm.add_function_pass(CfgSimplify::default());
+            pm.add_function_pass(CfgSimplify {});
         }
         OptLevel::O2 => {
             pm.add_function_pass(Sroa);
@@ -71,7 +71,7 @@ pub fn build_pipeline(level: OptLevel) -> PassManager {
             pm.add_function_pass(DeadCodeElim);
             // SLP auto-vectorization: pack sequential scalar FP chains into vector ops.
             pm.add_function_pass(SlpVectorizer::default());
-            pm.add_function_pass(CfgSimplify::default());
+            pm.add_function_pass(CfgSimplify {});
         }
         OptLevel::O3 => {
             pm.add_function_pass(Sroa);
@@ -104,7 +104,7 @@ pub fn build_pipeline(level: OptLevel) -> PassManager {
             pm.add_function_pass(DeadCodeElim);
             // SLP auto-vectorization.
             pm.add_function_pass(SlpVectorizer::default());
-            pm.add_function_pass(CfgSimplify::default());
+            pm.add_function_pass(CfgSimplify {});
         }
     }
 

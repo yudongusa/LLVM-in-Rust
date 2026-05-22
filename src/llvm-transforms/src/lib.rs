@@ -1,4 +1,26 @@
 //! Optimization passes: mem2reg, DCE, constant folding/propagation, and inlining.
+//!
+//! # Examples
+//!
+//! Run the O2 optimization pipeline on a simple module:
+//!
+//! ```no_run
+//! use llvm_ir::{Builder, Context, Linkage, Module};
+//! use llvm_transforms::{build_pipeline, OptLevel};
+//! let mut ctx = Context::new();
+//! let mut module = Module::new("demo");
+//! let mut b = Builder::new(&mut ctx, &mut module);
+//! let i32_ty = b.ctx.i32_ty;
+//! b.add_function("f", i32_ty, vec![], vec![], false, Linkage::External);
+//! let entry = b.add_block("entry");
+//! b.position_at_end(entry);
+//! let c = b.const_int(i32_ty, 42);
+//! b.build_ret(c);
+//! drop(b);
+//! let mut pm = build_pipeline(OptLevel::O2);
+//! pm.run_until_fixed_point(&mut ctx, &mut module, 8);
+//! assert_eq!(module.functions.len(), 1);
+//! ```
 
 /// Public API for `asan`.
 pub mod asan;

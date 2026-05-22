@@ -528,7 +528,7 @@ fn serialize_elf(obj: &ObjectFile) -> Vec<u8> {
     buf.extend_from_slice(&[0u8; 24]);
     for (i, sym) in obj.symbols.iter().enumerate() {
         let st_info: u8 = if sym.undefined {
-            (1u8 << 4) | 0u8 // STB_GLOBAL | STT_NOTYPE
+            1u8 << 4 // STB_GLOBAL | STT_NOTYPE
         } else {
             (1u8 << 4) | 1u8 // STB_GLOBAL | STT_OBJECT (for data) or FUNC
         };
@@ -570,12 +570,13 @@ fn serialize_elf(obj: &ObjectFile) -> Vec<u8> {
 fn build_debug_line(source_file: &str, rows: &[DebugLineRow]) -> Vec<u8> {
     let file = source_file.rsplit('/').next().unwrap_or(source_file);
 
-    let mut header_body = Vec::<u8>::new();
-    header_body.push(1); // minimum_instruction_length
-    header_body.push(1); // default_is_stmt
-    header_body.push((-5i8) as u8); // line_base
-    header_body.push(14); // line_range
-    header_body.push(13); // opcode_base
+    let mut header_body = vec![
+        1u8, // minimum_instruction_length
+        1,   // default_is_stmt
+        (-5i8) as u8, // line_base
+        14,  // line_range
+        13,  // opcode_base
+    ];
     header_body.extend_from_slice(&[0, 1, 1, 1, 1, 0, 0, 0, 1, 0, 0, 1]); // std opcode lengths
     header_body.push(0); // include_directories terminator
     header_body.extend_from_slice(file.as_bytes());
@@ -811,90 +812,62 @@ fn build_debug_loclists(text_size: u64) -> Vec<u8> {
 }
 
 fn build_eh_frame(text_size: u64, frame_size: u32, used_callee_saved: &[PReg]) -> Vec<u8> {
-    // Baseline .eh_frame with one CIE/FDE, now shaped by frame facts.
+    // Build .eh_frame using the structured CfiWriter from crate::cfi.
     // CIE augmentation uses zR and encodes FDE pointers as pcrel/sdata4.
-    let mut out = Vec::new();
+    use crate::cfi::{CfiInstr, CfiWriter};
 
-    let mut cie = Vec::new();
-    cie.push(1); // version
-    cie.extend_from_slice(b"zR\0"); // augmentation
-    write_uleb128(&mut cie, 1); // code alignment factor
-    write_sleb128(&mut cie, -8); // data alignment factor
-    write_uleb128(&mut cie, 16); // return address register (RIP)
-    write_uleb128(&mut cie, 1); // augmentation data length
-    cie.push(0x1b); // DW_EH_PE_pcrel | DW_EH_PE_sdata4
+    let mut cfi = CfiWriter::new();
+    cfi.write_cie();
 
-    // Initial canonical frame: CFA = rsp + 8, RA saved at cfa-8.
-    cie.push(0x0c); // DW_CFA_def_cfa
-    write_uleb128(&mut cie, 7); // rsp
-    write_uleb128(&mut cie, 8);
-    cie.push(0x90); // DW_CFA_offset + r16 (rip)
-    write_uleb128(&mut cie, 1);
+    // Build the FDE CFI instruction stream from the machine function's frame shape.
+    // For x86-64 with a frame pointer, the prologue is:
+    //   push rbp (1 byte)       → CFA offset increases by 8, RBP saved
+    //   mov rbp, rsp (3 bytes)  → CFA register switches to RBP
+    //   push callee-saved regs  → additional saves recorded
 
-    w32(&mut out, cie.len() as u32 + 4);
-    w32(&mut out, 0); // CIE id
-    out.extend_from_slice(&cie);
-    while out.len() % 8 != 0 {
-        out.push(0);
-    }
+    let has_frame = frame_size > 0 || !used_callee_saved.is_empty();
+    let mut prologue_cfi: Vec<CfiInstr> = Vec::new();
 
-    let fde_start = out.len();
-    let mut fde = Vec::new();
-    w32(&mut fde, 0); // initial_location (placeholder in object file)
-    w32(&mut fde, text_size.max(1) as u32); // address range
+    if has_frame {
+        // After "push rbp" (1 byte): CFA = RSP+16, RBP saved at CFA-16.
+        prologue_cfi.push(CfiInstr::AdvanceLoc(1));
+        prologue_cfi.push(CfiInstr::DefCfaOffset(16));
+        prologue_cfi.push(CfiInstr::Offset { reg: 6, factored_offset: 2 });
 
-    // Build FDE instruction stream from frame shape.
-    let mut fde_prog = Vec::new();
-    let mut cfa_off = 8u64;
+        // After "mov rbp, rsp" (3 bytes): CFA register = RBP.
+        prologue_cfi.push(CfiInstr::AdvanceLoc(3));
+        prologue_cfi.push(CfiInstr::DefCfaRegister(6));
 
-    // Account for frame pointer setup and pushed callee-saved registers.
-    let pushes = if frame_size > 0 || !used_callee_saved.is_empty() {
-        1 + used_callee_saved.len() as u64 // push rbp + pushes
-    } else {
-        0
-    };
-
-    if pushes > 0 {
-        cfa_off += pushes * 8;
-        fde_prog.push(0x0e); // DW_CFA_def_cfa_offset
-        write_uleb128(&mut fde_prog, cfa_off);
-
-        // rbp saved at CFA-16 after push rbp + call return address.
-        fde_prog.push(0x86); // DW_CFA_offset + r6 (rbp)
-        write_uleb128(&mut fde_prog, 2);
-
+        // Record callee-saved register saves (each push is 1 or 2 bytes).
+        // CFA offset at this point = 16 + n_callee*8; factored = (16 + (idx+1)*8) / 8 = 2 + idx+1.
         for (idx, pr) in used_callee_saved.iter().enumerate() {
             let reg = pr.0 as u8;
+            // Push instruction: 1 byte for RAX-RDI (no REX), 2 bytes for R8-R15 (REX.B prefix).
+            let push_len: u8 = if pr.0 >= 8 { 2 } else { 1 };
+            // DWARF register numbers for x86-64 (System V ABI Table 3.18).
+            // Our PReg: 0=RAX,1=RCX,2=RDX,3=RBX,4=RSP,5=RBP,6=RSI,7=RDI,8=R8..15=R15
+            // DWARF:    RAX=0,RDX=1,RCX=2,RBX=3,RSI=4,RDI=5,RBP=6,RSP=7,R8-R15=8-15
+            let dwarf_reg: u8 = match pr.0 {
+                0 => 0,  // RAX
+                1 => 2,  // RCX → DWARF 2
+                2 => 1,  // RDX → DWARF 1
+                3 => 3,  // RBX → DWARF 3
+                4 => 7,  // RSP → DWARF 7
+                5 => 6,  // RBP → DWARF 6
+                6 => 4,  // RSI → DWARF 4
+                7 => 5,  // RDI → DWARF 5
+                n => n,  // R8-R15 → DWARF 8-15 (same number)
+            };
             if reg <= 0x3f {
-                fde_prog.push(0x80 | reg); // DW_CFA_offset + reg
-                write_uleb128(&mut fde_prog, 3 + idx as u64); // after RA+RBP
+                prologue_cfi.push(CfiInstr::AdvanceLoc(push_len));
+                let factored = 3u32 + idx as u32; // CFA-((3+idx)*8): after RA+RBP slots
+                prologue_cfi.push(CfiInstr::Offset { reg: dwarf_reg, factored_offset: factored });
             }
         }
-
-        // set CFA register to rbp once prologue establishes frame pointer.
-        fde_prog.push(0x0d); // DW_CFA_def_cfa_register
-        write_uleb128(&mut fde_prog, 6); // rbp
     }
 
-    if frame_size > 0 {
-        cfa_off += frame_size as u64;
-        fde_prog.push(0x0e); // DW_CFA_def_cfa_offset
-        write_uleb128(&mut fde_prog, cfa_off);
-    }
-
-    write_uleb128(&mut fde, fde_prog.len() as u64); // augmentation data length
-    fde.extend_from_slice(&fde_prog);
-
-    w32(&mut out, fde.len() as u32 + 4);
-    let cie_ptr = fde_start as u32;
-    w32(&mut out, cie_ptr); // CIE pointer (offset back to CIE at 0)
-    out.extend_from_slice(&fde);
-    while out.len() % 8 != 0 {
-        out.push(0);
-    }
-
-    w32(&mut out, 0); // terminator
-    out
+    cfi.write_fde(text_size.max(1) as u32, &prologue_cfi);
+    cfi.assemble()
 }
 
 fn build_coff_unwind_tables(text_size: u64, frame_size: u32, used_callee_saved: &[PReg]) -> (Vec<u8>, Vec<u8>) {
@@ -960,7 +933,7 @@ fn build_coff_unwind_tables(text_size: u64, frame_size: u32, used_callee_saved: 
     // PUSH_NONVOL for RBP comes second (lower CodeOffset = 1).
     if has_frame {
         code_bytes.push(1); // CodeOffset: byte after `push rbp`
-        code_bytes.push((5 << 4) | 0x00); // UWOP_PUSH_NONVOL = 0, info = RBP (5)
+        code_bytes.push(5 << 4); // UWOP_PUSH_NONVOL = 0, info = RBP (5)
         slot_count += 1;
     }
 
@@ -1051,7 +1024,7 @@ fn serialize_macho(obj: &ObjectFile) -> Vec<u8> {
             off
         })
         .collect();
-    while strtab.len() % 4 != 0 {
+    while !strtab.len().is_multiple_of(4) {
         strtab.push(0);
     } // align to 4 bytes
 
@@ -1424,7 +1397,7 @@ fn emit_cv_subsection(out: &mut Vec<u8>, kind: u32, data: &[u8]) {
     w32(out, kind);
     w32(out, data.len() as u32);
     out.extend_from_slice(data);
-    while out.len() % 4 != 0 {
+    while !out.len().is_multiple_of(4) {
         out.push(0);
     }
 }
@@ -2067,7 +2040,7 @@ use std::collections::HashMap;
 /// types have size 0.
 pub fn sizeof_ty(ctx: &Context, ty: llvm_ir::context::TypeId) -> u64 {
     match ctx.get_type(ty) {
-        TypeData::Integer(bits) => (*bits as u64 + 7) / 8,
+        TypeData::Integer(bits) => (*bits as u64).div_ceil(8),
         TypeData::Float(k) => match k {
             FloatKind::Half | FloatKind::BFloat => 2,
             FloatKind::Single => 4,
@@ -2090,7 +2063,7 @@ pub fn sizeof_ty(ctx: &Context, ty: llvm_ir::context::TypeId) -> u64 {
 }
 
 fn align_of_ty(ctx: &Context, ty: llvm_ir::context::TypeId) -> u64 {
-    sizeof_ty(ctx, ty).min(8).max(1)
+    sizeof_ty(ctx, ty).clamp(1, 8)
 }
 
 fn struct_total_size(ctx: &Context, fields: &[llvm_ir::context::TypeId], packed: bool) -> u64 {
@@ -2189,7 +2162,7 @@ fn eval_const_bytes(
             let byte_count = (match ctx.get_type(ty) {
                 TypeData::Integer(b) => *b,
                 _ => 64,
-            } as u64 + 7) / 8;
+            } as u64).div_ceil(8);
             for i in 0..byte_count {
                 out.push((val >> (i * 8)) as u8);
             }
@@ -2199,7 +2172,7 @@ fn eval_const_bytes(
                 TypeData::Integer(b) => *b as u64,
                 _ => 64 * words.len() as u64,
             };
-            let byte_count = (bits + 7) / 8;
+            let byte_count = bits.div_ceil(8);
             let raw: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
             let take = (byte_count as usize).min(raw.len());
             out.extend_from_slice(&raw[..take]);
@@ -2212,11 +2185,11 @@ fn eval_const_bytes(
         }
         ConstantData::Null(ty) | ConstantData::Undef(ty) | ConstantData::Poison(ty) => {
             let sz = sizeof_ty(ctx, ty) as usize;
-            out.extend(std::iter::repeat(0u8).take(sz));
+            out.extend(std::iter::repeat_n(0u8, sz));
         }
         ConstantData::ZeroInitializer(ty) => {
             let sz = sizeof_ty(ctx, ty) as usize;
-            out.extend(std::iter::repeat(0u8).take(sz));
+            out.extend(std::iter::repeat_n(0u8, sz));
         }
         ConstantData::Array { elements, .. } | ConstantData::Vector { elements, .. } => {
             for elem in elements {
@@ -2234,14 +2207,14 @@ fn eval_const_bytes(
                 let al = if is_packed { 1 } else { align_of_ty(ctx, fty) as usize };
                 let local_pos = out.len() - struct_start;
                 let pad = if al > 0 { (al - local_pos % al) % al } else { 0 };
-                out.extend(std::iter::repeat(0u8).take(pad));
+                out.extend(std::iter::repeat_n(0u8, pad));
                 eval_const_bytes(ctx, *fld_cid, sec_base, global_sym_map, relocs, out);
             }
             // Trailing struct padding
             let content = out.len() - struct_start;
             let total = struct_total_size(ctx, &field_tys, is_packed) as usize;
             if total > content {
-                out.extend(std::iter::repeat(0u8).take(total - content));
+                out.extend(std::iter::repeat_n(0u8, total - content));
             }
         }
         ConstantData::GlobalRef { name, .. } => {
@@ -2253,7 +2226,7 @@ fn eval_const_bytes(
                     if let Some(&base_cid) = operands.first() {
                         eval_const_bytes(ctx, base_cid, sec_base, global_sym_map, relocs, out);
                     } else {
-                        out.extend(std::iter::repeat(0u8).take(sizeof_ty(ctx, ty) as usize));
+                        out.extend(std::iter::repeat_n(0u8, sizeof_ty(ctx, ty) as usize));
                     }
                 }
                 ConstExprOp::GetElementPtr { base_ty, .. } => {
@@ -2289,30 +2262,27 @@ fn eval_const_bytes(
                         TypeData::Integer(b) => *b,
                         _ => 64,
                     };
-                    let byte_count = ((int_bits as usize) + 7) / 8;
+                    let byte_count = (int_bits as usize).div_ceil(8);
                     if let Some(&base_cid) = operands.first() {
-                        match ctx.get_const(base_cid).clone() {
-                            ConstantData::GlobalRef { name, .. } => {
-                                push_ptr_reloc(sec_base, &name, 0, global_sym_map, relocs, out);
-                                // push_ptr_reloc always emits 8 bytes; truncate if int is narrower
-                                if byte_count < 8 {
-                                    let extra = 8 - byte_count;
-                                    let len = out.len();
-                                    out.truncate(len - extra);
-                                }
-                                return;
+                        if let ConstantData::GlobalRef { name, .. } = ctx.get_const(base_cid).clone() {
+                            push_ptr_reloc(sec_base, &name, 0, global_sym_map, relocs, out);
+                            // push_ptr_reloc always emits 8 bytes; truncate if int is narrower
+                            if byte_count < 8 {
+                                let extra = 8 - byte_count;
+                                let len = out.len();
+                                out.truncate(len - extra);
                             }
-                            _ => {}
+                            return;
                         }
                     }
-                    out.extend(std::iter::repeat(0u8).take(byte_count));
+                    out.extend(std::iter::repeat_n(0u8, byte_count));
                 }
                 ConstExprOp::Trunc | ConstExprOp::ZExt | ConstExprOp::SExt => {
                     let dst_bits = match ctx.get_type(ty) {
                         TypeData::Integer(b) => *b as usize,
                         _ => 64,
                     };
-                    let dst_bytes = (dst_bits + 7) / 8;
+                    let dst_bytes = dst_bits.div_ceil(8);
                     if let Some(&src_cid) = operands.first() {
                         let mut src_buf = Vec::new();
                         eval_const_bytes(
@@ -2327,7 +2297,7 @@ fn eval_const_bytes(
                         src_buf.resize(dst_bytes, fill);
                         out.extend_from_slice(&src_buf[..dst_bytes.min(src_buf.len())]);
                     } else {
-                        out.extend(std::iter::repeat(0u8).take(dst_bytes));
+                        out.extend(std::iter::repeat_n(0u8, dst_bytes));
                     }
                 }
             }
@@ -2430,9 +2400,9 @@ pub fn emit_globals(
 
         // Natural alignment: min of sizeof(ty), 16.
         let sz = sizeof_ty(ctx, gv.ty) as usize;
-        let al = (sz as u64).min(16).max(1) as usize;
+        let al = (sz as u64).clamp(1, 16) as usize;
         let pad = if al > 0 { (al - sec.data.len() % al) % al } else { 0 };
-        sec.data.extend(std::iter::repeat(0u8).take(pad));
+        sec.data.extend(std::iter::repeat_n(0u8, pad));
 
         let global_offset = sec.data.len() as u64;
 
@@ -2449,7 +2419,7 @@ pub fn emit_globals(
             );
         } else {
             // Declaration only (extern) — emit zero bytes as placeholder.
-            sec.data.extend(std::iter::repeat(0u8).take(sz));
+            sec.data.extend(std::iter::repeat_n(0u8, sz));
         }
 
         let emitted_size = sec.data.len() as u64 - global_offset;

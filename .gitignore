@@ -6,5 +6,8 @@ src/llvm-bench/target/
 .claude/settings.local.json
 .claude/worktrees/
 
+# Differential fuzzing findings (uploaded as CI artifacts, not committed)
+bench/fuzz/findings/
+
 # macOS
 .DS_Store

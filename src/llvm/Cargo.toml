@@ -24,3 +24,9 @@ llvm-target-riscv = { package = "llvm-in-rust-target-riscv", version = "0.1.0", 
 llvm-target-wasm = { package = "llvm-in-rust-target-wasm", version = "0.1.0", path = "../llvm-target-wasm" }
 llvm-bitcode = { package = "llvm-in-rust-bitcode", version = "0.1.0", path = "../llvm-bitcode" }
 llvm-jit = { package = "llvm-in-rust-jit", version = "0.1.0", path = "../llvm-jit", optional = true }
+
+[[example]]
+name = "hello_world"
+
+[[example]]
+name = "opt_pipeline"

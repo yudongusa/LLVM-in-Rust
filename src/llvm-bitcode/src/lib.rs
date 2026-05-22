@@ -6,6 +6,19 @@
 //!   (LRIR), enabling round-trip fidelity.
 //! - A standard LLVM bitcode reader (`read_llvm_bc`) that can parse `.bc`
 //!   files produced by `clang -emit-llvm -c`.
+//!
+//! # Examples
+//!
+//! Round-trip a module through bitcode:
+//!
+//! ```no_run
+//! use llvm_ir::{Context, Module};
+//! use llvm_bitcode::{read_bitcode, write_bitcode};
+//! let ctx = Context::new();
+//! let module = Module::new("test");
+//! let bytes = write_bitcode(&ctx, &module);
+//! let (_ctx2, _module2) = read_bitcode(&bytes).expect("round-trip failed");
+//! ```
 
 pub mod error;
 /// Low-level LLVM bitstream decoder (VBR, blocks, abbreviations).

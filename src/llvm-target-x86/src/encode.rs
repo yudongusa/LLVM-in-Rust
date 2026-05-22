@@ -13,21 +13,53 @@ use crate::{
     regs::{is_extended, is_fp_reg, reg_enc, xmm_enc},
 };
 use llvm_codegen::{
+    cfi::{CfiInstr, CfiWriter},
     emit::{DebugLineRow, Emitter, ObjectFormat, Reloc, RelocKind, Section},
     isel::{MInstr, MOperand, MachineFunction, PReg},
 };
 use std::collections::HashMap;
 
 /// x86_64 code emitter.
+///
+/// Implements [`Emitter`] for x86-64, converting a [`MachineFunction`] into
+/// a byte sequence and producing relocation records for unresolved branch
+/// targets and call destinations.
+///
+/// After calling [`emit_function`], the structured CFI prologue for the last
+/// emitted function is available via [`take_cfi`].  This can be used by
+/// higher-level drivers that want to produce `.eh_frame` sections with
+/// accurate per-function prologue instructions.
+///
+/// [`emit_function`]: Emitter::emit_function
+/// [`take_cfi`]: X86Emitter::take_cfi
 pub struct X86Emitter {
-    /// Public API for `format`.
+    /// Object format (ELF / Mach-O / COFF).
     pub format: ObjectFormat,
+    /// Structured CFI section assembled after the last [`emit_function`] call.
+    ///
+    /// Contains a fully-assembled `.eh_frame` blob (one CIE + one FDE) built
+    /// from the machine function's prologue shape using [`CfiWriter`].
+    /// `None` if no function has been encoded yet.
+    ///
+    /// [`emit_function`]: Emitter::emit_function
+    cfi_section: Option<Vec<u8>>,
 }
 
 impl X86Emitter {
-    /// Public API for `new`.
+    /// Create a new `X86Emitter` for the given object format.
     pub fn new(format: ObjectFormat) -> Self {
-        Self { format }
+        Self { format, cfi_section: None }
+    }
+
+    /// Return and clear the CFI section bytes built during the last
+    /// [`emit_function`] call, or `None` if no function has been emitted.
+    ///
+    /// The returned bytes form a complete `.eh_frame` section (CIE + FDE)
+    /// for the most recently encoded function.
+    ///
+    /// [`emit_function`]: Emitter::emit_function
+    pub fn take_cfi(&mut self) -> Option<Vec<u8>> {
+        self.cfi_section.take()
     }
 }
 
@@ -38,6 +70,23 @@ impl Emitter for X86Emitter {
 
         let n_callee = mf.used_callee_saved.len();
         let needs_frame = mf.frame_size > 0 || n_callee > 0 || mf.alloca_frame_bytes > 0;
+
+        // Build the structured CFI prologue instructions.
+        // These are recorded here (before encoding) so that byte offsets match
+        // the actual prologue layout: push rbp (1 byte), mov rbp rsp (3 bytes).
+        let prologue_cfi: Vec<CfiInstr> = if needs_frame {
+            vec![
+                // After "push rbp" (1 byte): CFA = RSP+16, RBP saved at CFA-16.
+                CfiInstr::AdvanceLoc(1),
+                CfiInstr::DefCfaOffset(16),
+                CfiInstr::Offset { reg: 6, factored_offset: 2 },
+                // After "mov rbp, rsp" (3 bytes): CFA register = RBP.
+                CfiInstr::AdvanceLoc(3),
+                CfiInstr::DefCfaRegister(6),
+            ]
+        } else {
+            vec![]
+        };
 
         // Compute the `sub rsp` amount so that RSP is 16-byte aligned after the
         // prologue.  After `push rbp` (1 push) and n_callee additional pushes,
@@ -174,6 +223,15 @@ impl Emitter for X86Emitter {
                 ctx.code[patch_off..patch_off + 4].copy_from_slice(&bytes);
             }
         }
+
+        let func_size = ctx.code.len() as u32;
+
+        // Assemble the structured .eh_frame section using CfiWriter.
+        // This produces one CIE + one FDE with the prologue CFI computed above.
+        let mut cfi = CfiWriter::new();
+        cfi.write_cie();
+        cfi.write_fde(func_size.max(1), &prologue_cfi);
+        self.cfi_section = Some(cfi.assemble());
 
         let section_name = match self.format {
             ObjectFormat::Elf => ".text",

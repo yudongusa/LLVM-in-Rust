@@ -6,6 +6,48 @@ A pure Rust re-implementation of LLVM — no C++, no FFI, no `llvm-sys`. The ful
 
 The official LLVM is a C++ library that Rust projects consume through a fragile C FFI wrapper (`llvm-sys`). This project explores what a clean, idiomatic Rust implementation of the same pipeline looks like: arena-free ownership, type-safe index handles, trait-based pass infrastructure, and zero unsafe code in the core IR.
 
+## Quick Start
+
+```rust
+use llvm_in_rust_ir::{Builder, Context, Linkage, Module};
+use llvm_in_rust_transforms::{build_pipeline, OptLevel};
+
+fn main() {
+    // Build: i32 @add(i32 %a, i32 %b) { entry: %s = add i32 %a, %b  ret i32 %s }
+    let mut ctx = Context::new();
+    let mut module = Module::new("example");
+    let mut b = Builder::new(&mut ctx, &mut module);
+    let i32_ty = b.ctx.i32_ty;
+    b.add_function(
+        "add",
+        i32_ty,
+        vec![i32_ty, i32_ty],
+        vec!["a".into(), "b".into()],
+        false,
+        Linkage::External,
+    );
+    let entry = b.add_block("entry");
+    b.position_at_end(entry);
+    let a = b.get_arg(0);
+    let bv = b.get_arg(1);
+    let sum = b.build_add("s", a, bv);
+    b.build_ret(sum);
+    drop(b);
+
+    // Run -O2 optimizations
+    let mut pm = build_pipeline(OptLevel::O2);
+    pm.run_until_fixed_point(&mut ctx, &mut module, 8);
+    println!(
+        "Optimized: {} functions, {} blocks",
+        module.functions.len(),
+        module.functions[0].blocks.len()
+    );
+}
+```
+
+See the `src/llvm/examples/` directory for more runnable examples including dead-code
+elimination (`opt_pipeline.rs`) and a full hello-world IR program (`hello_world.rs`).
+
 ## Status
 
 Core roadmap phases are implemented and actively extended. Current workspace test inventory is **523 tests (all passing)**.

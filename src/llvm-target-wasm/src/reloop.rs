@@ -270,8 +270,8 @@ fn build_tree(
 
         // Both branches must be forward edges (not back-edges) for this to
         // be treated as an if/else — back-edges are handled by the loop case.
-        let then_is_forward = then_rpo.map_or(false, |r| r > start);
-        let else_is_forward = else_rpo.map_or(false, |r| r > start);
+        let then_is_forward = then_rpo.is_some_and(|r| r > start);
+        let else_is_forward = else_rpo.is_some_and(|r| r > start);
 
         if then_is_forward && else_is_forward {
             let then_start = then_rpo.unwrap();

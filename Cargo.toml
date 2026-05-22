@@ -17,4 +17,5 @@ members = [
     "src/llvm-rustc-backend",
     "src/llvm-jit",
     "examples/tikv_jit",
+    "bench/fuzz",
 ]

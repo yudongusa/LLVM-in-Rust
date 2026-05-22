@@ -156,19 +156,19 @@
   },
   "semantic": {
     "add": {
-      "our_obj_sha256": "8272e1f426c38153cc75589c930338f6d1386452854165174711a3bc17b71b8e"
+      "our_obj_sha256": "63d58f32d04adca30c0e7b33e4ecbb1e70794d4389d9fa53b49267061421ea1e"
     },
     "chain": {
-      "our_obj_sha256": "2b61fd361aa94b11099f5d95ef672dd8c8a321801af100c8c9b6b32a5ccd21da"
+      "our_obj_sha256": "3c1987e426408d788d1ddcc00b3bb484958507695c1b85a7d5f16c112e2d9c72"
     },
     "mul": {
-      "our_obj_sha256": "2958343d718e3d8beeb5a2c0b3e2fe24b59ac172c721e0976d7e5d831b49bbb2"
+      "our_obj_sha256": "9c0c46062e1c1332daa3e5bc288b453568e577f2d0c4a79520bc4410786b6da6"
     },
     "return_constant": {
-      "our_obj_sha256": "48e42a7e365328f8314d35acc976c31d9bb83f0e8b09067a9f10b768b980529b"
+      "our_obj_sha256": "40ccb90ea2229a02b41891746efaf055cc003d2abd03e5af89bceab6d9c774f5"
     },
     "sub": {
-      "our_obj_sha256": "8300559c746f279be71b09f221407f6e75a02804f3265a74d28d31300d858d6a"
+      "our_obj_sha256": "d9c87cbb38dbeb1d4aa724f7868aa3692b87c208f676aa47754417dd5dbb4b1a"
     }
   },
   "version": 1

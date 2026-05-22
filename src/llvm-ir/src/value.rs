@@ -3,6 +3,7 @@
 use crate::context::{ConstId, GlobalId, TypeId};
 
 /// Constant value stored in the Context constant pool.
+#[allow(missing_docs)]
 #[derive(Clone, Debug, PartialEq)]
 pub enum ConstantData {
     /// Small integer (fits in u64).
@@ -132,13 +133,14 @@ pub struct GlobalVariable {
 }
 
 /// Linkage kinds matching LLVM IR semantics.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Linkage {
     /// `Private` variant.
     Private,
     /// `Internal` variant.
     Internal,
     /// `External` variant.
+    #[default]
     External,
     /// `Weak` variant.
     Weak,
@@ -176,11 +178,6 @@ impl Linkage {
     }
 }
 
-impl Default for Linkage {
-    fn default() -> Self {
-        Linkage::External
-    }
-}
 
 #[cfg(test)]
 mod tests {

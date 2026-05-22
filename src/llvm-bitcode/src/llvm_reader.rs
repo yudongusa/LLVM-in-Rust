@@ -1,4 +1,5 @@
 //! Standard LLVM bitcode (`.bc`) reader.
+#![allow(dead_code, unused_variables, unused_mut, unused_assignments, clippy::ptr_arg, clippy::cloned_ref_to_slice_refs, dropping_references)]
 //!
 //! Parses files produced by `clang -emit-llvm -c` and reconstructs a
 //! `(Context, Module)` using the same IR types as the rest of LLVM-in-Rust.

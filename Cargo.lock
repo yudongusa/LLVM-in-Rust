@@ -296,6 +296,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "fuzz-diff"
+version = "0.1.0"
+dependencies = [
+ "llvm-in-rust-ir",
+ "llvm-in-rust-jit",
+ "llvm-in-rust-transforms",
+ "rand",
+]
+
+[[package]]
 name = "generic-array"
 version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"

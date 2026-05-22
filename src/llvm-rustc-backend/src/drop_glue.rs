@@ -72,11 +72,11 @@ pub fn needs_drop(info: &DropInfo) -> bool {
 /// * `info`            – drop requirements for the type.
 /// * `self_ty`         – the IR struct type that represents the Rust type.
 /// * `custom_drop_fn`  – if `info.has_custom_drop`, the `FunctionId` of the
-///                       hand-written `Drop::drop` function.
+///   hand-written `Drop::drop` function.
 /// * `field_glue`      – `(field_index, glue_fn)` pairs for each droppable
-///                       field.  These are iterated in order, so callers
-///                       should pass them in reverse-declaration order when
-///                       they want Rust's "last field dropped first" semantics.
+///   field.  These are iterated in order, so callers
+///   should pass them in reverse-declaration order when
+///   they want Rust's "last field dropped first" semantics.
 ///
 /// # Returns
 ///
@@ -166,12 +166,10 @@ pub fn emit_drop_glue(
 /// * `ctx`        – the IR context.
 /// * `func`       – the function to add the cleanup block to.
 /// * `local_ptr`  – `ValueRef` of a pointer to the local variable to drop.
-///                  Typically the result of an `alloca` in the function entry
-///                  block.
+///   Typically the result of an `alloca` in the function entry block.
 /// * `drop_fn`    – `FunctionId` of the drop-glue function to call.
 /// * `next_block` – the block to branch to after the cleanup (e.g. the
-///                  successor that continues normal execution, or a landing
-///                  pad for the unwind path).
+///   successor that continues normal execution, or a landing pad for the unwind path).
 ///
 /// # Returns
 ///

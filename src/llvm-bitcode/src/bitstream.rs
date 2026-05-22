@@ -180,7 +180,7 @@ impl<'a> BitStreamReader<'a> {
         if let Some(state) = self.block_stack.last() {
             self.bit_pos = state.end_word;
             let end = state.end_word;
-            drop(state); // borrow ends
+            let _ = state; // borrow ends
             self.block_stack.pop();
             self.bit_pos = end;
             self.abbrevs.clear();
@@ -311,7 +311,7 @@ impl<'a> BitStreamReader<'a> {
                         .clone();
                     let count = self.read_vbr(6)? as usize;
                     for _ in 0..count {
-                        let v = self.read_abbrev_record(&[elem_op.clone()])?;
+                        let v = self.read_abbrev_record(std::slice::from_ref(&elem_op))?;
                         fields.extend(v);
                     }
                 }
