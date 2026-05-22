@@ -15,6 +15,7 @@ pub struct DebugLocation {
 }
 
 /// Top-level IR module.
+#[derive(Clone)]
 pub struct Module {
     /// Public API for `name`.
     pub name: String,

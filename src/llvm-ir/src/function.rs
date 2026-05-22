@@ -7,6 +7,7 @@ use crate::value::{Argument, Linkage};
 use std::collections::HashMap;
 
 /// A function definition or declaration.
+#[derive(Clone)]
 pub struct Function {
     /// Public API for `name`.
     pub name: String,

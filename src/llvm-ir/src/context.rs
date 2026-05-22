@@ -402,6 +402,28 @@ impl Context {
     }
 }
 
+impl Clone for Context {
+    fn clone(&self) -> Self {
+        Context {
+            types: self.types.clone(),
+            type_map: self.type_map.clone(),
+            named_struct_map: self.named_struct_map.clone(),
+            constants: self.constants.clone(),
+            const_map: self.const_map.clone(),
+            void_ty: self.void_ty,
+            i1_ty: self.i1_ty,
+            i8_ty: self.i8_ty,
+            i16_ty: self.i16_ty,
+            i32_ty: self.i32_ty,
+            i64_ty: self.i64_ty,
+            f32_ty: self.f32_ty,
+            f64_ty: self.f64_ty,
+            ptr_ty: self.ptr_ty,
+            label_ty: self.label_ty,
+        }
+    }
+}
+
 impl Default for Context {
     fn default() -> Self {
         Self::new()
