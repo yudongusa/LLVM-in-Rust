@@ -2,6 +2,7 @@
 
 use crate::regs::{ARG_REGS, FP_ARG_REGS, RET_REG};
 use llvm_codegen::isel::PReg;
+use llvm_ir::{Context, FloatKind, TypeData, TypeId};
 
 // Re-export for convenience.
 /// Public API for `re-export`.
@@ -90,11 +91,69 @@ pub fn classify_aapcs64_args_typed(kinds: &[ArgKind]) -> Vec<ArgLocation> {
 /// The AAPCS64 integer return register (X0).
 pub const INT_RET: PReg = RET_REG;
 
+// ── HFA (Homogeneous Floating-point Aggregate) detection ──────────────────
+
+/// Detect whether `ty` is a Homogeneous Floating-point Aggregate (HFA) per
+/// the AAPCS64 specification (§7.1.3 and §C.1).
+///
+/// An HFA is a struct (or array) with 1–4 elements where every element is
+/// the same fundamental floating-point type (all `float` or all `double`).
+/// Nested structs are also valid if they are themselves HFAs of the same type.
+///
+/// Returns `Some((FloatKind, count))` when `ty` is an HFA, or `None` otherwise.
+pub fn detect_hfa(ctx: &Context, ty: TypeId) -> Option<(FloatKind, usize)> {
+    let st = match ctx.get_type(ty) {
+        TypeData::Struct(st) => st.clone(),
+        _ => return None,
+    };
+
+    if st.fields.is_empty() || st.fields.len() > 4 {
+        return None;
+    }
+
+    // Determine what float kind each field contributes (None = not an HFA).
+    let mut base_kind: Option<FloatKind> = None;
+    let mut total_count = 0usize;
+
+    for &field_ty in &st.fields {
+        let (kind, count) = field_hfa_kind(ctx, field_ty)?;
+        total_count += count;
+        match base_kind {
+            None => base_kind = Some(kind),
+            Some(bk) if bk == kind => {}
+            Some(_) => return None, // mixed float types → not HFA
+        }
+    }
+
+    // Total element count must be 1–4.
+    if total_count == 0 || total_count > 4 {
+        return None;
+    }
+
+    base_kind.map(|k| (k, total_count))
+}
+
+/// Return the `(FloatKind, element_count)` contribution of a single field,
+/// or `None` if the field is not a valid HFA member.
+fn field_hfa_kind(ctx: &Context, ty: TypeId) -> Option<(FloatKind, usize)> {
+    match ctx.get_type(ty) {
+        TypeData::Float(FloatKind::Single) => Some((FloatKind::Single, 1)),
+        TypeData::Float(FloatKind::Double) => Some((FloatKind::Double, 1)),
+        TypeData::Float(_) => None, // half/bfloat/fp128/x86fp80 → not a valid HFA base
+        TypeData::Struct(_) => {
+            // Recursively check if this nested struct is itself an HFA.
+            detect_hfa(ctx, ty).map(|(k, n)| (k, n))
+        }
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::regs::{X0, X1, X2, X3, X4, X5, X6, X7};
     use crate::regs::{D0, D1, D2, D7};
+    use llvm_ir::{Context, FloatKind};
 
     #[test]
     fn first_eight_in_registers() {
@@ -169,5 +228,74 @@ mod tests {
         let kinds = [ArgKind::Float; 9];
         let locs = classify_aapcs64_args_typed(&kinds);
         assert_eq!(locs[8], ArgLocation::Stack(0));
+    }
+
+    // ── HFA detection tests ───────────────────────────────────────────────────
+
+    /// `{float, float}` → HFA of Float32 with 2 elements.
+    #[test]
+    fn hfa_float_x2_detected() {
+        let mut ctx = Context::new();
+        let f32_ty = ctx.f32_ty;
+        let ty = ctx.mk_struct_anon(vec![f32_ty, f32_ty], false);
+        assert_eq!(detect_hfa(&ctx, ty), Some((FloatKind::Single, 2)));
+    }
+
+    /// `{double, double, double, double}` → HFA of Float64 with 4 elements.
+    #[test]
+    fn hfa_double_x4_detected() {
+        let mut ctx = Context::new();
+        let f64_ty = ctx.f64_ty;
+        let ty = ctx.mk_struct_anon(vec![f64_ty, f64_ty, f64_ty, f64_ty], false);
+        assert_eq!(detect_hfa(&ctx, ty), Some((FloatKind::Double, 4)));
+    }
+
+    /// `{double, double, double, double, double}` → 5 elements > 4 → not HFA.
+    #[test]
+    fn hfa_double_x5_not_hfa() {
+        let mut ctx = Context::new();
+        let f64_ty = ctx.f64_ty;
+        let ty = ctx.mk_struct_anon(
+            vec![f64_ty, f64_ty, f64_ty, f64_ty, f64_ty],
+            false,
+        );
+        assert_eq!(detect_hfa(&ctx, ty), None);
+    }
+
+    /// `{float, double}` → mixed float types → not HFA.
+    #[test]
+    fn hfa_mixed_float_double_not_hfa() {
+        let mut ctx = Context::new();
+        let f32_ty = ctx.f32_ty;
+        let f64_ty = ctx.f64_ty;
+        let ty = ctx.mk_struct_anon(vec![f32_ty, f64_ty], false);
+        assert_eq!(detect_hfa(&ctx, ty), None);
+    }
+
+    /// `{i32, i32}` — integer fields → not HFA.
+    #[test]
+    fn hfa_integer_struct_not_hfa() {
+        let mut ctx = Context::new();
+        let i32_ty = ctx.i32_ty;
+        let ty = ctx.mk_struct_anon(vec![i32_ty, i32_ty], false);
+        assert_eq!(detect_hfa(&ctx, ty), None);
+    }
+
+    /// `{double}` — single double field → HFA with 1 element.
+    #[test]
+    fn hfa_single_double_is_hfa() {
+        let mut ctx = Context::new();
+        let f64_ty = ctx.f64_ty;
+        let ty = ctx.mk_struct_anon(vec![f64_ty], false);
+        assert_eq!(detect_hfa(&ctx, ty), Some((FloatKind::Double, 1)));
+    }
+
+    /// `{float, float, float}` — 3 floats → HFA with 3 elements.
+    #[test]
+    fn hfa_float_x3_detected() {
+        let mut ctx = Context::new();
+        let f32_ty = ctx.f32_ty;
+        let ty = ctx.mk_struct_anon(vec![f32_ty, f32_ty, f32_ty], false);
+        assert_eq!(detect_hfa(&ctx, ty), Some((FloatKind::Single, 3)));
     }
 }
