@@ -37,3 +37,8 @@ pub use regalloc::{
     allocate_registers, apply_allocation, compute_live_intervals, graph_color,
     insert_spill_reloads, linear_scan, RegAllocStrategy,
 };
+/// Public API for `schedule` re-exports.
+pub use schedule::{
+    apply_schedule, build_dep_dag, compute_critical_paths, list_schedule, x86_latency, DepEdge,
+    DepKind,
+};
