@@ -3,6 +3,14 @@ name: Performance Budget Gate
 on:
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      base_ref:
+        description: "Baseline ref/SHA to compare against"
+        required: true
+      head_ref:
+        description: "Candidate ref/SHA to evaluate"
+        required: true
 
 jobs:
   performance_budget:
@@ -14,13 +22,13 @@ jobs:
       - name: Checkout base
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.base_ref || github.event.pull_request.base.sha }}
           path: base
 
       - name: Checkout PR head
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.head_ref || github.event.pull_request.head.sha }}
           path: head
 
       - name: Install Rust stable toolchain
@@ -40,7 +48,7 @@ jobs:
       - name: Compare against performance budget
         working-directory: head
         env:
-          ALLOW_REGRESSION: ${{ contains(github.event.pull_request.labels.*.name, 'perf-regression-accepted') }}
+          ALLOW_REGRESSION: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'perf-regression-accepted') }}
         run: |
           args=()
           if [[ "$ALLOW_REGRESSION" == "true" ]]; then

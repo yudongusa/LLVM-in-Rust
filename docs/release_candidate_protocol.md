@@ -62,6 +62,32 @@ Create one tracking issue per candidate and paste this template:
 Decision notes:
 ```
 
+For Milestone Z evidence bundles, generate the checklist comment with:
+
+```bash
+scripts/rc_evidence_bundle.sh \
+  --version 0.1.0 \
+  --rc 1 \
+  --commit <candidate-sha> \
+  --release-owner @<handle> \
+  --artifact-run <url> \
+  --quality-run <url> \
+  --platform-run <url> \
+  --interoperability-run <url> \
+  --differential-run <url> \
+  --golden-run <url> \
+  --sanitizer-run <url-or-waiver:reason> \
+  --fuzz-run <url-or-waiver:reason> \
+  --fuzz-differential-run <url-or-waiver:reason> \
+  --performance-run <url-or-waiver:reason> \
+  --docs-run <url> \
+  --pilot-summary <url-or-waiver:reason>
+```
+
+Every URL should point at the exact candidate commit.  When a lane cannot run
+for that commit, use a `waiver:<reason>` value and explain the follow-up in the
+RC issue before any `GO` decision.
+
 ## Rollback triggers
 
 Rollback or yank the release if any of these occur inside the rollback window:
