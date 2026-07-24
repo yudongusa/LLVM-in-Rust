@@ -50,15 +50,16 @@ elimination (`opt_pipeline.rs`) and a full hello-world IR program (`hello_world.
 
 ## Status
 
-LLVM-in-Rust is in a production-readiness stage, not a general drop-in LLVM
-replacement. Milestones A-U in the production roadmap are complete; the
-2026-05-26 audit added release-blocking follow-up Milestones V-Z before any
-general production-ready declaration.
+LLVM-in-Rust is production-ready for scoped, fallback-backed use cases, not a
+general drop-in LLVM replacement. The production-readiness roadmap through
+Milestone Z is complete for the RC2 candidate (`d4a11b2`), with support limited
+to trusted inputs, validated backend/platform combinations, and an upstream LLVM
+fallback for unsupported or divergent programs.
 
 | Use case | Status | Boundary |
 |---|---|---|
-| Constrained production pilots | Supported with controls | Trusted LLVM 15+ opaque-pointer IR, pinned commits/releases, green release-blocking CI, and an explicitly supported backend/object-format combination. |
-| General LLVM replacement | Not supported yet | The project still has open V-Z audit follow-ups, backend contract gaps, and RC burn-in requirements. |
+| Scoped production use | Production-ready with controls | Trusted LLVM 15+ opaque-pointer IR, pinned commits/releases, green release-blocking CI, an explicitly supported backend/object-format combination, and documented upstream LLVM fallback. |
+| General LLVM replacement | Not supported | The Milestone Z pilot showed that fallback remains required; broad parser, backend, runtime, and platform coverage is not complete enough for standalone/drop-in LLVM replacement use. |
 | Untrusted or adversarial input | Not supported without sandboxing | Parser, optimizer, codegen, and JIT paths must run behind external process/container isolation, CPU/memory limits, and JIT disablement where inputs are not trusted. |
 
 The workspace test inventory changes frequently and is intentionally not
@@ -79,7 +80,7 @@ optimization, codegen, object emission, or JIT paths.
 LLVM-in-Rust follows [Semantic Versioning](https://semver.org/) with an explicit pre-1.0 stability policy:
 
 - **`0.x.y` releases:** no public API stability guarantee. Any `0.x` minor-version bump may include breaking public API changes as the IR model, pass interfaces, and backend traits continue to mature.
-- **`1.0.0` readiness:** the project will not declare a stable 1.0 API until the production-readiness roadmap's V-Z follow-up milestones are complete, release-candidate burn-in has passed, and maintainers have signed off at least one constrained production pilot with documented fallback.
+- **`1.0.0` readiness:** scoped `0.x` production readiness does not imply a stable 1.0 API. The project will not declare 1.0 until production-backed API surfaces have operational history, unsupported backend cells are resolved or permanently scoped, and maintainers approve a stable compatibility policy.
 - **Post-1.0 releases:** standard SemVer rules apply. Breaking API changes are reserved for major versions and include a documented deprecation/migration cycle.
 
 The pre-1.0 API stability matrix lives in

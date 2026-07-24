@@ -1,15 +1,15 @@
 # Production Support Boundaries
 
 This document is the public support contract for the pre-1.0 series. It
-distinguishes constrained production pilots from general production readiness
-and from unsupported deployment modes.
+defines the scoped production-ready contract, keeps that contract distinct from
+general LLVM replacement readiness, and records unsupported deployment modes.
 
 ## Production Scope
 
 | Scenario | Status | Requirements and limits |
 |---|---|---|
-| Constrained internal or pilot workload | Supported with controls | Trusted LLVM 15+ opaque-pointer IR; pinned LLVM-in-Rust commit or release; target/backend selected from the matrix below; release-blocking CI green on that commit; fallback to upstream LLVM documented by the embedding project. |
-| General drop-in replacement for LLVM | Not supported | LLVM IR, backend, runtime, and platform coverage are broad but not complete. Milestones V-Z in #93 must complete before a general production-ready declaration. |
+| Scoped fallback-backed production workload | Production-ready with controls | Trusted LLVM 15+ opaque-pointer IR; pinned LLVM-in-Rust commit or release; target/backend selected from the matrix below; release-blocking CI green on that commit; fallback to upstream LLVM documented and exercised by the embedding project. |
+| General drop-in replacement for LLVM | Not supported | LLVM IR, backend, runtime, and platform coverage are broad but not complete. The Milestone Z pilot validated a fallback-backed posture, not standalone compiler replacement readiness. |
 | Untrusted or adversarial IR/object input | Not supported without sandboxing | Run parser, optimizer, codegen, and JIT paths in a separate process/container with CPU, memory, file-system, and wall-clock limits. Disable JIT for hostile input unless the host already has a hardened executable-memory policy. See `docs/sandbox_deployment.md`. |
 | Research, benchmarking, and compiler experiments | Supported | APIs and behavior may change across `0.x` minor releases; pin revisions and record validation commands when publishing results. |
 
@@ -30,10 +30,10 @@ and from unsupported deployment modes.
 | Area | Current production contract | Known limits |
 |---|---|---|
 | x86-64 native backend | Pilot-supported for trusted IR through the tested integer, FP/SIMD, atomics, calls, object emission, debug, unwind, LTO, and JIT paths. SysV and Win64 ABI coverage are both represented in tests. | Not a general LLVM `-O2` quality replacement. Inline asm constraints, exotic relocations, and cross-language EH runtime behavior remain scoped/experimental. |
-| AArch64 backend | Pilot-supported for trusted IR object generation and tested integer, FP/SIMD, atomics, calls, debug, unwind metadata, and LTO payload paths. | Runtime execution coverage is narrower than x86-64. Full platform-linker and language EH interop require the Milestone Y support-contract matrix. |
-| RISC-V RV64GC backend | Experimental pilot support for artifact generation, integer/FP calling convention subsets, atomics, object emission, and backend tests. | Runtime linker/execution coverage and some lowering quality paths remain under Milestone Y. |
+| AArch64 backend | Pilot-supported for trusted IR object generation and tested integer, FP/SIMD, atomics, calls, debug, unwind metadata, and LTO payload paths. | Runtime execution coverage is narrower than x86-64. Full platform-linker and language EH interop remain scoped by the backend support matrix. |
+| RISC-V RV64GC backend | Experimental pilot support for artifact generation, integer/FP calling convention subsets, atomics, object emission, and backend tests. | Runtime linker/execution coverage and lowering quality paths remain pilot/experimental where the backend support matrix marks them so. |
 | WebAssembly backend | Experimental. Can emit wasm modules for simple functions and supported control-flow shapes. | Arbitrary CFG/relooper completeness, stack-frame allocation for `alloca`, loop phi destruction, indirect calls, external imports, FP/vector/atomic breadth, and host execution contracts are not production-supported yet. |
-| JIT execution engine | Experimental x86-64 pilot surface for trusted IR in controlled hosts. | Uses executable memory. Do not expose to untrusted input without process isolation and host-level memory-execution policy. Keep JIT smoke and differential tests green before any pilot sign-off. |
+| JIT execution engine | Experimental x86-64 pilot surface for trusted IR in controlled hosts. | Uses executable memory. Do not expose to untrusted input without process isolation and host-level memory-execution policy. Keep JIT smoke and differential tests green for each scoped production use. |
 | rustc backend | Experimental proof-of-concept/staged backend driver. Stable-compatible shim tests and nightly lanes exist. | Real `rustc_private`/`rustc_codegen_ssa` integration and nightly-driver support are not a general production backend contract. |
 | LTO | Pilot-supported for embedding and recovering LRIR payloads in ELF/COFF (`.llvmbc`, `.llvmcmd`) and Mach-O (`__LLVM,__bitcode`, `__LLVM,__cmdline`) objects. | LRIR is project-specific and not LLVM bitcode. Cross-toolchain LTO compatibility with upstream LLVM is not supported. |
 | Debug and unwind | Pilot-supported metadata/object sections include DWARF line/info/loclist paths, ELF `.eh_frame`, COFF `.pdata`/`.xdata`, and CodeView `.debug$S` where implemented. | Unwind data is not a full language-runtime EH guarantee. Mach-O unwind parity and cross-language throw/catch interop remain experimental. |
@@ -52,8 +52,8 @@ hostile inputs.
 
 ## Documentation Truth Policy
 
-- README status language must stay scoped: "pilot-supported" and "production-ready"
-  are not interchangeable.
+- README status language must stay scoped: "production-ready" means scoped,
+  fallback-backed production use with controls, not general LLVM replacement.
 - Hard-coded test counts are avoided in public status text. CI and the validation
   commands in `docs/production_operations.md` are the current quality signal.
 - Feature tables must distinguish IR parse/round-trip support from backend

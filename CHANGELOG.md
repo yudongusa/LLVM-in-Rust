@@ -12,6 +12,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - A SemVer policy covering the pre-1.0 series, the 1.0 readiness bar, and post-1.0 compatibility rules.
 - Production support-boundary documentation covering constrained pilots, unsupported general LLVM replacement use, unsupported untrusted-input use, backend/platform limits, and the pre-1.0 API stability matrix.
 - Documentation-truth checks for stale README/changelog status markers and release metadata.
+- Scoped production-ready status wording after Milestone Z RC2 burn-in and production-pilot sign-off, with upstream LLVM fallback required by the public support contract.
+
+### Changed
+
+- README and production support boundaries now describe scoped, fallback-backed production readiness after the completed Milestone Z evidence stage.
 
 ### Milestone L — API & documentation polish
 
